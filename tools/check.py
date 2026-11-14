@@ -2,7 +2,7 @@
 """Run the checks that cover the current changes and print one line per check.
 
   python tools/check.py              # pick checks from `git status` (changed + untracked files)
-  python tools/check.py core plugin  # run named checks: core, plugin, host, schema, lint, all
+  python tools/check.py core plugin  # run named checks: core, plugin (luac, luau), host, schema, lint (ruff, shellcheck), all
   python tools/check.py test_core_values  # run single test files from tests/ by name
   python tools/check.py -v ...       # also print the full output of passing checks
 
@@ -67,18 +67,25 @@ CHECKS = {
     "plugin": [
         ("tests", [sys.executable, "-m", "unittest", "discover", "-s", "noctalia-plugin/tests"], "unittest"),
         ("luac", "luac", None),
+        ("luau", "luau-compile", None),
         ("lint", ["noctalia", "plugins", "lint", str(PLUGIN)], None),
     ],
     "host": [("tests", unittest_modules(HOST_TESTS), "unittest")],
     "schema": [("coverage", [sys.executable, "umbriel-settings.py", "--check-schema"], None)],
-    "lint": [("ruff", ["ruff", "check", "--quiet", "."], None)],
+    "lint": [
+        ("ruff", ["ruff", "check", "--quiet", "."], None),
+        ("shellcheck", ["shellcheck", "appimage/build-appimage.sh", "appimage/recipe/entrypoint.sh"], None),
+    ],
 }
+
+
+PARSERS = {"luac": ["luac", "-p", "-o", os.devnull], "luau-compile": ["luau-compile", "--null"]}
 
 
 def checks_for_paths(paths):
     wanted, files = set(), set()
     for path in paths:
-        if path.endswith(".py") or path == "pyproject.toml":
+        if path.endswith((".py", ".sh")) or path == "pyproject.toml":
             wanted.add("lint")
         if path.startswith("python/umbriel_core/"):
             wanted |= {"core", "plugin", "host"}
@@ -110,14 +117,14 @@ def changed_paths():
 
 
 def run_step(name, step, argv, kind, verbose, limit):
-    if argv == "luac":
-        if not shutil.which("luac"):
-            return f"skip {name}:{step} (no luac)", True
+    if isinstance(argv, str):  # the shared UI must parse as Lua 5.4 (app) and as Luau (Noctalia)
+        if not shutil.which(argv):
+            return f"skip {name}:{step} (no {argv})", True
         failures = []
         for path in sorted(PLUGIN.rglob("*.luau")):
-            code, output, _ = run(["luac", "-p", "-o", os.devnull, str(path)])
+            code, output, _ = run([*PARSERS[argv], str(path)])
             if code:
-                failures.append(output.strip())
+                failures.extend(line for line in output.strip().splitlines() if not line.startswith("Compiled "))
         return (f"ok   {name}:{step}" if not failures else f"FAIL {name}:{step}\n" + "\n".join(failures)), not failures
     if not shutil.which(argv[0]) and not os.path.isabs(argv[0]):
         return f"skip {name}:{step} (no {argv[0]})", True
