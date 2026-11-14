@@ -9,7 +9,7 @@ paths:
 
 | Need to change | File | Notes |
 | --- | --- | --- |
-| Identity, entries, API level, panel size/keys | `plugin.toml`, `bar.luau` | ID `umbriel-settings/Umbriel-GUI-Plugin` (dir name = ID suffix), panel ID `folders`, API 43 (Noctalia ≥ 5.4.0). Bar dot while `noctalia.state` `umbriel.pending` > 0 |
+| Identity, entries, API level, panel size/keys | `plugin.toml`, `bar.luau` | ID `umbriel-settings/Umbriel-GUI-Plugin` (dir name = ID suffix), panel ID `folders`, API 43 (Noctalia ≥ 5.4.0). Bar dot while `noctalia.state` `umbriel.pending` > 0; bar `display` widget setting (`icon_text`/`icon`/`text`, labels in `translations/en.json`) |
 | Frontend layouts | `panel.luau` (single column), `app.luau` (sidebar + page) | Only layout + entry globals (`onOpen`, `onClose`, `onFrameTick`, `onKey`, `onMenu`; app adds `onExternalChange`). App options come from the host global `APP` (`isApp`, `initialConfig`, `validateDefault`, `rebuildDefault`) |
 | Routing, ctx, loading, save bar, keys, menus | `lib/shell.luau` | `shell.create(layout, options)` → `ctx, handlers`. `ctx.render/renderSoon/go/replace/back/home/openPage/flash/reload/switchConfig/loadDesktop/loadSearchIndex/loadKde`; routes dispatch in `body()`. Publishes `umbriel.pending` / `umbriel.config` |
 | Helper calls | `lib/helper.luau` | Request/response JSON files under `pluginDataDir()/run/`; stdout only carries `{ok,error,code}`; generation guard drops stale callbacks |

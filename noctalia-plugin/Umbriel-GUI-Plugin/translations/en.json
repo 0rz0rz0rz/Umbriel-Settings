@@ -1,0 +1,13 @@
+{
+  "settings": {
+    "display": {
+      "label": "Show",
+      "description": "What the bar widget shows. A vertical bar always shows only the icon.",
+      "options": {
+        "icon_text": "Icon and text",
+        "icon": "Icon only",
+        "text": "Text only"
+      }
+    }
+  }
+}
