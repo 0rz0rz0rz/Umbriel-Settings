@@ -5,17 +5,16 @@ paths:
 
 # App tests (`tests/`)
 
-- `unittest` only, offscreen Qt (`QT_QPA_PLATFORM=offscreen`); `python tools/check.py <test_file>` sets the environment and prints a one-line result.
-- Which file:
-  - `test_core.py`: import rules (no Qt; desktop modules without tomlkit), plugin copy drift, entries, keybind apply, paths, KDE scheme lookup.
-  - `test_core_values.py`: field value conversion (`from_ui`/`to_ui`/`apply_value`), overridden checks, help coverage, keybind checks.
-  - `test_core_files.py`: backups, cursor themes, KDE colors, `launch.child_env` (AppImage environment).
-  - `test_host_runtime.py`: the new app without widgets. lupa runs `app.luau` against the real core, a temp config and a fake `umbriel` on `PATH`. Drive it through node props (`find`, `click`, `host.invoke`) and `ManualScheduler.drain()`; skipped without lupa.
-  - `test_host_bridge.py`: `Bridge` messages, `QtScheduler` thread hand-off, glyph names used by the shared UI.
-  - `test_app_render.py`: the real `AppWindow` offscreen; waits for DOM text, clicks DOM elements, asserts no JS console or Lua errors.
-  - `test_app_icon.py`: `appicon` (icon, desktop entry) and `app.main` startup with Qt classes patched.
-- Never read or write the real user config or data: patch `XDG_DATA_HOME`/`XDG_CONFIG_HOME` to temp dirs.
-- Check that a new test fails without the fix before trusting it.
-- Import Qt modules that bind `QApplication` at import (`app_window`) before patching `PySide6.QtWidgets.QApplication`, and import QtWebEngine before the first `QApplication`. After closing an `AppWindow`, flush `QEvent.Type.DeferredDelete` or QtWebEngine crashes at exit.
-- Restore anything global you change (`app.styleSheet()`, `app.palette()`, locale, env) with `addCleanup`. Offscreen, send `Leave` before a non-hover baseline and don't assert text widths.
-- Run the touched file first; broaden only when the change or failure needs it.
+`unittest`, offscreen Qt; run with `python tools/check.py <file>`. Patch `XDG_DATA_HOME`/`XDG_CONFIG_HOME` to temp dirs. A new test must fail without its fix. Run the touched file first.
+
+| File | Covers |
+| --- | --- |
+| `test_core.py` | import rules (no Qt; desktop modules without tomlkit), copy drift, entries, keybind apply, layout rebuild (lossless, stable), paths, KDE lookup |
+| `test_core_values.py` | `from_ui`/`to_ui`/`apply_value`, overridden checks, help coverage, keybind checks |
+| `test_core_files.py` | backups/snapshots, atomic writes, cursor themes, KDE colors, Noctalia templates, title-bar follow/apply, `child_env` |
+| `test_host_runtime.py` | lupa runs `app.luau` with the real core, temp config, fake `umbriel`; `find`/`click`/`host.invoke` + `settle()`; `new_app(dir)` = restart; fake a crash via `api._helpers[path]` |
+| `test_host_bridge.py` | `Bridge`, `QtScheduler`, glyph names |
+| `test_app_render.py` | real `AppWindow`: DOM text/clicks, no JS/Lua errors, ARIA names |
+| `test_app_icon.py` | icon, desktop entry, `app.main` with Qt patched |
+
+Qt pitfalls: import `app_window` (QtWebEngine) before any `QApplication` and before patching it; after closing an `AppWindow` flush `QEvent.Type.DeferredDelete` (else crash at exit). Restore globals (stylesheet, palette, locale, env) with `addCleanup`. Offscreen: send `Leave` before non-hover baselines, don't assert text widths. In `runJavaScript`, return strings (an empty array comes back as `''`).

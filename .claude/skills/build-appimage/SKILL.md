@@ -21,7 +21,7 @@ The build bundles `python/umbriel_settings`, `python/umbriel_core` (one `-x` wit
 ## Steps
 
 1. Bump `__version__` as described above.
-2. Build: `appimage/build-appimage.sh` (needs network, `python3` with `venv`, FUSE or `APPIMAGE_EXTRACT_AND_RUN=1`). Output: `dist/Umbriel-Settings-<version>-<arch>.AppImage`.
+2. After editing the build script or `recipe/entrypoint.sh`, run `python tools/check.py lint` (shellcheck). Build: `appimage/build-appimage.sh` (needs network, `python3` with `venv`, FUSE or `APPIMAGE_EXTRACT_AND_RUN=1`). Output: `dist/Umbriel-Settings-<version>-<arch>.AppImage`.
 3. Test: `dist/Umbriel-Settings-<version>-<arch>.AppImage --appimage-extract-and-run --version` must print the new version, and a normal start must open the window with the sidebar and pages (this is the one place where launching the app is required). The image must contain `usr/share/licenses/Umbriel-Settings/LICENSE` and `.../host/web/fonts/LICENSE-tabler-icons.txt`.
 4. Commit the version bump, then `git push origin main`.
 5. Tag and release (tag is `v<version>`):
