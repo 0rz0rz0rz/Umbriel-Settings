@@ -75,20 +75,40 @@ class AppRenderTests(unittest.TestCase):
             shown = self.js("document.getElementById('root') ? document.getElementById('root').innerText : ''") or ""
             if all(text in shown for text in texts):
                 return shown
-            loop = QEventLoop()
-            QTimer.singleShot(100, loop.quit)
-            loop.exec()
+            self.pause()
         self.fail(f"page never showed {texts}; it shows: {shown[:500]!r}")
 
-    def click(self, text):
-        self.assertTrue(self.js(CLICK_JS % (json.dumps(text), json.dumps(text))), f"no element shows {text!r}")
+    def pause(self, ms=100):
+        loop = QEventLoop()
+        QTimer.singleShot(ms, loop.quit)
+        loop.exec()
+
+    def click(self, text, timeout=30.0):
+        """Click the element showing exactly `text`, waiting for it: substrings (help text) don't count."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.js(CLICK_JS % (json.dumps(text), json.dumps(text))):
+                self.app.processEvents()
+                return
+            self.pause()
+        near = self.js("[...document.querySelectorAll('#root *')].filter(e => e.children.length === 0"
+                       f" && e.textContent.includes({json.dumps(text)})).map(e => e.outerHTML).join('\\n')")
+        self.fail(f"no element shows {text!r}; elements containing it:\n{near}")
+
+    def painted_colors(self, timeout=30.0):
+        """Distinct sampled colors of the window, once painting has caught up with the DOM (slow CI runners)."""
+        deadline = time.monotonic() + timeout
+        while True:
+            image = self.win.view.grab().toImage()
+            colors = {image.pixel(x, y) for x in range(0, image.width(), 37) for y in range(0, image.height(), 29)}
+            if len(colors) > 3 or time.monotonic() > deadline:
+                return colors
+            self.pause()
 
     def test_page_renders_and_dom_clicks_reach_lua(self):
         self.wait_for_text("Home", "Appearance", "Window rules")
         self.assertTrue(self.js("getComputedStyle(document.body).backgroundColor") not in ("", None))
-        image = self.win.view.grab().toImage()
-        colors = {image.pixel(x, y) for x in range(0, image.width(), 37) for y in range(0, image.height(), 29)}
-        self.assertGreater(len(colors), 3, "the page looks blank")
+        self.assertGreater(len(self.painted_colors()), 3, "the page looks blank")
 
         self.click("General")
         shown = self.wait_for_text("Session", "Only customized")
