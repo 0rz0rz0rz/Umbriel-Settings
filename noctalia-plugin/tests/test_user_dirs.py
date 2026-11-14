@@ -11,7 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "Umbriel-GUI-Plugin"
+PLUGIN = ROOT / "umbriel-settings"
 HELPER = PLUGIN / "umbriel_settings.py"
 
 

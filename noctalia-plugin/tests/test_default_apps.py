@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 
-HELPER = Path(__file__).resolve().parents[1] / "Umbriel-GUI-Plugin" / "umbriel_settings.py"
+HELPER = Path(__file__).resolve().parents[1] / "umbriel-settings" / "umbriel_settings.py"
 
 
 class DefaultAppsPluginTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 # Skipped by ripgrep-based search (Claude Code's Grep/Glob) to keep results short; git still tracks them.
 # Vendored copy of python/umbriel_core: edit the original and run tools/sync_plugin_core.py.
-noctalia-plugin/Umbriel-GUI-Plugin/umbriel_core/
+noctalia-plugin/umbriel-settings/umbriel_core/
 # Archived, unmaintained instructions.
 copilot-backup/
 # Generated or binary assets.

@@ -10,7 +10,7 @@ import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-PLUGIN = ROOT / "noctalia-plugin" / "Umbriel-GUI-Plugin"
+PLUGIN = ROOT / "noctalia-plugin" / "umbriel-settings"
 HELPER = PLUGIN / "umbriel_settings.py"
 
 CONFIG = textwrap.dedent("""\

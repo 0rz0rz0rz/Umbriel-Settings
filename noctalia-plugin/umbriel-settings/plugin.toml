@@ -1,10 +1,13 @@
-id = "umbriel-settings/Umbriel-GUI-Plugin"
+id = "0rz0rz0rz/umbriel-settings"
 name = "Umbriel Settings"
-version = "0.2.0"
+version = "0.3.0"
 plugin_api = 43
-author = "umbriel-settings"
-description = "Edit every Umbriel setting, rule and keybind, plus user folders and default applications, with search, review and backups."
-dependencies = ["python3", "python-tomlkit"]
+author = "0rz0rz0rz"
+license = "MIT"
+icon = "settings"
+description = "Edit every Umbriel setting, rule and keybind, plus XDG user folders and default apps, with review and backups."
+dependencies = ["python3", "python-tomlkit", "umbriel", "zenity", "kdialog", "gio", "xdg-open"]
+tags = ["umbriel", "panel", "bar", "system", "utility"]
 
 [[widget]]
 id = "settings"
@@ -15,10 +18,10 @@ entry = "bar.luau"
   type = "select"
   label_key = "settings.display.label"
   description_key = "settings.display.description"
-  default = "icon_text"
+  default = "icon"
   options = [
-    { value = "icon_text", label_key = "settings.display.options.icon_text" },
     { value = "icon", label_key = "settings.display.options.icon" },
+    { value = "icon_text", label_key = "settings.display.options.icon_text" },
     { value = "text", label_key = "settings.display.options.text" },
   ]
 

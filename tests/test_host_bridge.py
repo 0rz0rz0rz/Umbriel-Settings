@@ -11,7 +11,7 @@ from umbriel_config_gui.host.bridge import Bridge, QtScheduler
 from umbriel_core.meta import PAGE_GLYPHS
 
 ROOT = Path(__file__).resolve().parents[1]
-UI_DIR = ROOT / "noctalia-plugin" / "Umbriel-GUI-Plugin"
+UI_DIR = ROOT / "noctalia-plugin" / "umbriel-settings"
 GLYPH_MAP = ROOT / "python" / "umbriel_config_gui" / "host" / "web" / "fonts" / "tabler-map.json"
 GLYPH_NAME = re.compile(r'\b(?:glyph|icon)\s*=\s*"([a-z0-9-]+)"|ui\.glyph\(\{\s*name\s*=\s*"([a-z0-9-]+)"')
 

@@ -5,7 +5,7 @@ paths:
 
 # Legacy Qt UI (`--legacy-ui`)
 
-These modules are the previous widget UI. The default app is now the web-view host (`app.py`, `app_window.py`, `host/`; see `app-host.md`). Keep the legacy UI working until the user confirms the new app, then it gets removed (Phase 5). Don't add features here; add them to the shared Luau UI in `noctalia-plugin/Umbriel-GUI-Plugin/`.
+These modules are the previous widget UI. The default app is now the web-view host (`app.py`, `app_window.py`, `host/`; see `app-host.md`). Keep the legacy UI working until the user confirms the new app, then it gets removed (Phase 5). Don't add features here; add them to the shared Luau UI in `noctalia-plugin/umbriel-settings/`.
 
 ## Module lookup
 

@@ -30,7 +30,7 @@ cp "$root/python/requirements.txt" "$work/recipe/requirements.txt"
 cp -r "$root/python/umbriel_config_gui" "$work/extra/umbriel_config_gui"
 cp -r "$root/python/umbriel_core" "$work/extra/umbriel_core"
 # The app runs the plugin's Luau UI; host/paths.py finds this bundled copy first.
-plugin="$root/noctalia-plugin/Umbriel-GUI-Plugin"
+plugin="$root/noctalia-plugin/umbriel-settings"
 mkdir -p "$work/extra/umbriel_config_gui/ui_shared"
 cp -r "$plugin"/{app.luau,lib,ui,pages,umbriel_settings.py} "$work/extra/umbriel_config_gui/ui_shared/"
 find "$work/extra" -name __pycache__ -type d -prune -exec rm -rf {} +

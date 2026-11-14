@@ -106,7 +106,7 @@ Keys: Ctrl+F search, Ctrl+S review and save, Alt+Left back.
 Add it to the `[keybinds]` section of your Umbriel config, or on the app's **Keybinds** page:
 
 ```toml
-"Mod+Shift+C" = "spawn /usr/bin/python3 /path/to/Umbriel-GUI/python/umbriel-config-gui.py"
+"Mod+Shift+C" = "spawn /usr/bin/python3 /path/to/Umbriel-Settings/python/umbriel-config-gui.py"
 ```
 
 Adjust the paths. Use `.venv/bin/python` with a virtual environment, and quote paths that contain
@@ -209,7 +209,7 @@ or invalid, the embedded default is used.
 | --- | --- |
 | App (`python/umbriel_config_gui/__init__.py`) | `0.1.0-004` |
 | AppImage (latest release) | `0.1.0-002` |
-| Noctalia plugin (`noctalia-plugin/Umbriel-GUI-Plugin/plugin.toml`) | `0.2.0` |
+| Noctalia plugin (`noctalia-plugin/umbriel-settings/plugin.toml`) | `0.3.0` |
 
 The app version is `<Umbriel version>-<three-digit revision>`; the plugin is versioned independently.
 
@@ -217,7 +217,7 @@ The app version is `<Umbriel version>-<three-digit revision>`; the plugin is ver
 
 ```text
 python/umbriel_core/        Shared logic (fields, help, schema, TOML edits, entries, keybinds, desktop files, saving, theme)
-noctalia-plugin/Umbriel-GUI-Plugin/
+noctalia-plugin/umbriel-settings/
   lib/ ui/ pages/           Shared user interface (Luau), used by the plugin and the app
   umbriel_settings.py       Commands over the core (the plugin runs it; the app calls it in-process)
   panel.luau bar.luau       Noctalia panel layout and bar button
@@ -241,7 +241,7 @@ HTML. Icons are [Tabler Icons](https://tabler.io/icons) (MIT, license in `host/w
 
 ## License
 
-This project is licensed under the GNU General Public License, version 3 only. See [LICENSE](LICENSE).
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
 
 > **Disclaimer:** This project was created entirely by AI.
 

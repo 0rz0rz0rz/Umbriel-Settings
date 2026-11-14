@@ -30,24 +30,24 @@ end
 
 assert(loadfile(arg[1]))()
 local glyph, text = shown()
-assert(glyph and text == "Umbriel-GUI" and tooltip ~= "", "default shows icon and text")
+assert(glyph and text == nil and tooltip ~= "", "default shows only the icon")
 
 watchers["umbriel.pending"](3)
 glyph, text = shown()
-assert(text == "Umbriel-GUI •" and tooltip:find("3 unsaved"), tooltip)
+assert(glyph and text == "•" and tooltip:find("3 unsaved"), "icon only keeps the unsaved dot: " .. tooltip)
 
-config.display = "icon"
+config.display = "icon_text"
 update()
 glyph, text = shown()
-assert(glyph and text == "•", "icon only keeps the unsaved dot")
+assert(glyph and text == "Umbriel Settings •", "icon and text")
 watchers["umbriel.pending"](0)
 glyph, text = shown()
-assert(glyph and text == nil, "icon only")
+assert(glyph and text == "Umbriel Settings", "icon and text without unsaved edits")
 
 config.display = "text"
 update()
 glyph, text = shown()
-assert(not glyph and text == "Umbriel-GUI", "text only")
+assert(not glyph and text == "Umbriel Settings", "text only")
 
 vertical = true
 update()
@@ -58,9 +58,9 @@ vertical = false
 config.display = "bogus"
 update()
 glyph, text = shown()
-assert(glyph and text == "Umbriel-GUI", "unknown values fall back to icon and text")
+assert(glyph and text == nil, "unknown values fall back to icon only")
 
 onClick()
 onClick()
 assert(#toggles == 2)
-assert(toggles[1] == "umbriel-settings/Umbriel-GUI-Plugin:folders" and toggles[2] == toggles[1])
+assert(toggles[1] == "0rz0rz0rz/umbriel-settings:folders" and toggles[2] == toggles[1])

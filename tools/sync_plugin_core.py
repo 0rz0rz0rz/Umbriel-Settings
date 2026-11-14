@@ -11,7 +11,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, "python", "umbriel_core")
-TARGET = os.path.join(ROOT, "noctalia-plugin", "Umbriel-GUI-Plugin", "umbriel_core")
+TARGET = os.path.join(ROOT, "noctalia-plugin", "umbriel-settings", "umbriel_core")
 
 
 def source_files(directory):

@@ -2,8 +2,8 @@ local pending = 0
 
 local function display()
   local value = noctalia.getConfig and noctalia.getConfig("display")
-  if value == "icon" or value == "text" then return value end
-  return "icon_text"
+  if value == "icon_text" or value == "text" then return value end
+  return "icon"
 end
 
 local function refresh()
@@ -14,7 +14,7 @@ local function refresh()
   local children = {}
   if mode ~= "text" then table.insert(children, ui.glyph({ name = "settings" })) end
   if mode ~= "icon" then
-    table.insert(children, ui.label({ text = pending > 0 and "Umbriel-GUI •" or "Umbriel-GUI" }))
+    table.insert(children, ui.label({ text = pending > 0 and "Umbriel Settings •" or "Umbriel Settings" }))
   elseif pending > 0 then
     table.insert(children, ui.label({ text = "•", color = "primary" }))
   end
@@ -26,7 +26,7 @@ function update()
 end
 
 function onClick()
-  noctalia.togglePanel("umbriel-settings/Umbriel-GUI-Plugin:folders")
+  noctalia.togglePanel("0rz0rz0rz/umbriel-settings:folders")
 end
 
 if noctalia.state and noctalia.state.watch then

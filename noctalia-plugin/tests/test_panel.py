@@ -10,7 +10,7 @@ import unittest
 from test_umbriel_settings import CONFIG, FAKE_UMBRIEL
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "Umbriel-GUI-Plugin"
+PLUGIN = ROOT / "umbriel-settings"
 HELPER = PLUGIN / "umbriel_settings.py"
 
 

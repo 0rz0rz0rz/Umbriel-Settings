@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = ROOT / "python"
 TESTS = ROOT / "tests"
-PLUGIN = ROOT / "noctalia-plugin" / "Umbriel-GUI-Plugin"
+PLUGIN = ROOT / "noctalia-plugin" / "umbriel-settings"
 HOST_TESTS = ["test_host_runtime", "test_host_bridge"]
 CORE_TESTS = ["test_core"]
 ORDER = ["core", "plugin", "host", "app", "schema"]

@@ -8,7 +8,7 @@ Umbriel Settings edits the Umbriel (Wayland compositor) TOML config, keeping com
 
 ```
 python/umbriel_core/                    shared logic (Python, Qt-free)                  both
-noctalia-plugin/Umbriel-GUI-Plugin/
+noctalia-plugin/umbriel-settings/
   umbriel_settings.py                   helper commands over the core                   both
   lib/ ui/ pages/                       shared UI (Luau)                                both
   panel.luau  bar.luau  plugin.toml     Noctalia panel layout + bar widget              plugin only
@@ -67,7 +67,7 @@ python python/umbriel-config-gui.py [config.toml]       # run the app: --config 
 - Keep files under ~800 lines (`window.py`, `common.py` are legacy exceptions). When modules move, update the rule tables.
 - Tests: one file per area, `unittest`, temporary paths; never the real user config.
 - Versions: app `__version__` in `python/umbriel_config_gui/__init__.py` (`<Umbriel version>-<NNN>`); plugin in `plugin.toml`; README versions table. After Umbriel/Noctalia version changes, check their release notes for needed updates.
-- GPL-3.0-only: keep `LICENSE` and the AppImage license bundling; the Tabler icon font is MIT (license file next to it).
+- MIT: keep `LICENSE` (root and plugin copy) and the AppImage license bundling; the Tabler icon font is MIT (license file next to it).
 - Comment only code that needs it. No planning or notes files. Prefer the repo and `umbriel config schema --json` over web searches.
 - Don't commit, push, tag or publish unless asked; never force-push. Commit messages are short and imperative.
 - Ask one concise question only when a choice changes behavior; otherwise decide and state the assumption.
