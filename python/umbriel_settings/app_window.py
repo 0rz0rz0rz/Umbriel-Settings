@@ -22,11 +22,21 @@ TITLE = "Umbriel Settings"
 
 
 class Page(QWebEnginePage):
-    """Keeps JavaScript errors (renderer bugs) for tests and prints them for bug reports."""
+    """Keeps JavaScript errors (renderer bugs) for tests and prints them for bug reports.
+
+    The page may only ever show index.html: links, scripts, drops and new windows can't navigate it away."""
+
+    HOME = QUrl.fromLocalFile(os.path.join(WEB_DIR, "index.html"))
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.console_errors = []
+
+    def acceptNavigationRequest(self, url, nav_type, is_main_frame):
+        return url.isLocalFile() and url.path() == self.HOME.path()
+
+    def createWindow(self, window_type):
+        return None
 
     def javaScriptConsoleMessage(self, level, message, line, source):
         if level == QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel:
@@ -98,7 +108,7 @@ class AppWindow(QMainWindow):
         self.watch_timer.timeout.connect(self.on_external_change)
         self.watcher.fileChanged.connect(self.watch_timer.start)
 
-        self.view.load(QUrl.fromLocalFile(os.path.join(WEB_DIR, "index.html")))
+        self.view.load(Page.HOME)
         self.statusBar().hide()
 
     # ------------------------------------------------------------------ bridge callbacks

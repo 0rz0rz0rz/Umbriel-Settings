@@ -121,6 +121,22 @@ class AppRenderTests(unittest.TestCase):
         self.assertEqual(self.win.view.page().console_errors, [])
         self.assertEqual(self.win.host.errors, [])
 
+    def test_page_cannot_navigate_away_or_load_remote_content(self):
+        self.wait_for_text("Home", "Appearance")
+        home = self.win.view.url()
+        self.js("window.open('file:///etc/hostname'); location.href = 'https://example.com/'; true")
+        self.pause(500)
+        self.js("document.body.appendChild(Object.assign(document.createElement('a'), {href: 'file:///etc/'})).click(); true")
+        self.pause(500)
+        self.assertEqual(self.win.view.url(), home)
+        self.wait_for_text("Home", "Appearance")
+        self.assertIsNotNone(self.js("document.querySelector('meta[http-equiv=\"Content-Security-Policy\"]').content"))
+        self.js("fetch('file:///etc/hostname').catch(() => {}); true")
+        self.pause(300)
+        errors = self.win.view.page().console_errors
+        self.assertTrue(any("Content Security Policy" in e for e in errors), errors)
+        self.assertFalse([e for e in errors if "Content Security Policy" not in e], errors)
+
 
 if __name__ == "__main__":
     unittest.main()

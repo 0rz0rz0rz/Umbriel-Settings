@@ -17,7 +17,7 @@ The app is a thin host that implements the Noctalia API the shared UI uses, runs
 | Need to change | Module | Key symbols |
 | --- | --- | --- |
 | CLI and startup | `app.py` | `parse_args`, `app_options` (→ Lua `APP`), `check_schema`, `main`. `APP_NAME`/`__version__` live in `__init__.py` |
-| Window, title `[*]`, close prompt, file watch, icons | `app_window.py` | `AppWindow` (`on_ready`, `on_invoke`, `on_key`, `on_state`, `on_external_change`, `closeEvent`), `Page` (records JS console errors, prints them to stderr), `icon_file` |
+| Window, title `[*]`, close prompt, file watch, icons | `app_window.py` | `AppWindow` (`on_ready`, `on_invoke`, `on_key`, `on_state`, `on_external_change`, `closeEvent`), `Page` (records JS console errors, prints them to stderr; never navigates away from `index.html`, no new windows), `icon_file` |
 | App icon and desktop entry | `appicon.py` | `create_app_icon` (assets/icon.jpg, embedded fallback), `install_desktop_icon` (per-user `.desktop`, `$APPIMAGE` aware) |
 | Qt palette from qt6ct | `qt6ct_theme.py` | `Qt6ctThemeFollower` (follows the qt6ct KDE scheme; the web theme reads the palette) |
 | Lua runtime | `host/runtime.py` | `LuaHost` (`start`, `call`, `guard`, `render`, `invoke`, `to_py`/`to_lua`), `BOOTSTRAP` (ui constructors, lexical `require`, private module env), `as_callback_arg`. Sets `LC_NUMERIC=C` so Lua number formatting works under Qt |
@@ -25,7 +25,7 @@ The app is a thin host that implements the Noctalia API the shared UI uses, runs
 | Python ↔ JS channel | `host/bridge.py` | `Bridge` (signals `renderTree`, `themeCss`, `glyphMap`; slots `ready`, `invoke`, `key`), `QtScheduler` (results back on the GUI thread) |
 | Where the UI lives | `host/paths.py` | `shared_ui_dir()`: `$UMBRIEL_SETTINGS_UI_DIR` → bundled `ui_shared/` (AppImage) → checkout; `app_data_dir()` |
 | Theme | `host/theme.py`, `umbriel_core/noctalia_theme.py` | Roles from Noctalia palette template → qt6ct KDE scheme → Qt palette; `shell_style()` (Noctalia `font_family`, `corner_radius_scale`); `css_variables`; files are watched |
-| Rendering | `host/web/renderer.js`, `style.css`, `index.html` | Keyed DOM reconciler, one builder per `ui` kind; inputs uncontrolled; `revealKey` scrolls into view. Tabler font + `tabler-map.json` in `host/web/fonts/` (never read them) |
+| Rendering | `host/web/renderer.js`, `style.css`, `index.html` | `index.html` has a CSP (local files and `qrc:` only, no network); keyed DOM reconciler, one builder per `ui` kind; inputs uncontrolled; `revealKey` scrolls into view. Tabler font + `tabler-map.json` in `host/web/fonts/` (never read them) |
 
 Rules:
 
