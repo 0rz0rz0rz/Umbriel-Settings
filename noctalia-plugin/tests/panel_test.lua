@@ -179,8 +179,22 @@ goHome()
 clickText("User folders")
 goHome()
 clickText("Default apps")
-clickText("Web browser")
+-- the picker resolves only a few icons per callback (Noctalia's CPU budget) and fills in the rest later
+for i = 1, 20 do
+  table.insert(store.desktop.apps.apps, { id = "fake" .. i .. ".desktop", name = "Fake app " .. i })
+end
+local iconCalls = 0
+local appIconPath = noctalia.appIconPath
+noctalia.appIconPath = function() iconCalls = iconCalls + 1; return nil end
+find("row", function(n) return n.props.key == "role-Web browser" end).props.onClick()
 assert(hasText("Choose an app"), screen())
+assert(iconCalls > 0 and iconCalls <= 6, "icon lookups in one callback: " .. iconCalls)
+for _ = 1, 10 do flushReads() end
+local afterFrames = iconCalls
+assert(afterFrames >= 20, "remaining icons resolved on later frames: " .. afterFrames)
+flushReads()
+assert(iconCalls == afterFrames, "icons are cached")
+noctalia.appIconPath = appIconPath
 find("input", function(n) return n.props.key == "app-id" end).props.onChange("firefox.desktop")
 clickText("Use")
 assert(store.desktop.apps.roles["Web browser"] == "firefox.desktop")

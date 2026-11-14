@@ -21,6 +21,29 @@ local function loading(ctx, title)
   return { header = { kit.header(ctx, title) }, content = content }
 end
 
+-- Icon theme lookups are slow in Noctalia (25 ms per callback): cache them and resolve a few per render,
+-- asking for another frame while some are still missing.
+local ICON_LOOKUPS_PER_RENDER = 6
+local iconCache = {}
+
+local function iconLookup()
+  local lookup = { left = ICON_LOOKUPS_PER_RENDER, pending = false }
+  function lookup.icon(id)
+    if not noctalia.appIconPath or not id or id == "" or id == "<multiple>" then return nil end
+    local cached = iconCache[id]
+    if cached ~= nil then return cached or nil end
+    if lookup.left <= 0 then lookup.pending = true; return nil end
+    lookup.left = lookup.left - 1
+    local path = noctalia.appIconPath((string.gsub(id, "%.desktop$", "")), 32)
+    iconCache[id] = path or false
+    return path
+  end
+  function lookup.finish(ctx)
+    if lookup.pending then ctx.renderSoon() end
+  end
+  return lookup
+end
+
 local function appName(apps, id)
   if not id or id == "" then return nil end
   for _, app in ipairs(apps) do
@@ -101,19 +124,20 @@ local function appsPage(ctx)
                 end }),
   }) }
   local content = { kit.section("Common roles") }
+  local icons = iconLookup()
   for _, role in ipairs(ROLE_ORDER) do
     local value = apps.roles[role] or ""
     local subtitle = value == "<multiple>" and "Different apps for different file types"
       or (value ~= "" and (appName(apps.apps, value) .. "  ·  " .. value)) or "Not set"
     local badges = {}
     if value ~= (apps.originalRoles[role] or "") then table.insert(badges, kit.badge("changed", "primary", "rb-" .. role)) end
-    local icon = value ~= "" and value ~= "<multiple>" and noctalia.appIconPath and noctalia.appIconPath(
-      string.gsub(value, "%.desktop$", ""), 32)
+    local icon = icons.icon(value)
     table.insert(content, kit.navRow({ key = "role-" .. role, image = icon or nil, glyph = ROLE_GLYPHS[role],
       title = role, subtitle = subtitle, badges = badges, onClick = function()
         ctx.go({ name = "appPicker", kind = "role", target = role })
       end }))
   end
+  icons.finish(ctx)
   table.insert(content, kit.section("Other file types"))
   table.insert(content, ui.input({ key = "mime-filter", value = view.mimeFilter or "", controlSize = "sm",
                                    placeholder = "Filter file types or apps",
@@ -186,15 +210,17 @@ local function pickerPage(ctx, route)
   local query = string.lower(noctalia.string.trim(view.appQuery or ""))
   local content = {}
   local shown = 0
+  local icons = iconLookup()
   for _, app in ipairs(apps.apps) do
     if shown < 40 and (query == "" or string.find(string.lower(app.name .. " " .. app.id), query, 1, true)) then
       shown = shown + 1
-      local icon = noctalia.appIconPath and noctalia.appIconPath(string.gsub(app.id, "%.desktop$", ""), 32)
+      local icon = icons.icon(app.id)
       table.insert(content, kit.navRow({ key = "app-" .. app.id, image = icon or nil, glyph = "apps",
         title = app.name, subtitle = app.id, trailing = app.id == current and "check" or "chevron-right",
         fill = app.id == current and "primary_container" or nil, onClick = function() choose(app.id) end }))
     end
   end
+  icons.finish(ctx)
   if shown == 40 then table.insert(content, kit.muted("Type to find more apps.")) end
   if shown == 0 then table.insert(content, kit.empty("No installed app matches.", "apps")) end
   table.insert(content, kit.section("Or enter a desktop file ID"))
