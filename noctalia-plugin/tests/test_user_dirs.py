@@ -11,8 +11,8 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "user-folders"
-HELPER = PLUGIN / "user_dirs.py"
+PLUGIN = ROOT / "Umbriel-GUI-Plugin"
+HELPER = PLUGIN / "umbriel_settings.py"
 
 
 class UserFoldersPluginTests(unittest.TestCase):
@@ -27,19 +27,28 @@ class UserFoldersPluginTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path = self.root / "config" / "user-dirs.dirs"
-        self.backup = self.root / "backup"
-        self.env = {**os.environ, "XDG_CONFIG_HOME": str(self.path.parent)}
+        self.backup = self.root / "data" / "umbriel-config-gui" / "backups"
+        self.env = {**os.environ, "XDG_CONFIG_HOME": str(self.path.parent),
+                    "XDG_DATA_HOME": str(self.root / "data"), "PYTHONDONTWRITEBYTECODE": "1"}
+
+    def call(self, command, request, success=True, env=None):
+        request_file = self.root / "request.json"
+        request_file.write_text(json.dumps(request))
+        result = subprocess.run(
+            [sys.executable, "-B", str(HELPER), command, "--request", str(request_file)],
+            env=env or self.env, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        reply = json.loads(result.stdout)
+        self.assertEqual(reply["ok"], success, reply)
+        return reply["result"] if success else reply["error"]
 
     def helper(self, *args, success=True):
-        result = subprocess.run(
-            [sys.executable, str(HELPER), *args],
-            env=self.env, text=True, capture_output=True, check=False,
-        )
-        self.assertEqual(result.returncode == 0, success, result.stderr)
-        return json.loads(result.stdout) if success else result.stderr
+        return self.call("desktop", {}, success)["userdirs"]
 
     def save(self, revision, values, success=True):
-        return self.helper("save", revision, str(self.backup), json.dumps(values), success=success)
+        result = self.call("desktop-save", {"userdirs": {"revision": revision, "changes": values}}, success)
+        return result["userdirs"] if success else result
 
     def test_save_preserves_other_entries_and_makes_backup(self):
         self.path.parent.mkdir()
@@ -103,10 +112,15 @@ class UserFoldersPluginTests(unittest.TestCase):
         }
 
         def launch(**extra_env):
-            return subprocess.run(
-                [sys.executable, str(PLUGIN / "launch_app.py")],
+            result = subprocess.run(
+                [sys.executable, "-B", str(HELPER), "launch-app"],
                 env={**env, **extra_env}, text=True, capture_output=True, check=False,
             )
+            reply = json.loads(result.stdout)
+            result.returncode = 0 if reply["ok"] else 1
+            result.stderr = reply.get("error", "")
+            result.stdout = json.dumps(reply.get("result", {}))
+            return result
 
         result = launch()
         self.assertNotEqual(result.returncode, 0)
@@ -145,7 +159,7 @@ class UserFoldersPluginTests(unittest.TestCase):
             "DISPLAY": "", "WAYLAND_DISPLAY": "", "LAUNCH_LOG": str(marker),
         }
         result = subprocess.run(
-            [sys.executable, str(PLUGIN / "launch_app.py")],
+            [sys.executable, "-B", str(HELPER), "launch-app"],
             env=env, text=True, capture_output=True, timeout=5, check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -153,23 +167,6 @@ class UserFoldersPluginTests(unittest.TestCase):
         while not marker.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
         self.assertEqual(marker.read_text(), "ready")
-
-    @unittest.skipUnless(shutil.which("lua"), "lua is required for the panel harness")
-    def test_panel_load_edit_save_and_failure(self):
-        subprocess.run(
-            ["lua", str(ROOT / "tests" / "panel_test.lua"), str(PLUGIN / "panel.luau"),
-             str(PLUGIN / "keybind_ui.luau")],
-            check=True,
-        )
-
-    @unittest.skipUnless(shutil.which("lua"), "lua is required for the bar harness")
-    def test_bar_button_toggles_plugin_panel(self):
-        manifest = (PLUGIN / "plugin.toml").read_text()
-        self.assertRegex(manifest, r'\[\[widget\]\]\s+id\s*=\s*"settings"\s+entry\s*=\s*"bar\.luau"')
-        subprocess.run(
-            ["lua", str(ROOT / "tests" / "bar_test.lua"), str(PLUGIN / "bar.luau")],
-            check=True,
-        )
 
 
 if __name__ == "__main__":

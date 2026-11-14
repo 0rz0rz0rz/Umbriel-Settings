@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QTreeView, QVBoxLayout, QWidget
 
-from umbriel_config_gui.common import apply_interaction_styles
+from umbriel_config_gui.common import WheelSafeComboBox, apply_interaction_styles
 from umbriel_config_gui.settings_layout import CollapsibleGroup
 
 
@@ -62,6 +62,34 @@ class SettingsCardTests(unittest.TestCase):
                         "#ffffff" if hovered else "#202020",
                     )
             card._set_card_hovered(False)
+
+    def test_disabled_editors_use_window_background(self):
+        """Unset optional fields disable their editor; it must not look editable."""
+        original_palette = self.app.palette()
+        original_style = self.app.styleSheet()
+        self.addCleanup(self.app.setPalette, original_palette)
+        self.addCleanup(self.app.setStyleSheet, original_style)
+        palette = QPalette(original_palette)
+        palette.setColor(QPalette.ColorRole.Window, QColor("#202020"))
+        palette.setColor(QPalette.ColorRole.Base, QColor("#101010"))
+        self.app.setPalette(palette)
+        apply_interaction_styles(self.app)
+        combo = WheelSafeComboBox()
+        combo.addItem("normal")
+        for editor in (QLineEdit("value"), combo):
+            with self.subTest(editor=type(editor).__name__):
+                editor.resize(200, 32)
+                editor.show()
+                self.addCleanup(editor.close)
+                self.app.processEvents()
+
+                def background():
+                    return editor.grab().toImage().pixelColor(4, editor.height() // 2).name()
+
+                self.assertEqual(background(), "#101010")
+                editor.setEnabled(False)
+                self.app.processEvents()
+                self.assertEqual(background(), "#202020")
 
     def test_hovered_line_edit_has_rounded_highlight(self):
         original_palette = self.app.palette()

@@ -21,21 +21,26 @@ from .common import (
     Qt,
     WheelSafeComboBox,
     config_gui_data_dir,
-    ensure_table,
     getp,
-    json,
-    migrate_gui_file,
-    os,
     py,
     re,
-    tomlkit,
-    write_text_file,
 )
+from umbriel_core import keybinds as _core_keybinds
+from umbriel_core.keybinds import (  # noqa: F401  re-exported
+    BIND_BOOL_OPTIONS,
+    KEYBIND_GROUPS_MARKER,
+    apply_bindings,
+    check_action,
+    check_shortcut_conflicts,
+    parse_keybind_groups,
+    reorder_table,
+    write_keybind_groups,
+)
+
 from .tables import tidy_table
 from .actions import (
     ACTION_INFO,
     ARG_HELP,
-    REQUIRED_ARG_ACTIONS,
     build_action_model,
     migrate_action,
     reduce_template,
@@ -44,104 +49,24 @@ from .actions import (
 
 def lock_file():
     """Return the keybind-lock file under the GUI data directory."""
-    return os.path.join(config_gui_data_dir(state.PATH), "gui-locked-keybinds.json")
+    return _core_keybinds.lock_file(config_gui_data_dir(state.PATH))
 
 
 def load_locked():
     """Return the set of keybind keys locked in the GUI."""
-    migrate_gui_file(
-        os.path.join(os.path.dirname(state.PATH), "gui-locked-keybinds.json"),
-        lock_file(),
-    )
-    try:
-        with open(lock_file(), encoding="utf-8") as f:
-            return set(json.load(f))
-    except (OSError, ValueError):
-        return set()
+    return _core_keybinds.load_locked(state.PATH, config_gui_data_dir(state.PATH))
 
 
 def save_locked(keys):
     """Write locked keybind keys to GUI data without touching the Umbriel config."""
     try:
-        write_text_file(lock_file(), json.dumps(sorted(keys), indent=1))
+        _core_keybinds.save_locked(keys, config_gui_data_dir(state.PATH))
     except OSError as error:
         QMessageBox.warning(
             None,
             "Could not save keybind locks",
             f"Keybind lock state could not be saved: {error}",
         )
-
-
-# Known per-bind options with their own columns (anything else is preserved untouched).
-BIND_BOOL_OPTIONS = [("repeat", "Repeat"), ("allow_when_locked", "When locked"),
-                     ("allow_when_inhibited", "When inhibited")]
-KEYBIND_GROUPS_MARKER = "# Umbriel Config GUI keybind groups: "
-
-
-def parse_keybind_groups(text):
-    """Read GUI-only keybind groups from the TOML comment metadata."""
-    metadata = {}
-    for line in text.splitlines():
-        if line.startswith(KEYBIND_GROUPS_MARKER):
-            try:
-                parsed = json.loads(line[len(KEYBIND_GROUPS_MARKER):])
-            except json.JSONDecodeError:
-                continue
-            if isinstance(parsed, dict):
-                metadata = parsed
-    names = metadata.get("groups", [])
-    groups = []
-    if isinstance(names, list):
-        groups.extend(
-            name.strip() for name in names
-            if isinstance(name, str) and name.strip()
-        )
-    assignments = metadata.get("assignments", {})
-    if not isinstance(assignments, dict):
-        assignments = {}
-    for group in assignments.values():
-        if isinstance(group, str) and group.strip() and group.strip() not in groups:
-            groups.append(group.strip())
-    return groups, {
-        key: group.strip()
-        for key, group in assignments.items()
-        if isinstance(key, str) and isinstance(group, str) and group.strip()
-    }
-
-
-def write_keybind_groups(text, groups, assignments):
-    """Persist keybind group labels in an ignored TOML comment inside [keybinds]."""
-    newline = "\r\n" if "\r\n" in text else "\n"
-    lines = text.splitlines(keepends=True)
-    lines = [
-        line for line in lines
-        if not line.lstrip().startswith(KEYBIND_GROUPS_MARKER)
-    ]
-    groups = list(dict.fromkeys(group.strip() for group in groups if group.strip()))
-    assignments = {
-        key: group for key, group in assignments.items()
-        if key and group in groups
-    }
-    if not groups and not assignments:
-        return "".join(lines)
-
-    section_header = re.compile(r"^\[keybinds\][ \t]*(?:#.*)?\r?\n?$")
-    start = next(
-        (index for index, line in enumerate(lines) if section_header.match(line)),
-        None,
-    )
-    if start is None:
-        if lines and not lines[-1].endswith(("\n", "\r")):
-            lines[-1] += newline
-        lines.append("[keybinds]" + newline)
-        start = len(lines) - 1
-    payload = json.dumps(
-        {"groups": groups, "assignments": assignments},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-    lines.insert(start + 1, KEYBIND_GROUPS_MARKER + payload + newline)
-    return "".join(lines)
 
 
 class KeybindEditor(QWidget):
@@ -590,25 +515,12 @@ class KeybindEditor(QWidget):
 
     def validate(self):
         """Reject conflicting shortcuts and incomplete actions."""
-        seen = {}
-        for row in range(self.t.rowCount()):
-            key = self.t.item(row, 0).text().strip() if self.t.item(row, 0) else ""
-            if not key:
-                continue
-            normalized = " ".join(key.casefold().split())
-            if normalized in seen:
-                raise ValueError(
-                    f'Keybind conflict: "{key}" duplicates shortcut "{seen[normalized]}".'
-                )
-            seen[normalized] = key
+        check_shortcut_conflicts(
+            self.t.item(row, 0).text() if self.t.item(row, 0) else ""
+            for row in range(self.t.rowCount())
+        )
         for k, (a, _) in self.rows().items():
-            words = a.split()
-            if words and words[0] == "spawn" and (len(words) == 1 or a.strip() == "spawn <cmd...>"):
-                raise ValueError(f'Keybind "{k}": write a command after "spawn".')
-            if re.search(r"<[^>]+>", a) and words and words[0] != "spawn":
-                raise ValueError(f'Keybind "{k}": "{a}" still needs its argument (replace the <...> part).')
-            if len(words) == 1 and words[0] in REQUIRED_ARG_ACTIONS:
-                raise ValueError(f'Keybind "{k}": "{a}" needs an argument, e.g. "{ACTION_INFO[words[0]][0]}".')
+            check_action(k, a)
 
     def commit(self):
         """Write only changed/added/removed binds into [keybinds]; untouched lines keep their formatting."""
@@ -619,22 +531,7 @@ class KeybindEditor(QWidget):
         # saved text), so keys added in this session must be re-placed on EVERY save, not only the first.
         self.session_new_keys.update(key for key in rows if key not in self.orig)
         self.pending_new_keys = [key for key in rows if key in self.session_new_keys]
-        tbl = ensure_table(self.doc, self.path)
-        for k in list(tbl.keys()):
-            if k not in rows and k not in self.locked:  # locked binds are never deleted
-                del tbl[k]
-        for k, (a, o) in rows.items():
-            if self.orig.get(k) == (a, o):
-                continue
-            if o:
-                it = tomlkit.inline_table()
-                it["action"] = a
-                for x, y in o.items():
-                    it[x] = y
-                tbl[k] = it
-            else:
-                tbl[k] = a
-        self.reorder_table(tbl, list(rows))
+        apply_bindings(self.doc, rows, self.orig, self.locked, self.path)
         self.orig = rows
         self.group_assignments = {}
         for row in range(self.t.rowCount()):
@@ -645,21 +542,4 @@ class KeybindEditor(QWidget):
 
     def reorder_table(self, table, order):
         """Reorder key/value slots to match the editor while keeping comments in place."""
-        container = table.value
-        body = container.body
-        entries = {key.key: (key, value) for key, value in body if key is not None}
-        positions = [index for index, (key, _) in enumerate(body) if key is not None]
-        ordered_keys = [key for key in order if key in entries]
-        ordered_keys.extend(key for key in container.keys() if key not in ordered_keys)
-        if not positions or ordered_keys == [key.key for key, _ in body if key is not None]:
-            return
-        values = {key: dict.__getitem__(container, key) for key in ordered_keys}
-        for position, key_name in zip(positions, ordered_keys):
-            body[position] = entries[key_name]
-        container._map.clear()
-        for index, (key, _) in enumerate(body):
-            if key is not None:
-                container._map[key] = index
-        dict.clear(container)
-        for key_name in ordered_keys:
-            dict.__setitem__(container, key_name, values[key_name])
+        reorder_table(table, order)

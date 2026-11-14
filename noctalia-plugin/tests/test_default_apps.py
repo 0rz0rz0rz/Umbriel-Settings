@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 
-HELPER = Path(__file__).resolve().parents[1] / "user-folders" / "default_apps.py"
+HELPER = Path(__file__).resolve().parents[1] / "Umbriel-GUI-Plugin" / "umbriel_settings.py"
 
 
 class DefaultAppsPluginTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class DefaultAppsPluginTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path = self.root / "config" / "mimeapps.list"
-        self.backup = self.root / "backup"
+        self.backup = self.root / "data" / "umbriel-config-gui" / "backups"
         self.env = {
             **os.environ,
             "XDG_CONFIG_HOME": str(self.path.parent),
@@ -25,16 +25,26 @@ class DefaultAppsPluginTests(unittest.TestCase):
             "PYTHONDONTWRITEBYTECODE": "1",
         }
 
-    def helper(self, *args, success=True):
+    def call(self, command, request, success=True):
+        request_file = self.root / "request.json"
+        request_file.write_text(json.dumps(request))
         result = subprocess.run(
-            [sys.executable, str(HELPER), *args],
+            [sys.executable, "-B", str(HELPER), command, "--request", str(request_file)],
             env=self.env, text=True, capture_output=True, check=False,
         )
-        self.assertEqual(result.returncode == 0, success, result.stderr)
-        return json.loads(result.stdout) if success else result.stderr
+        self.assertEqual(result.returncode, 0, result.stderr)
+        reply = json.loads(result.stdout)
+        self.assertEqual(reply["ok"], success, reply)
+        return reply["result"] if success else reply["error"]
+
+    def helper(self, *args, success=True):
+        if args[0] == "extension":
+            return self.call("extension", {"extension": args[1]}, success)
+        return self.call("desktop", {}, success)["apps"]
 
     def save(self, revision, changes, success=True):
-        return self.helper("save", revision, str(self.backup), json.dumps(changes), success=success)
+        result = self.call("desktop-save", {"apps": {"revision": revision, "changes": changes}}, success)
+        return result["apps"] if success else result
 
     def test_role_and_mime_changes_preserve_fallbacks_and_unrelated_sections(self):
         self.path.parent.mkdir()

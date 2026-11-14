@@ -56,6 +56,44 @@ from PySide6.QtWidgets import (
     QTabWidget,
 )
 
+from umbriel_core import backups as _core_backups
+from umbriel_core import paths as _core_paths
+from umbriel_core.layout import (
+    BANNER_RE,
+    BANNER_WIDTH,
+    CONFIG_LAYOUT,
+    GUI_NAME_MARKER,
+    add_entry_name_comments,
+    banner_line,
+    header_path,
+    inline_window_rule_matches,
+    move_new_keybinds,
+    pull_banner_blocks,
+    rebuild_config,
+    split_statements,
+    tidy_lines,
+)
+from umbriel_core.paths import (
+    config_fingerprint,
+    migrate_gui_directory,
+    migrate_gui_file,
+    read_config_state,
+    write_text_file,
+)
+from umbriel_core.tomlops import (
+    ENV_NAME_RE,
+    MISSING,
+    PINNED_OPTIONAL_INCLUDES,
+    RESERVED_ENV,
+    delp,
+    ensure_table,
+    getp,
+    normalize_optional_includes,
+    putp,
+    py,
+    totext,
+)
+
 from . import __version__, state
 from .interaction_styles import apply_interaction_styles
 
@@ -273,15 +311,6 @@ _APP_ICON_DATA = (
     "9T9aVfuiiil0F0Beg+tNooo6h0FX/GlNFFJbgIPvfhR3P0ooo6jYh+9T1+6aKKsQN1ooopLZgIOppPWiimthIQ9BSDr+FFFLqNDj"
     "1pveiikxsce1NHT8aKKBDm708UUUwI/4z9aP4zRRQugwNKeooooQhG6UdqKKQDv8KaPvfhRRSW4H/9k="
 )
-MISSING = object()
-PINNED_OPTIONAL_INCLUDES = ("noctalia.toml", "titlebar.toml")
-ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-RESERVED_ENV = {
-    "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "DISPLAY", "UMBRIEL_SOCKET", "LIBEI_SOCKET",
-    "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE",
-}
-
-
 class WheelSafeComboBox(QComboBox):
     """Prevent accidental value changes from scrolling over a closed dropdown."""
 
@@ -290,6 +319,8 @@ class WheelSafeComboBox(QComboBox):
         self.setStyleSheet(
             "QComboBox { background: palette(base); color: palette(text); border: 1px solid transparent; border-radius: 6px; padding: 2px 8px; }"
             "QComboBox:focus, QComboBox:focus-visible { border: 1px solid transparent; }"
+            "QComboBox:disabled { background: palette(window); color: palette(placeholder-text);"
+            " border: 1px dashed palette(midlight); }"
         )
 
     def wheelEvent(self, event):
@@ -454,9 +485,7 @@ def install_desktop_icon(icon):
 
 def normalize_config_path(path):
     """Normalize a config path and return an absolute version suitable for the GUI."""
-    if not path:
-        return DEFAULT_CONFIG_PATH
-    return os.path.abspath(os.path.expanduser(path.strip()))
+    return _core_paths.normalize_config_path(path, DEFAULT_CONFIG_PATH)
 
 
 def parse_cli_args(argv=None):
@@ -478,16 +507,7 @@ def parse_cli_args(argv=None):
 def load_saved_config_path(default_path):
     """Return the user-selected config path if present, otherwise fall back to the default path."""
     migrate_gui_file(os.path.expanduser("~/.config/umbriel/gui-config-path"), GUI_CONFIG_PATH)
-    if not os.path.exists(GUI_CONFIG_PATH):
-        return default_path
-    try:
-        with open(GUI_CONFIG_PATH, encoding="utf-8") as f:
-            saved = f.read().strip()
-        if saved:
-            return normalize_config_path(saved)
-    except OSError:
-        pass
-    return default_path
+    return _core_paths.load_saved_config_path(GUI_CONFIG_PATH, default_path)
 
 
 def persist_config_path(path):
@@ -498,78 +518,16 @@ def persist_config_path(path):
 
 def config_gui_data_dir(config_path):
     """Return a private GUI-data directory associated with one config path."""
-    identity = hashlib.sha256(
-        os.path.abspath(config_path).encode("utf-8")
-    ).hexdigest()[:20]
-    return os.path.join(GUI_DATA_DIR, "configs", identity)
-
-
-def migrate_gui_file(legacy_path, new_path):
-    """Move a GUI-owned file from its former location into the application data directory."""
-    if os.path.isfile(legacy_path) and not os.path.exists(new_path):
-        os.makedirs(os.path.dirname(new_path), exist_ok=True)
-        os.replace(legacy_path, new_path)
-
-
-def migrate_gui_directory(legacy_path, new_path):
-    """Move GUI-owned files from a former directory into the application data directory."""
-    if not os.path.isdir(legacy_path):
-        return
-    os.makedirs(new_path, exist_ok=True)
-    for name in os.listdir(legacy_path):
-        source = os.path.join(legacy_path, name)
-        destination = os.path.join(new_path, name)
-        if not os.path.exists(destination):
-            shutil.move(source, destination)
-    try:
-        os.rmdir(legacy_path)
-    except OSError:
-        pass
+    return _core_paths.config_gui_data_dir(config_path, GUI_DATA_DIR)
 
 
 class ConfigLoadError(Exception):
     """The config file is missing or is not valid TOML; the message is meant for the user."""
 
 
-def write_text_file(path, text):
-    """Write text atomically so file watchers never see a partially written file."""
-    real = os.path.realpath(path)
-    directory = os.path.dirname(real)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-    tmp = real + ".gui-tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(text)
-    try:
-        shutil.copymode(real, tmp)
-    except OSError:
-        pass
-    os.replace(tmp, real)
-
-
-def config_fingerprint(path):
-    """Return a content hash used to detect edits made outside this window."""
-    with open(path, "rb") as config_file:
-        data = config_file.read()
-    return hashlib.sha256(data).hexdigest()
-
-
-def read_config_state(path):
-    """Read config text and its matching content hash from the same file snapshot."""
-    with open(path, "rb") as config_file:
-        data = config_file.read()
-    return data.decode("utf-8"), hashlib.sha256(data).hexdigest()
-
-
 def create_backup_snapshot(path):
     """Keep a timestamped, restorable copy under the GUI's data directory."""
-    directory = os.path.join(config_gui_data_dir(path), "backups")
-    migrate_gui_directory(path + ".backups", directory)
-    os.makedirs(directory, exist_ok=True)
-    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    snapshot = os.path.join(directory, f"{os.path.basename(path)}.{stamp}.bak")
-    shutil.copy2(path, snapshot)
-    return snapshot
+    return _core_backups.create_backup_snapshot(path, config_gui_data_dir(path))
 
 
 def gui_backup_file(name):
@@ -579,414 +537,12 @@ def gui_backup_file(name):
 
 def load_entry_labels(config_path, entry_path):
     """Load GUI-only entry labels from the GUI data directory."""
-    sidecar = os.path.join(config_gui_data_dir(config_path), "gui-labels.json")
-    migrate_gui_file(os.path.abspath(config_path) + ".gui-labels.json", sidecar)
-    try:
-        with open(sidecar, encoding="utf-8") as f:
-            labels = json.load(f).get(entry_path, [])
-        return [label if isinstance(label, str) else "" for label in labels] if isinstance(labels, list) else []
-    except (OSError, ValueError):
-        return []
+    return _core_paths.load_entry_labels(config_path, entry_path, config_gui_data_dir(config_path))
 
 
 def save_entry_labels(config_path, entry_path, labels):
     """Save GUI-only entry labels without adding unsupported keys to the Umbriel config."""
-    sidecar = os.path.join(config_gui_data_dir(config_path), "gui-labels.json")
-    migrate_gui_file(os.path.abspath(config_path) + ".gui-labels.json", sidecar)
-    try:
-        with open(sidecar, encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            data = {}
-    except (OSError, ValueError):
-        data = {}
-    if any(labels):
-        data[entry_path] = labels
-    else:
-        data.pop(entry_path, None)
-    write_text_file(sidecar, json.dumps(data, indent=2))
-
-
-def add_entry_name_comments(text, editors):
-    """Render custom array-entry names as comments immediately above their TOML headers."""
-    marker = "# GUI rule name: "
-    sections = {
-        editor.labels_key: editor.custom_labels
-        for editor in editors
-        if getattr(editor, "mode", None) == "aot"
-    }
-    headers = {
-        path: re.compile(r"^\[\[" + re.escape(path) + r"\]\]\s*(?:#.*)?\r?\n?$")
-        for path in sections
-    }
-    indexes = {path: 0 for path in sections}
-    output = []
-    for line in text.splitlines(keepends=True):
-        if line.startswith(marker):
-            continue
-        for path, header in headers.items():
-            if header.match(line):
-                index = indexes[path]
-                labels = sections[path]
-                if index < len(labels):
-                    name = " ".join(labels[index].splitlines()).strip()
-                    if name:
-                        ending = "\r\n" if line.endswith("\r\n") else "\n"
-                        output.append(f"{marker}{name}{ending}")
-                indexes[path] += 1
-                break
-        output.append(line)
-    return "".join(output)
-
-
-def inline_window_rule_matches(doc):
-    """Keep each window rule's match fields inside its [[window_rule]] block."""
-    for rule in doc.get("window_rule", []):
-        if "match" not in rule:
-            continue
-        match = rule["match"]
-        if isinstance(match, tomlkit.items.InlineTable):
-            continue
-        try:
-            if any(k is not None and k.key == "match" and k.is_dotted() for k, _ in rule.value.body):
-                continue
-        except AttributeError:
-            pass
-        inline = tomlkit.inline_table()
-        for key, value in match.items():
-            inline[key] = value
-        rule["match"] = inline
-
-
-def move_new_keybinds(text, new_keys):
-    """Place newly added keybinds at the end of [keybinds], before trailing comments."""
-    if not new_keys:
-        return text
-    lines = text.splitlines(keepends=True)
-    keybind_header = re.compile(r"^\[keybinds\][ \t]*(?:#.*)?\r?\n?$")
-    table_header = re.compile(r"^\s*\[\[?.+\]\]?[ \t]*(?:#.*)?\r?\n?$")
-    start = next((i for i, line in enumerate(lines) if keybind_header.match(line)), None)
-    if start is None:
-        return text
-    end = next((i for i in range(start + 1, len(lines)) if table_header.match(lines[i])), len(lines))
-    section = lines[start + 1:end]
-    moved = []
-    for key_name in new_keys:
-        serialized_key = tomlkit.key(key_name).as_string()
-        pattern = re.compile(r"^\s*" + re.escape(serialized_key) + r"\s*=")
-        match = next((i for i, line in enumerate(section) if pattern.match(line)), None)
-        if match is not None:
-            moved.append(section.pop(match))
-    if not moved:
-        return text
-    key_assignment = re.compile(r'''^\s*(?:"(?:\\.|[^"\\])*"|'[^']*'|[A-Za-z0-9_-]+)\s*=''')
-    last_binding = max((i for i, line in enumerate(section) if key_assignment.match(line)), default=-1)
-    prefix = "".join(section[:last_binding + 1]).rstrip("\r\n")
-    suffix = "".join(section[last_binding + 1:]).lstrip("\r\n")
-    newline = "\r\n" if "\r\n" in text else "\n"
-    header = "# Additional keybinds"
-    has_header = any(line.strip() == header for line in section[:last_binding + 1])
-    binding_block = ("" if has_header else header + newline) + "".join(
-        line.rstrip("\r\n") + newline for line in moved
-    )
-    if prefix:
-        binding_block = newline + (binding_block if has_header else newline + binding_block)
-    if suffix:
-        binding_block += newline + suffix
-    else:
-        binding_block += newline
-    return "".join(lines[:start + 1]) + prefix + binding_block + "".join(lines[end:])
-
-
-# ------------------------------------------------------- structure rebuild
-# Canonical layout of the whole file: (banner label, top-level tables in that block).
-CONFIG_LAYOUT = [
-    ("includes", ["include"]),
-    ("session", ["general", "environment", "events", "drm"]),
-    ("outputs", ["output"]),
-    ("input", ["input"]),
-    ("colors", ["colors"]),
-    ("appearance", ["appearance"]),
-    ("layout", ["layout"]),
-    ("workspaces", ["workspaces"]),
-    ("overview", ["overview"]),
-    ("screencast", ["screencast"]),
-    ("animation", ["animation"]),
-    ("effects", ["effects"]),
-    ("hot corners", ["hot_corners"]),
-    ("keybinds", ["keybinds"]),
-    ("window rules", ["window_rule"]),
-    ("layer rules", ["layer_rule"]),
-    ("workspace rules", ["workspace"]),
-    ("scratchpads", ["scratchpad"]),
-    ("security rules", ["security_context_rule"]),
-]
-BANNER_RE = re.compile(r"^\s*#\s*-{5,}")
-BANNER_WIDTH = 77
-GUI_NAME_MARKER = "# GUI rule name: "
-
-
-def banner_line(label, newline):
-    """Return a section banner such as '# ------- keybinds', padded to a fixed width like the stock config."""
-    return "# " + "-" * max(3, BANNER_WIDTH - 3 - len(label)) + " " + label + newline
-
-
-def split_statements(text):
-    """Split TOML text into blank/comment/header/kv statements; a kv spans every line of a multi-line value."""
-    lines = text.splitlines(keepends=True)
-    out, i = [], 0
-    while i < len(lines):
-        stripped = lines[i].strip()
-        if not stripped:
-            out.append(("blank", lines[i]))
-        elif stripped.startswith("#"):
-            out.append(("comment", lines[i]))
-        elif stripped.startswith("["):
-            out.append(("header", lines[i]))
-        else:
-            chunk, depth, string = [], 0, None   # string: None or the open quote ('"', "'", '\"\"\"', "'''")
-            while i < len(lines):
-                line = lines[i]
-                chunk.append(line)
-                j = 0
-                while j < len(line):
-                    ch = line[j]
-                    if string is None:
-                        if line.startswith('"""', j) or line.startswith("'''", j):
-                            string, j = line[j:j + 3], j + 2
-                        elif ch in "\"'":
-                            string = ch
-                        elif ch == "#":
-                            break
-                        elif ch in "[{":
-                            depth += 1
-                        elif ch in "]}":
-                            depth -= 1
-                    elif string == '"' or string == '"""':
-                        if ch == "\\":
-                            j += 1
-                        elif line.startswith(string, j):
-                            string, j = None, j + len(string) - 1
-                    elif line.startswith(string, j):
-                        string, j = None, j + len(string) - 1
-                    j += 1
-                if string in ('"', "'"):
-                    string = None                # single-line strings never continue onto the next line
-                i += 1
-                if depth <= 0 and string is None:
-                    break
-            i -= 1
-            out.append(("kv", "".join(chunk)))
-        i += 1
-    return out
-
-
-def header_path(line):
-    """Return (path tuple, is_array_of_tables) for a '[a.b]' or '[[a.b]]' header line."""
-    data = tomlkit.parse(line).unwrap()
-    path = []
-    while isinstance(data, dict) and len(data) == 1:
-        key, data = next(iter(data.items()))
-        path.append(key)
-        if isinstance(data, list) and data:
-            data = data[0]
-    return tuple(path), line.lstrip().startswith("[[")
-
-
-def tidy_lines(items):
-    """Drop banner lines and outer blank lines from a comment run; collapse repeated blank lines."""
-    kept = [it for it in items if not (it[0] == "comment" and BANNER_RE.match(it[1]))]
-    while kept and kept[0][0] == "blank":
-        kept.pop(0)
-    while kept and kept[-1][0] == "blank":
-        kept.pop()
-    result = []
-    for kind, text in kept:
-        if kind == "blank" and result and result[-1][0] == "blank":
-            continue
-        result.append((kind, text))
-    return result
-
-
-def pull_banner_blocks(pending):
-    """Split a comment run into (banner blocks that introduce the NEXT section, the rest that belongs to the next key)."""
-    carried, rest, i = [], [], 0
-    while i < len(pending):
-        kind, text = pending[i]
-        if kind == "comment" and BANNER_RE.match(text):
-            while i < len(pending) and pending[i][0] == "comment":
-                carried.append(pending[i])
-                i += 1
-            carried.append(("blank", "\n"))
-            continue
-        rest.append(pending[i])
-        i += 1
-    return carried, rest
-
-
-def rebuild_config(text):
-    """Return `text` rebuilt in canonical order: banners, sections grouped, every key inside its own table.
-
-    Keys that tomlkit appended below another section's comments are pulled back into their table, and
-    those comments move to the section they introduce. Raises ValueError if the result would not
-    parse to exactly the same data as the input.
-    """
-    newline = "\r\n" if "\r\n" in text else "\n"
-    stmts = split_statements(text)
-    preamble, k = [], 0
-    while k < len(stmts) and stmts[k][0] == "comment":
-        preamble.append(stmts[k])
-        k += 1
-    if not (k < len(stmts) and stmts[k][0] == "blank"):
-        preamble, k = [], 0                      # a comment glued to the first statement is not a file header
-    root, blocks, current = [], [], None
-    pending, carry = [], []
-    for kind, stmt in stmts[k:]:
-        if kind in ("blank", "comment"):
-            pending.append((kind, stmt))
-        elif kind == "kv":
-            moved, rest = pull_banner_blocks(pending)
-            carry += moved
-            lead = []
-            for item in rest:
-                if item[0] == "blank" and lead and lead[-1][0] == "blank":
-                    continue
-                lead.append(item)
-            first = current is None or not current["items"]
-            if moved or first or not any(a == "comment" for a, _ in lead):
-                # displaced / first keys stay glued to their table; blank-only gaps are dropped
-                while lead and lead[0][0] == "blank" and (moved or first):
-                    lead.pop(0)
-                if moved:
-                    lead = [it for it in lead if it[0] != "blank"]
-            target = current["items"] if current is not None else root
-            target.append((lead, stmt))
-            pending = []
-        else:
-            path, is_aot = header_path(stmt)
-            moved, rest = pull_banner_blocks(pending)
-            intro = tidy_lines(carry + moved + rest)
-            gap = bool(pending) and pending[-1][0] == "blank" and bool(intro) and intro[-1][1].strip() != ""
-            current = {"path": path, "aot": is_aot, "header": stmt, "intro": intro, "gap": gap, "items": []}
-            blocks.append(current)
-            pending, carry = [], []
-    leftover = tidy_lines(carry + pending)
-
-    order = {name: (bi, ti) for bi, (_, names) in enumerate(CONFIG_LAYOUT) for ti, name in enumerate(names)}
-    unknown = {}
-    for blk in blocks:
-        top = blk["path"][0]
-        if top not in order and top not in unknown:
-            unknown[top] = len(unknown)
-    ranked = sorted(
-        enumerate(blocks),
-        key=lambda ib: (order[ib[1]["path"][0]][0], order[ib[1]["path"][0]][1], ib[0])
-        if ib[1]["path"][0] in order else (len(CONFIG_LAYOUT) + unknown[ib[1]["path"][0]], 0, ib[0]),
-    )
-
-    def ensure_eol(s):
-        return s if s.endswith("\n") else s + newline
-
-    out = []
-    for _, stmt in preamble:
-        out.append(ensure_eol(stmt))
-    if preamble:
-        out.append(newline)
-    for lead, stmt in root:
-        out.extend(ensure_eol(b) for _, b in lead)
-        out.append(ensure_eol(stmt))
-    if root:
-        out.append(newline)
-    last_label = None
-    for _, blk in ranked:
-        top = blk["path"][0]
-        label = next((lab for lab, names in CONFIG_LAYOUT if top in names), top.replace("_", " "))
-        if label != last_label:
-            if out and not out[-1].isspace():
-                out.append(newline)
-            out.append(banner_line(label, newline))
-            last_label = label
-        elif out:
-            out.append(newline)
-        out.extend(ensure_eol(b) for _, b in blk["intro"])
-        if blk["gap"]:
-            out.append(newline)
-        out.append(ensure_eol(blk["header"]))
-        for lead, stmt in blk["items"]:
-            out.extend(ensure_eol(b) if kind != "blank" else newline for kind, b in lead)
-            out.append(ensure_eol(stmt))
-    if leftover:
-        out.append(newline)
-        out.extend(ensure_eol(b) if kind != "blank" else newline for kind, b in leftover)
-    result = "".join(out)
-    if tomlkit.parse(result).unwrap() != tomlkit.parse(text).unwrap():
-        raise ValueError("the rebuilt file would not contain the same settings")
-    return result
-
-
-# ----------------------------------------------------------------- toml helpers
-def py(v):
-    """Turn a tomlkit value (Integer, String, Array, ...) into a plain Python value so it can be compared."""
-    return v.unwrap() if hasattr(v, "unwrap") else v
-
-
-def totext(v):
-    """Render a value as TOML text, e.g. 'x' -> '"x"' and a dict -> '{ a = 1 }'. Used for the raw-text fields."""
-    if isinstance(v, dict) and not hasattr(v, "as_string"):
-        it = tomlkit.inline_table()
-        it.update(v)
-        v = it
-    item = v if hasattr(v, "as_string") else tomlkit.item(v)
-    return item.as_string()
-
-
-def getp(c, path):
-    """Walk `path` (a tuple of keys) down through nested tables; return MISSING if any step does not exist."""
-    cur = c
-    for k in path:
-        try:
-            cur = cur[k]
-        except (KeyError, TypeError, IndexError):
-            return MISSING
-    return cur
-
-
-def normalize_optional_includes(files):
-    """Keep Noctalia before titlebar while leaving other include slots unchanged."""
-    files = list(files)
-    pinned_indexes = [
-        index for index, name in enumerate(files)
-        if name in PINNED_OPTIONAL_INCLUDES
-    ]
-    pinned_files = sorted(
-        (files[index] for index in pinned_indexes),
-        key=PINNED_OPTIONAL_INCLUDES.index,
-    )
-    for index, name in zip(pinned_indexes, pinned_files):
-        files[index] = name
-    return files
-
-
-def ensure_table(c, path):
-    """Make sure every table along `path` exists (creating empty ones) and return the innermost table."""
-    cur = c
-    for k in path:
-        if k not in cur:
-            cur[k] = tomlkit.table()
-        cur = cur[k]
-    return cur
-
-
-def putp(c, path, value):
-    """Set the value at `path`, creating any missing parent tables on the way."""
-    ensure_table(c, path[:-1])[path[-1]] = value
-
-
-def delp(c, path):
-    """Delete the key at `path` if present. Parent tables are left in place."""
-    parent = getp(c, path[:-1]) if len(path) > 1 else c
-    if parent is not MISSING and path[-1] in parent:
-        del parent[path[-1]]
+    _core_paths.save_entry_labels(config_path, entry_path, labels, config_gui_data_dir(config_path))
 
 
 def qcolor(h):

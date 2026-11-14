@@ -12,6 +12,7 @@ from .common import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPalette,
     QPushButton,
@@ -32,8 +33,9 @@ from .common import (
     shutil,
     subprocess,
     tomlkit,
-    totext,
 )
+from umbriel_core.entries import entry_label_info
+
 from .field_widget import apply_fields
 from .settings_layout import form_page
 
@@ -96,6 +98,11 @@ class EntryEditor(QWidget):
             inspect_button = QPushButton("Inspect connected outputs…")
             inspect_button.clicked.connect(self.inspect_outputs)
             lv.addWidget(inspect_button)
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText("Filter entries...")
+        self.filter_edit.setClearButtonEnabled(True)
+        self.filter_edit.textChanged.connect(self.apply_filter)
+        lv.addWidget(self.filter_edit)
         self.list = QListWidget()
         self.list.setSpacing(2)
         self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -172,21 +179,35 @@ class EntryEditor(QWidget):
         return e if self.mode == "aot" else e[1]
 
     def label(self, i):
-        """Text shown in the entry list: the output name, or the first identifying key of a rule (name, app_id, title, namespace)."""
+        """Text shown in the entry list: the output name, a custom name, or a readable form of the rule's first identifying key."""
+        return self.label_info(i)[0]
+
+    def label_info(self, i):
+        """Return (list text, raw TOML keys for the tooltip, whether the name is automatic)."""
         if self.mode == "map":
-            return str(self.entries()[i][0])
-        if i < len(self.custom_labels) and self.custom_labels[i].strip():
-            return f"{i + 1}. {self.custom_labels[i].strip()}"
-        e = self.entry(i)
-        for p in (("name",), ("match", "app_id"), ("match", "title"), ("match", "namespace"), ("index",)):
-            v = getp(e, p)
-            if v is not MISSING:
-                return f"{i + 1}. {'.'.join(p)} = {totext(v)}"
-        m = getp(e, ("match",))  # other matchers, e.g. match.is_focused
-        if m is not MISSING and len(m):
-            k = next(iter(m))
-            return f"{i + 1}. match.{k} = {totext(m[k])}"
-        return f"{i + 1}. (matches everything)"
+            return str(self.entries()[i][0]), "", False
+        custom = self.custom_labels[i] if i < len(self.custom_labels) else ""
+        return entry_label_info(self.entry(i), i, custom)
+
+    def update_item(self, item, i):
+        """Show an entry's name; automatic names are italic and the raw keys are in the tooltip."""
+        text, raw, automatic = self.label_info(i)
+        item.setText(text)
+        font = QFont(self.list.font())
+        font.setItalic(automatic)
+        item.setFont(font)
+        tooltip = raw
+        if automatic and self.mode == "aot":
+            tooltip += "\n\nAutomatic name. Use Rename to give this rule a name."
+        item.setToolTip(tooltip.strip())
+
+    def apply_filter(self, *_args):
+        """Hide entries whose name and keys do not contain the filter text."""
+        query = self.filter_edit.text().strip().casefold()
+        for row in range(self.list.count()):
+            item = self.list.item(row)
+            haystack = f"{item.text()}\n{item.toolTip()}".casefold()
+            item.setHidden(bool(query) and query not in haystack)
 
     def refresh(self, select=0):
         """Rebuild the entry list from the config and select entry number `select`."""
@@ -195,8 +216,12 @@ class EntryEditor(QWidget):
             self.custom_labels = (self.custom_labels + [""] * count)[:count]
         self.list.blockSignals(True)
         self.list.clear()
-        self.list.addItems([self.label(i) for i in range(len(self.entries()))])
+        for i in range(len(self.entries())):
+            item = QListWidgetItem()
+            self.update_item(item, i)
+            self.list.addItem(item)
         self.list.blockSignals(False)
+        self.apply_filter()
         self.cur = -1
         if self.list.count():
             self.list.setCurrentRow(min(select, self.list.count() - 1))
@@ -258,7 +283,8 @@ class EntryEditor(QWidget):
             return
         self.custom_labels[i] = name.strip()
         self.save_labels()
-        self.list.item(i).setText(self.label(i))
+        self.update_item(self.list.item(i), i)
+        self.apply_filter()
 
     def save_labels(self):
         """Persist custom names, reporting sidecar write failures without affecting the TOML config."""
@@ -278,7 +304,7 @@ class EntryEditor(QWidget):
             apply_fields(self.entry(self.cur), self.fws)
             item = self.list.item(self.cur)
             if item:
-                item.setText(self.label(self.cur))
+                self.update_item(item, self.cur)
 
     def inspect_outputs(self):
         """Discover live output modes and optionally add the selected mode to the config."""

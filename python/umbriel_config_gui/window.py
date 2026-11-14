@@ -1,6 +1,13 @@
 """Main window, save/validation workflow, and application entry point."""
 
-import stat
+import shlex
+
+from PySide6.QtCore import QProcessEnvironment
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QMenu, QToolButton
+
+from umbriel_core.backups import delete_backup_snapshots, list_backup_snapshots
+from umbriel_core.diff import group_diff_by_section
 
 from . import state
 from .qt6ct_theme import Qt6ctThemeFollower
@@ -67,6 +74,7 @@ from .common import (
     write_text_file,
 )
 from .editors import EntryEditor
+from .launch import child_env, find_terminal, terminal_command
 from .desktop import DefaultApps, UserDirs
 from .keybinds import write_keybind_groups
 from .keybind_ui import KeybindEditor
@@ -89,103 +97,6 @@ from .settings_layout import (
     form_page,
 )
 from .widgets import TriStateControl
-
-def group_diff_by_section(diff, new_text):
-    """Split unified-diff hunks by the TOML section containing their new lines."""
-    section_by_line = {}
-    section = "Top-level settings"
-    for line_number, line in enumerate(new_text.splitlines(), start=1):
-        if line.lstrip().startswith("["):
-            try:
-                path, is_array = header_path(line)
-            except (tomlkit.exceptions.TOMLKitError, ValueError):
-                path, is_array = (), False
-            if path:
-                section = ("[[" if is_array else "[") + ".".join(map(str, path)) + ("]]" if is_array else "]")
-        section_by_line[line_number] = section
-
-    groups = {}
-    lines = diff.splitlines(keepends=True)
-    index = 0
-    while index < len(lines):
-        if not lines[index].startswith("@@ "):
-            index += 1
-            continue
-        hunk = [lines[index]]
-        match = re.search(r"\+(\d+)(?:,\d+)?", lines[index])
-        new_start = int(match.group(1)) if match else 1
-        index += 1
-        while index < len(lines) and not lines[index].startswith("@@ "):
-            if not lines[index].startswith(("--- ", "+++ ")):
-                hunk.append(lines[index])
-            index += 1
-
-        current_section = section_by_line.get(max(1, new_start), section)
-        current_line = max(1, new_start)
-        section_hunks = {}
-        for diff_line in hunk[1:]:
-            prefix = diff_line[:1]
-            content = diff_line[1:] if prefix in (" ", "+", "-") else diff_line
-            if prefix in (" ", "+"):
-                current_section = section_by_line.get(current_line, current_section)
-                current_line += 1
-            elif prefix == "-" and content.lstrip().startswith("["):
-                try:
-                    old_path, old_array = header_path(content)
-                except (tomlkit.exceptions.TOMLKitError, ValueError):
-                    old_path, old_array = (), False
-                if old_path:
-                    current_section = "Removed " + (
-                        ("[[" if old_array else "[") + ".".join(map(str, old_path))
-                        + ("]]" if old_array else "]")
-                    )
-            section_hunks.setdefault(current_section, []).append(diff_line)
-        for name, section_lines in section_hunks.items():
-            groups.setdefault(name, []).extend([hunk[0], *section_lines, "\n"])
-    return groups
-
-
-def list_backup_snapshots(directory, config_path):
-    """Return regular backup files belonging to the selected config."""
-    prefix = os.path.basename(config_path) + "."
-    try:
-        with os.scandir(directory) as entries:
-            return sorted(
-                os.path.join(directory, entry.name)
-                for entry in entries
-                if entry.name.startswith(prefix)
-                and entry.name.endswith(".bak")
-                and entry.is_file(follow_symlinks=False)
-            )
-    except FileNotFoundError:
-        return []
-
-
-def delete_backup_snapshots(directory, config_path, snapshots):
-    """Delete only marked regular backup files directly inside the backup directory."""
-    directory = os.path.abspath(directory)
-    prefix = os.path.basename(config_path) + "."
-    deleted = []
-    errors = []
-    for snapshot in snapshots:
-        path = os.path.abspath(snapshot)
-        name = os.path.basename(path)
-        if (
-            os.path.dirname(path) != directory
-            or not name.startswith(prefix)
-            or not name.endswith(".bak")
-        ):
-            errors.append(f"{name}: not a valid backup path")
-            continue
-        try:
-            if not stat.S_ISREG(os.lstat(path).st_mode):
-                raise OSError("not a regular file")
-            os.remove(path)
-            deleted.append(name)
-        except OSError as error:
-            errors.append(f"{name}: {error}")
-    return deleted, errors
-
 
 # ----------------------------------------------------------------- main window
 class Window(QMainWindow):
@@ -211,7 +122,8 @@ class Window(QMainWindow):
         if app_icon is None or app_icon.isNull():
             app_icon = create_app_icon()
         self.setWindowIcon(app_icon)
-        self.setWindowTitle(f"{APP_NAME} - {state.PATH}")
+        # Qt appends the application display name; [*] shows unsaved changes.
+        self.setWindowTitle(f"{state.PATH}[*]")
         self.resize(1920, 1080)
         if app is not None:
             app_font = QFont(app.font())
@@ -236,7 +148,8 @@ class Window(QMainWindow):
             self.schema_status_text = f"Schema metadata unavailable: {error}"
         self._external_change_detected = False
         self.fws, self.editors = [], []
-        self._dirty = False
+        self._dirty_flag = False
+        self._validating_flag = False
 
         central = QWidget()
         central.setObjectName("centralWidget")
@@ -332,7 +245,8 @@ class Window(QMainWindow):
         self.config_path_edit.returnPressed.connect(self.apply_config_path)
         choose_path_btn = QPushButton("Browse...")
         choose_path_btn.clicked.connect(self.choose_config_path)
-        apply_path_btn = QPushButton("Use path")
+        apply_path_btn = QPushButton("Load")
+        apply_path_btn.setToolTip("Open the config at this path. Pressing Enter in the path box does the same.")
         apply_path_btn.clicked.connect(self.apply_config_path)
         open_btn = QPushButton("Open config")
         open_btn.clicked.connect(self.open_config_file)
@@ -351,23 +265,39 @@ class Window(QMainWindow):
 
         bar = QHBoxLayout()
         self.save_btn = QPushButton("Save")
+        self.save_btn.setObjectName("saveButton")
+        self.save_btn.setStyleSheet(
+            "QPushButton#saveButton:enabled { background: palette(highlight);"
+            " color: palette(highlighted-text); border: 1px solid palette(highlight);"
+            " font-weight: 600; padding: 4px 18px; }"
+            "QPushButton#saveButton:enabled:hover { border: 2px solid palette(highlighted-text); }"
+            "QPushButton#saveButton:disabled { padding: 4px 18px; }"
+        )
         self.save_btn.clicked.connect(self.save)
-        self.diff_box = QCheckBox("Review diff before saving")
+        save_options = QMenu(self)
+        save_options.setToolTipsVisible(True)
+        self.diff_box = QAction("Review diff before saving", save_options, checkable=True)
         self.diff_box.setChecked(True)
-        self.validate_box = QCheckBox("Validate after saving")
+        self.validate_box = QAction("Validate after saving", save_options, checkable=True)
         self.validate_box.setChecked(not state._CLI_ARGS.no_validate)
-        self.rebuild_box = QCheckBox("Rebuild file structure on save")
+        self.rebuild_box = QAction("Rebuild file structure on save", save_options, checkable=True)
         self.rebuild_box.setToolTip("Regroup the whole file in canonical order (banners, every key inside its own "
                                     "table, comments kept with their section) before writing. Settings never change, but comments "
                                     "may move. On by default only for files that already use this tool's banners.")
         has_banners = any(BANNER_RE.match(line) for line in self.doc.as_string().splitlines())
         self.rebuild_box.setChecked(has_banners and not state._CLI_ARGS.no_rebuild)
+        save_options.addAction(self.rebuild_box)
+        save_options.addAction(self.diff_box)
+        save_options.addAction(self.validate_box)
+        self.save_options_btn = QToolButton()
+        self.save_options_btn.setText("Save options")
+        self.save_options_btn.setMenu(save_options)
+        self.save_options_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.status = QLabel("")
         bar.addWidget(self.status, 1)
-        bar.addWidget(self.rebuild_box)
-        bar.addWidget(self.diff_box)
-        bar.addWidget(self.validate_box)
+        bar.addWidget(self.save_options_btn)
         bar.addWidget(self.save_btn)
+        self._refresh_save_button()
         root.addLayout(bar)
         self.disk_check_timer = QTimer(self)
         self.disk_check_timer.setInterval(2000)
@@ -422,6 +352,32 @@ class Window(QMainWindow):
         buttons.accepted.connect(dialog.accept)
         layout.addWidget(buttons)
         dialog.exec()
+
+    @property
+    def _dirty(self):
+        return self._dirty_flag
+
+    @_dirty.setter
+    def _dirty(self, value):
+        self._dirty_flag = bool(value)
+        self._refresh_save_button()
+
+    @property
+    def _validating(self):
+        return self._validating_flag
+
+    @_validating.setter
+    def _validating(self, value):
+        self._validating_flag = bool(value)
+        self._refresh_save_button()
+
+    def _refresh_save_button(self):
+        """Enable Save only while there are unsaved edits and no validation is running."""
+        if not hasattr(self, "save_btn"):
+            return
+        self.save_btn.setEnabled(self._dirty_flag and not self._validating_flag)
+        self.save_btn.setToolTip("Save your changes" if self._dirty_flag else "No unsaved changes")
+        self.setWindowModified(self._dirty_flag)
 
     def mark_dirty(self, *_args):
         """Record a user edit in any settings page."""
@@ -838,29 +794,27 @@ class Window(QMainWindow):
             if not ok2 or not cmd.strip():
                 return
             try:
-                subprocess.Popen(cmd.strip().split() + [target])
-            except OSError:
+                subprocess.Popen(shlex.split(cmd) + [target], env=child_env())
+            except (OSError, ValueError):
                 QMessageBox.warning(self, "Could not open file", f"Unable to run: {cmd}")
             return
 
         try:
             if app in ("xdg-open", "open"):
                 if sys.platform.startswith("darwin"):
-                    subprocess.Popen(["open", target])
+                    subprocess.Popen(["open", target], env=child_env())
                 elif os.name == "nt":
                     os.startfile(target)
                 else:
-                    subprocess.Popen(["xdg-open", target])
+                    subprocess.Popen(["xdg-open", target], env=child_env())
             elif app == "notepad.exe":
                 os.startfile(target)
-            elif app in ("nano", "vim", "nvim", "helix", "kak", "emacs"):
-                term = shutil.which("x-terminal-emulator") or shutil.which("kitty") or shutil.which("konsole") or shutil.which("gnome-terminal")
-                if term:
-                    subprocess.Popen([term, "-e", app, target])
-                else:
-                    subprocess.Popen([app, target])
+            elif app in ("nano", "vim", "nvim", "helix", "kak"):
+                term = find_terminal()
+                argv = [app, target]
+                subprocess.Popen(terminal_command(term, argv) if term else argv, env=child_env())
             else:
-                subprocess.Popen([app.split()[0], *app.split()[1:], target])
+                subprocess.Popen([*shlex.split(app), target], env=child_env())
         except OSError:
             QMessageBox.warning(self, "Could not open file", f"Unable to open {target} with {choice}.")
 
@@ -898,13 +852,12 @@ class Window(QMainWindow):
         for name in self._editor_page_names:
             self.side_tabs.materialize(name)
         try:
-            disk_text, _ = read_config_state(state.PATH)
             for fw in self.fws:
                 fw.get()
             for ed in self.editors:
                 ed.validate()
         except OSError as e:
-            QMessageBox.critical(self, "Could not read config", f"Could not read {state.PATH}:\n{e}")
+            QMessageBox.critical(self, "Could not prepare save", str(e))
             return False
         except ValueError as e:
             QMessageBox.warning(self, "Invalid value", str(e))
@@ -1013,9 +966,13 @@ class Window(QMainWindow):
             self.status.setText("Saved (not validated). Umbriel keeps its last working config if the reload fails.")
             return True
         # Validate in the background so the window never freezes.
-        self.save_btn.setEnabled(False)
+        self._validating = True
         self.status.setText("Saved. Validating...")
         self.proc = QProcess(self)
+        process_env = QProcessEnvironment()
+        for name, value in child_env().items():
+            process_env.insert(name, value)
+        self.proc.setProcessEnvironment(process_env)
         args = ["config", "validate", "-c", state.PATH, "--json"]
         self.backups_btn.setEnabled(False)
         self.timer = QTimer(self, singleShot=True, interval=30000)
@@ -1030,7 +987,7 @@ class Window(QMainWindow):
         """Handle `umbriel` not being installed: the file stays saved and validation is skipped."""
         if err == QProcess.ProcessError.FailedToStart:
             self.timer.stop()
-            self.save_btn.setEnabled(True)
+            self._validating = False
             self.backups_btn.setEnabled(True)
             self.status.setText("Saved. `umbriel` not found on PATH, validation skipped.")
 
@@ -1193,7 +1150,7 @@ class Window(QMainWindow):
     def validated(self, code, _status):
         """Restore only on validation errors; warnings are shown while keeping the saved config."""
         self.timer.stop()
-        self.save_btn.setEnabled(True)
+        self._validating = False
         self.backups_btn.setEnabled(True)
         out = bytes(self.proc.readAllStandardOutput()).decode(errors="replace").strip()
         err = bytes(self.proc.readAllStandardError()).decode(errors="replace").strip()

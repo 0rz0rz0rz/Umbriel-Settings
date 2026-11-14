@@ -1,423 +1,207 @@
-local controls
-local pending
-local commands = {}
-local encoded
-local notification
-local timeout
-local accepted = true
-local closed = false
-local choosers = { zenity = true, kdialog = true }
-local files = {}
-local failRead = false
-local failRename = false
-local statePath = "/backup/section-expansion.json"
+-- Drives the Noctalia panel (panel.luau) through the main flows.
+-- Usage: lua panel_test.lua PLUGIN_DIR FIXTURE_DIR   (fixtures come from the real helper, see test_panel.py)
+local H = dofile((arg[0]:match("^(.*)/") or ".") .. "/harness.lua")
+local entry = H.start("panel.luau")
+local json, fixtures, files, calls, replies, loaded, pluginDir = H.json, H.fixtures, H.files, H.calls, H.replies, H.loaded, H.pluginDir
+local flushReads, hasText, find, clickText, lastCall, screen = H.flushReads, H.hasText, H.find, H.clickText, H.lastCall, H.screen
 
-local function copy(source)
-  local result = {}
-  for key, value in pairs(source) do result[key] = value end
-  return result
+-- ------------------------------------------------------------------ scenario
+entry.onOpen()
+flushReads()
+assert(lastCall("meta") and lastCall("read") and lastCall("desktop"), "loads meta, config and desktop")
+assert(hasText("Umbriel Settings"), "home header")
+assert(hasText("Appearance") and hasText("Window rules") and hasText("Keybinds"), "page cards")
+
+-- search finds a setting by its help text and opens the right group
+local search = find("input", function(n) return tostring(n.props.key):match("^search:") end)
+search.props.onChange("modifier")
+flushReads()
+assert(hasText("Mod key"), "search shows Mod key: " .. screen())
+clickText("Mod key")
+assert(hasText("General") and hasText("Session"), "opened General")
+local select = find("select", function(n) return n.props.key == "f:general.mod_key:select" end)
+local alt
+for i, option in ipairs(select.props.options) do if option == "Alt" then alt = i - 1 end end
+select.props.onChange(tostring(alt))
+assert(hasText("1 unsaved change"), "save bar counts the edit")
+assert(hasText("changed"), "row shows the changed badge")
+
+-- the toggle of a bool field and undo
+local toggle = find("toggle", function(n) return n.props.key == "f:general.show_cheatsheet:toggle" end)
+toggle.props.onChange(tostring(not toggle.props.checked))
+assert(hasText("2 unsaved changes"))
+find("button", function(n) return n.props.key == "f:general.show_cheatsheet:undo" end).props.onClick()
+assert(hasText("1 unsaved change"), "undo restores the loaded value")
+
+-- review sends the change set and shows the readable summary
+replies.preview = function(request)
+  assert(request.changes.fields["general.mod_key"].value == "Alt", "preview gets the field change")
+  return true, json.encode({ changed = true, summary = { { page = "General", label = "Mod key", old = "Super",
+    new = "Alt", id = "general.mod_key" } }, sections = { { title = "[general]", diff = "-a\n+b\n" } },
+    validation = { ran = true, valid = true, diagnostics = {} } })
+end
+clickText("Review & save")
+flushReads()
+assert(hasText("Review changes") and hasText("Umbriel accepts the new config."), "review page: " .. screen())
+replies.save = function(request)
+  assert(request.validate == true and request.changes.revision.config, "save request")
+  return true, fixtures.saved
+end
+clickText("Save")
+flushReads()
+assert(lastCall("save"), "saved")
+assert(not hasText("Review & save"), "no pending changes after saving: " .. screen())
+assert(hasText("Saved."), "flash after save: " .. screen())
+
+-- rejected configs are not written and the diagnostic links to the setting
+entry.onKey("ctrl+f", true)
+search = find("input", function(n) return tostring(n.props.key):match("^search:") end)
+search.props.onChange("")
+clickText("General")
+select = find("select", function(n) return n.props.key == "f:general.mod_key:select" end)
+select.props.onChange("0")
+replies.preview = function()
+  return true, json.encode({ changed = true, summary = {}, sections = {},
+    validation = { ran = true, valid = false, diagnostics = { { severity = "error", message = "bad mod key",
+      field = "general.mod_key" } } } })
+end
+entry.onKey("ctrl+s", true)
+flushReads()
+assert(hasText("Saving is disabled until Umbriel accepts the config, or turn off the check."), screen())
+clickText("Go to setting")
+assert(hasText("General"), "jumped to the setting")
+
+-- rule editor: add an entry, name it, and record the operations
+entry.onKey("ctrl+f", true)
+clickText("Window rules")
+clickText("Add")
+local label = find("input", function(n) return tostring(n.props.key):match("^label%-window_rule") end)
+label.props.onChange("Browser")
+label.props.onChange("Browsers")
+assert(hasText("Window rules · 2 of 2") or hasText("Window rules · 1 of 1"), screen())
+local store = loaded[pluginDir .. "/lib/store.luau"]
+local ops = {}
+for _, op in ipairs(store.entryOps) do table.insert(ops, op.op) end
+assert(table.concat(ops, ",") == "add,label", "typing coalesces label edits: " .. table.concat(ops, ","))
+
+-- keybinds: change a shortcut with the modifier chips
+entry.onKey("ctrl+f", true)
+clickText("Keybinds")
+local first = store.keybinds.rows[1]
+clickText(first.key)
+find("button", function(n) return n.props.key == "mod-Shift" end).props.onClick()
+assert(store.keybinds.rows[1].key:find("Shift"), "Shift added: " .. store.keybinds.rows[1].key)
+assert(store.keybindsDirty)
+
+-- helper errors are shown, not swallowed
+replies.backups = function() return false, "disk on fire" end
+entry.onKey("ctrl+f", true)
+clickText("Backups")
+assert(hasText("disk on fire"), "error shown: " .. screen())
+
+-- smoke: every page and every group renders (covers every field kind's row)
+local function goHome()
+  entry.onKey("ctrl+f", true)
+  find("input", function(n) return tostring(n.props.key):match("^search:") end).props.onChange("")
+end
+local names = {}
+for name in pairs(store.meta.pages) do table.insert(names, name) end
+table.sort(names)
+for _, name in ipairs(names) do
+  goHome()
+  clickText(name)
+  local page = store.meta.pages[name]
+  for _, group in ipairs(page.groups or {}) do clickText(group.title) end
 end
 
-ui = {}
-for _, kind in ipairs({ "column", "row", "scroll", "label", "input", "button", "select", "separator" }) do
-  ui[kind] = function(props, children) return { kind = kind, props = props, children = children or {} } end
+-- color rows open an inline picker; number rows take typed values
+goHome()
+clickText("Colors")
+find("box", function(n) return n.props.onClick ~= nil end).props.onClick()
+local picker = find("colorPicker", function() return true end)
+picker.props.onChangeEnd("#112233ff")
+goHome()
+clickText("Appearance")
+clickText("Windows")
+local number = find("input", function(n) return tostring(n.props.key):match("^f:appearance%.border_width:num") end)
+number.props.onChange("abc")
+assert(hasText("Enter a whole number between 0 and 100"), screen())
+number.props.onChange("4")
+assert(store.fieldChanges["appearance.border_width"].value == 4)
+
+-- rule detail with every group, and the output inspector
+goHome()
+clickText("Window rules")
+clickText("1. firefox (app id)")
+for _, group in ipairs(store.meta.editors.window_rule.groups) do clickText(group.title) end
+-- unset table fields: clearing a box is not an error, typing fills the other parts from the hints
+clickText("Open placement")
+local width = find("input", function(n) return tostring(n.props.key):match("default_floating_size_px:width:") end)
+width.props.onChange("12")
+width.props.onChange("")
+assert(not hasText("width: enter a number"), "empty box is not an error")
+width.props.onChange("abc")
+assert(hasText("width: enter a number"), "non-number is an error")
+width.props.onChange("900")
+local sized = store.entryOps[#store.entryOps]
+assert(sized.field == "default_floating_size_px" and sized.value.width == 900 and sized.value.height == 600,
+  "other parts come from the hints")
+-- optional booleans without a default are three-way: Any / On / Off
+clickText(store.meta.editors.window_rule.groups[1].title)
+local any = find("button", function(n) return tostring(n.props.key):match("match%.is_focused:tri:1$") end)
+assert(any.props.text == "Any" and any.props.selected, "unset match bool shows Any")
+find("button", function(n) return tostring(n.props.key):match("match%.is_focused:tri:3$") end).props.onClick()
+local op = store.entryOps[#store.entryOps]
+assert(op.op == "set" and op.field == "match.is_focused" and op.value == false, "Off sets false")
+find("button", function(n) return tostring(n.props.key):match("match%.is_focused:tri:1$") end).props.onClick()
+assert(store.entryOps[#store.entryOps].op == "unset", "Any unsets")
+replies.outputs = function()
+  return true, json.encode({ outputs = { { name = "DP-1", config_name = "Acme 1", description = "Acme (DP-1)",
+    modes = { { width = 2560, height = 1440, refresh_mhz = 164999, current = true },
+              { width = 1920, height = 1080, refresh_mhz = 60000, preferred = true } } } } })
 end
-panel = { render = function(tree) controls = tree end, close = function() closed = true end }
-noctalia = {
-  pluginDir = function() return "/plugin" end,
-  pluginDataDir = function() return "/backup" end,
-  listDir = function()
-    return files[statePath] and { "section-expansion.json" } or {}
-  end,
-  readFile = function(path)
-    if failRead then return nil, "read failed" end
-    if files[path] then return "stored-state" end
-    return nil, "missing"
-  end,
-  writeFile = function(path)
-    files[path] = copy(encoded)
-    return true
-  end,
-  renameFile = function(from, to)
-    if failRename then return false, "rename failed" end
-    files[to] = files[from]
-    files[from] = nil
-    return true
-  end,
-  fileExists = function(path) return files[path] ~= nil end,
-  removeFile = function(path) files[path] = nil; return true end,
-  notify = function(_, message) notification = message end,
-  string = { trim = function(value) return value:match("^%s*(.-)%s*$") end },
-  commandExists = function(name) return choosers[name] or false end,
-  getenv = function(name) if name == "HOME" then return "/home/test" end end,
-  fileInfo = function(path)
-    if path == "/home/test/Documents" or path == "/home/test/New folder"
-        or path == "/home/test2/Other" or path == "/tmp/bad$folder" then
-      return { isDir = true }
-    end
-  end,
-  runAsync = function(command, callback, timeoutMs)
-    table.insert(commands, command)
-    pending = callback
-    timeout = timeoutMs
-    return accepted
-  end,
-  json = {
-    encode = function(value)
-      if type(value) == "string" then return string.format("%q", value) end
-      encoded = value
-      return "encoded"
-    end,
-    decode = function(value)
-      if value == "stored-state" then return copy(files[statePath]) end
-      if value == "launcher-ok" then return {} end
-      if value == "initial" then return { revision = "old", values = { DOCUMENTS = "$HOME/Documents" } } end
-      if value == "saved" then return { revision = "new", values = { DOCUMENTS = "$HOME/Work" } } end
-      if value == "apps" then return {
-        revision = "apprev", roles = { ["Web browser"] = "<multiple>" },
-        mimes = { ["application/json"] = "old.desktop" },
-        apps = { { id = "browser.desktop", name = "Browser" } },
-        role_mimes = { "text/html" },
-      } end
-      if value == "extension" then return { mime = "application/pdf-test" } end
-      if value == "keybinds" then return {
-        path = "/config.toml", revision = "keyrev", lock_revision = "lockrev", groups = { "Work" },
-        bindings = {
-          { key = "Mod+A", value = "window-close", mode = "action", group = "Work", locked = false, editable = true },
-          { key = "Mod+B", value = "spawn app", mode = "action", group = "Work", locked = true, editable = true },
-          { key = "Mod+C", value = '{ action = "window-close", repeat = true }', mode = "toml", group = "", locked = false, editable = true },
-        },
-      } end
-      if value == "[]" then return {} end
-      if value == '["one"]' then return { "one" } end
-      if value == '["two"]' then return { "two" } end
-      if value == "general" then
-        local values = {}
-        for _, key in ipairs({
-          "general.autostart", "general.mod_key", "general.show_cheatsheet",
-          "general.focus_on_activate", "general.attach_modal_dialogs", "general.honor_restored_maximize",
-          "general.nvidia_sync_workaround", "general.xwayland", "general.xwayland_native_resolution",
-          "general.xwayland_xsettings", "general.xwayland_primary_output", "events.lid_close",
-          "events.lid_open", "screencast.disable_dynamic_confirmation", "drm.ignored_devices",
-          "drm.ignored_pci_addresses", "include.files", "include.optional.files",
-        }) do values[key] = { present = false, value = "" } end
-        values["general.autostart"] = { present = true, value = '["one"]' }
-        for _, key in ipairs({ "drm.ignored_devices", "drm.ignored_pci_addresses",
-          "include.files", "include.optional.files" }) do values[key].value = "[]" end
-        return { revision = "generalrev", path = "/config.toml", values = values }
-      end
-      return nil, "bad JSON"
-    end,
-  },
-}
+goHome()
+clickText("Outputs")
+clickText("Inspect connected outputs")
+clickText("Use for this output")
+local last = store.entryOps[#store.entryOps]
+assert(last.editor == "output" and last.field == "mode" and last.value == "2560x1440@164.999", last.value)
 
-local function find(node, predicate)
-  if predicate(node) then return node end
-  for _, child in ipairs(node.children) do
-    local result = find(child, predicate)
-    if result then return result end
-  end
-end
+-- maps: edit a row in place
+goHome()
+clickText("Environment")
+find("button", function(n) return n.props.tooltip == "Edit" end).props.onClick()
+clickText("Apply")
+assert(store.mapOps[#store.mapOps].name == "QT_QPA_PLATFORM")
 
-local function button(text)
-  return assert(find(controls, function(node) return node.kind == "button" and node.props.text == text end))
-end
+-- desktop pages and the app picker
+goHome()
+clickText("User folders")
+goHome()
+clickText("Default apps")
+clickText("Web browser")
+assert(hasText("Choose an app"), screen())
+find("input", function(n) return n.props.key == "app-id" end).props.onChange("firefox.desktop")
+clickText("Use")
+assert(store.desktop.apps.roles["Web browser"] == "firefox.desktop")
 
-local function input(key)
-  return assert(find(controls, function(node)
-    return node.kind == "input" and node.props.key:match("^" .. key)
-  end))
-end
+-- backups list and comparison, and about
+replies.backups = function() return true, json.encode({ backups = {
+  { path = "/b/config.toml.1.bak", name = "config.toml.1.bak", time = "2026-11-14 10:00:00", size = 2048 } } }) end
+replies["backup-diff"] = function() return true, json.encode({ diff = "-x\n+y\n" }) end
+goHome()
+clickText("Backups")
+clickText("Compare")
+assert(find("markdown", function(n) return n.props.text:find("```diff", 1, true) end))
+goHome()
+clickText("About")
 
-local function complete(stdout, exitCode, stderr)
-  pending({ exitCode = exitCode or 0, stdout = stdout, stderr = stderr or "" })
-end
+-- closing keeps a draft of unsaved edits for the next start
+entry.onClose()
+assert(files["/data/draft.json"], "draft written on close")
+local draft = json.decode(files["/data/draft.json"])
+assert(draft.fields["general.mod_key"] and draft.keybinds, "draft holds field and keybind edits")
 
-local nativeRequire = require
-require = function(name)
-  if name == "./keybind_ui.luau" then return assert(loadfile(arg[2]))() end
-  return nativeRequire(name)
-end
-assert(loadfile(arg[1]))()
-onOpen()
-assert(#commands == 0)
-local header = controls.children[1]
-assert(header.kind == "row" and header.children[1].props.flexGrow == 1)
-assert(header.children[2].kind == "button" and header.children[2].props.text == "Close")
-header.children[2].props.onClick()
-assert(closed)
-for index, child in ipairs(controls.children) do
-  if child.kind == "button" and child.props.text == "Default Apps" then
-    assert(controls.children[index + 1].kind == "separator")
-    assert(controls.children[index + 2].props.text == "General")
-  end
-end
-button("Open standalone app").props.onClick()
-assert(commands[1][1] == "python3" and commands[1][2] == "/plugin/launch_app.py")
-assert(timeout == 15000 and not button("Open standalone app").props.enabled)
-complete("launcher-ok")
-assert(button("Open standalone app").props.enabled)
-assert(find(controls, function(node) return node.kind == "label" and node.props.text == "Launch request sent." end))
-button("Open standalone app").props.onClick()
-complete("", 1, "desktop entry missing")
-assert(find(controls, function(node) return node.kind == "label" and node.props.text:match("desktop entry missing") end))
-accepted = false
-button("Open standalone app").props.onClick()
-assert(find(controls, function(node) return node.kind == "label" and node.props.text:match("Could not start python3") end))
-accepted = true
-button("Open standalone app").props.onClick()
-onClose()
-complete("", 1, "launcher failed")
-assert(notification:match("launcher failed"))
-onOpen()
-commands = {}
-button("User Folders").props.onClick()
-assert(commands[1][2] == "/plugin/user_dirs.py" and commands[1][3] == "read")
-complete("initial")
-assert(input("DOCUMENTS").props.value == "$HOME/Documents")
-input("DOCUMENTS").props.onChange("$HOME/Work")
-button("Back").props.onClick()
-button("Default Apps").props.onClick()
-assert(commands[2][2] == "/plugin/default_apps.py" and commands[2][3] == "read")
-complete("apps")
-assert(input("Web browser").props.value == "<multiple>")
-assert(button("Common application roles").props.variant == "primary")
-assert(button("Other file types").props.variant == "primary")
-assert(find(controls, function(node) return node.kind == "separator" end))
-assert(not find(controls, function(node) return node.kind == "input" and node.props.key == "search" end))
-button("Common application roles").props.onClick()
-assert(not find(controls, function(node) return node.kind == "input" and node.props.key:match("^Web browser") end))
-button("Common application roles").props.onClick()
-assert(input("Web browser").props.value == "<multiple>")
-button("Other file types").props.onClick()
-assert(input("application/json").props.value == "old.desktop")
-button("Remove").props.onClick()
-assert(not find(controls, function(node) return node.kind == "label" and node.props.text == "application/json" end))
-input("new%-mime").props.onChange("application/json")
-button("Add MIME type").props.onClick()
-assert(input("application/json").props.value == "old.desktop")
-local select = assert(find(controls, function(node)
-  return node.kind == "select" and node.props.key == "select-Web browser"
-end))
-select.props.onChange("1")
-assert(input("Web browser").props.value == "browser.desktop")
-input("application/json").props.onChange("json.desktop")
-button("Common application roles").props.onClick()
-button("Other file types").props.onClick()
-assert(not find(controls, function(node) return node.kind == "input" and node.props.key:match("^application/json") end))
-button("Common application roles").props.onClick()
-button("Other file types").props.onClick()
-assert(input("Web browser").props.value == "browser.desktop")
-assert(input("application/json").props.value == "json.desktop")
-input("new%-mime").props.onChange(".pdf")
-button("Other file types").props.onClick()
-button("Other file types").props.onClick()
-assert(input("new%-mime").props.value == ".pdf")
-button("Add file extension").props.onClick()
-assert(commands[3][3] == "extension" and commands[3][4] == ".pdf")
-complete("extension")
-input("application/pdf%-test").props.onChange("pdf.desktop")
-button("Other file types").props.onClick()
-button("Save").props.onClick()
-assert(commands[4][3] == "save" and commands[4][4] == "apprev")
-local found = {}
-for _, item in ipairs(encoded) do found[item.key] = item.value end
-assert(found["Web browser"] == "browser.desktop")
-assert(found["application/json"] == "json.desktop")
-assert(found["application/pdf-test"] == "pdf.desktop")
-complete("", 1, "conflict")
-assert(find(controls, function(node) return node.kind == "label" and node.props.text:match("conflict") end))
-button("Back").props.onClick()
-button("User Folders").props.onClick()
-assert(input("DOCUMENTS").props.value == "$HOME/Work")
-button("Save").props.onClick()
-assert(encoded.DOCUMENTS == "$HOME/Work")
-assert(commands[5][3] == "save" and commands[5][4] == "old" and commands[5][5] == "/backup")
-complete("saved")
-button("Save").props.onClick()
-assert(#commands == 5)
-input("DOCUMENTS").props.onChange("/new")
-button("Save").props.onClick()
-local previousSave = pending
-onClose()
-onOpen()
-button("User Folders").props.onClick()
-complete("initial")
-previousSave({ exitCode = 1, stdout = "", stderr = "failed" })
-assert(notification:match("failed"))
-assert(input("DOCUMENTS").props.value == "$HOME/Documents")
-
-local function browse(key)
-  return assert(find(controls, function(node)
-    return node.kind == "button" and node.props.key == "browse-" .. key
-  end))
-end
-
-browse("DOCUMENTS").props.onClick()
-assert(commands[#commands][1] == "zenity")
-assert(commands[#commands][5] == "--filename=/home/test/Documents/")
-assert(timeout == 60000 and not button("Save").props.enabled)
-complete("/home/test/New folder\n")
-assert(input("DOCUMENTS").props.value == "$HOME/New folder")
-browse("DOCUMENTS").props.onClick()
-complete("", 1)
-assert(input("DOCUMENTS").props.value == "$HOME/New folder")
-choosers.zenity = false
-browse("DOCUMENTS").props.onClick()
-assert(commands[#commands][1] == "kdialog" and commands[#commands][3] == "/home/test/New folder")
-complete("/home/test2/Other\n")
-assert(input("DOCUMENTS").props.value == "/home/test2/Other")
-browse("DOCUMENTS").props.onClick()
-complete("/tmp/bad$folder\n")
-assert(input("DOCUMENTS").props.value == "/home/test2/Other")
-assert(find(controls, function(node) return node.kind == "label" and node.props.text:match("unsupported") end))
-browse("DOCUMENTS").props.onClick()
-pending({ exitCode = 1, stdout = "", stderr = "", timedOut = true })
-assert(find(controls, function(node) return node.kind == "label" and node.props.text:match("timed out") end))
-accepted = false
-browse("DOCUMENTS").props.onClick()
-assert(find(controls, function(node) return node.kind == "label" and node.props.text:match("Could not start") end))
-accepted = true
-choosers.kdialog = false
-local count = #commands
-browse("DOCUMENTS").props.onClick()
-assert(#commands == count)
-assert(find(controls, function(node) return node.kind == "label" and node.props.text:match("Install zenity") end))
-choosers.zenity = true
-browse("DOCUMENTS").props.onClick()
-local previousBrowse = pending
-onClose()
-onOpen()
-button("User Folders").props.onClick()
-complete("initial")
-previousBrowse({ exitCode = 0, stdout = "/home/test/New folder\n", stderr = "" })
-assert(input("DOCUMENTS").props.value == "$HOME/Documents")
-
-button("Back").props.onClick()
-button("General").props.onClick()
-assert(commands[#commands][2] == "/plugin/general.py" and commands[#commands][3] == "read")
-complete("general")
-assert(input("general%-path").props.value == "/config.toml")
-for _, title in ipairs({ "Session", "XWayland (restart)", "Lid events", "Screencast",
-  "DRM devices (restart)", "Includes" }) do assert(button(title)) end
-assert(input("general%.autostart%-1").props.value == "one")
-input("general%.autostart%-1").props.onChange("two")
-local toggle = assert(find(controls, function(node)
-  return node.kind == "select" and node.props.key == "general-general.show_cheatsheet"
-end))
-toggle.props.onChange("2")
-local modEnabled = assert(find(controls, function(node)
-  return node.kind == "select" and node.props.key == "general-enabled-general.mod_key"
-end))
-modEnabled.props.onChange("1")
-local modChoice = assert(find(controls, function(node)
-  return node.kind == "select" and node.props.key == "general-mod-key-choice"
-end))
-modChoice.props.onChange("2")
-assert(input("general%.mod_key").props.value == "Alt")
-button("Session").props.onClick()
-assert(not find(controls, function(node) return node.kind == "input" and node.props.key:match("^general%.autostart") end))
-button("Session").props.onClick()
-assert(input("general%.autostart%-1").props.value == "two")
-button("Back").props.onClick()
-button("General").props.onClick()
-assert(input("general%.autostart%-1").props.value == "two")
-input("general%-path").props.onChange("/other.toml")
-local before = #commands
-button("Save").props.onClick()
-assert(#commands == before)
-assert(find(controls, function(node) return node.kind == "label" and node.props.text:match("Reload the selected") end))
-input("general%-path").props.onChange("/config.toml")
-button("Save").props.onClick()
-assert(commands[#commands][3] == "save" and commands[#commands][4] == "/config.toml")
-assert(commands[#commands][5] == "generalrev" and timeout == 60000)
-local generalChanges = {}
-for _, change in ipairs(encoded) do generalChanges[change.key] = change end
-assert(generalChanges["general.autostart"].value == '["two"]')
-assert(generalChanges["general.show_cheatsheet"].present and generalChanges["general.show_cheatsheet"].value == "false")
-assert(generalChanges["general.mod_key"].present and generalChanges["general.mod_key"].value == "Alt")
-complete("general")
-
-button("Session").props.onClick()
-button("XWayland (restart)").props.onClick()
-button("Back").props.onClick()
-button("Default Apps").props.onClick()
-complete("apps")
-button("Common application roles").props.onClick()
-button("Other file types").props.onClick()
-onClose()
-onOpen()
-button("General").props.onClick()
-complete("general")
-assert(button("Session").props.glyph == "chevron-right")
-assert(button("XWayland (restart)").props.glyph == "chevron-down")
-button("Back").props.onClick()
-button("Default Apps").props.onClick()
-complete("apps")
-assert(button("Common application roles").props.glyph == "chevron-right")
-assert(button("Other file types").props.glyph == "chevron-down")
-
-assert(loadfile(arg[1]))()
-onOpen()
-button("General").props.onClick()
-complete("general")
-assert(button("Session").props.glyph == "chevron-right")
-assert(button("XWayland (restart)").props.glyph == "chevron-down")
-failRename = true
-button("XWayland (restart)").props.onClick()
-assert(notification:match("Could not save section state"))
-assert(files[statePath]["general:XWayland (restart)"] == true)
-assert(files[statePath .. ".tmp"] == nil)
-failRename = false
-onClose()
-failRead = true
-onOpen()
-assert(notification:match("Could not restore section states"))
-button("General").props.onClick()
-complete("general")
-assert(button("Session").props.glyph == "chevron-right")
-assert(button("XWayland (restart)").props.glyph == "chevron-right")
-button("Session").props.onClick()
-assert(notification:match("not saved"))
-assert(files[statePath]["general:Session"] == false)
-failRead = false
-
-onClose()
-onOpen()
-button("Keybinds").props.onClick()
-assert(commands[#commands][2] == "/plugin/keybinds.py" and commands[#commands][3] == "read")
-complete("keybinds")
-assert(button("Work (2)").props.glyph == "chevron-right")
-button("Work (2)").props.onClick()
-button("Mod+B (locked)").props.onClick()
-assert(find(controls, function(node) return node.kind == "label" and node.props.text:match("Locked in Umbriel") end))
-assert(not find(controls, function(node) return node.kind == "button" and node.props.text == "Remove keybind" end))
-button("Mod+A").props.onClick()
-input("keybind%-value").props.onChange("spawn editor")
-button("Edit advanced options").props.onClick()
-assert(input("keybind%-value").props.value == '{ action = "spawn editor" }')
-input("keybind%-value").props.onChange('{ action = "spawn editor", repeat = false }')
-input("keybind%-new%-key").props.onChange("Mod+D")
-input("keybind%-new%-action").props.onChange("window-close")
-button("Add keybind").props.onClick()
-button("Remove keybind").props.onClick()
-button("Restore keybind").props.onClick()
-button("Back").props.onClick()
-button("Keybinds").props.onClick()
-assert(input("keybind%-value").props.value == "window-close")
-button("Save").props.onClick()
-assert(commands[#commands][2] == "/plugin/keybinds.py" and commands[#commands][3] == "save")
-assert(commands[#commands][4] == "/config.toml" and commands[#commands][5] == "keyrev")
-assert(commands[#commands][6] == "lockrev" and timeout == 60000)
-local keybindChanges = {}
-for _, change in ipairs(encoded) do keybindChanges[change.key] = change end
-assert(keybindChanges["Mod+A"].mode == "toml" and keybindChanges["Mod+A"].value:match("repeat = false"))
-assert(keybindChanges["Mod+D"].mode == "action" and keybindChanges["Mod+D"].value == "window-close")
-assert(not keybindChanges["Mod+B"])
-complete("", 1, "conflict")
-assert(find(controls, function(node) return node.kind == "label" and node.props.text:match("conflict") end))
-onClose()
-onOpen()
-button("Keybinds").props.onClick()
-complete("keybinds")
-assert(button("Work (2)").props.glyph == "chevron-down")
+-- leftover request/response files are cleaned up
+for path in pairs(files) do assert(not path:match("%.req%.json$"), "request file left behind: " .. path) end
+print("panel ok")

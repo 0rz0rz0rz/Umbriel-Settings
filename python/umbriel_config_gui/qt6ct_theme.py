@@ -14,6 +14,8 @@ from PySide6.QtCore import QFileSystemWatcher, QSettings, QTimer
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
+from umbriel_core.kde import qt6ct_config_path
+
 _ROLE_SECTIONS = (
     (QPalette.ColorRole.Window, "Window", "BackgroundNormal"),
     (QPalette.ColorRole.WindowText, "Window", "ForegroundNormal"),
@@ -35,11 +37,6 @@ _DISABLED_TEXT_ROLES = (
     (QPalette.ColorRole.Text, "View"),
     (QPalette.ColorRole.ButtonText, "Button"),
 )
-
-
-def qt6ct_config_path():
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "qt6ct", "qt6ct.conf")
 
 
 def _parse_color(value):

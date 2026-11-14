@@ -1,0 +1,22 @@
+id = "umbriel-settings/Umbriel-GUI-Plugin"
+name = "Umbriel Settings"
+version = "0.2.0"
+plugin_api = 43
+author = "umbriel-settings"
+description = "Edit every Umbriel setting, rule and keybind, plus user folders and default applications, with search, review and backups."
+dependencies = ["python3", "python-tomlkit"]
+
+[[widget]]
+id = "settings"
+entry = "bar.luau"
+
+[[panel]]
+id = "folders"
+entry = "panel.luau"
+width = 980
+height = 760
+placement = "floating"
+position = "center"
+keyboard_focus = "exclusive"
+dismiss_on_outside_click = false
+capture_keys = ["ctrl+f", "ctrl+s", "alt+Left"]

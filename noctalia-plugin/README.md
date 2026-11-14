@@ -1,104 +1,114 @@
-# Umbriel-GUI Noctalia plugin
+# Umbriel Settings for Noctalia
 
-This Noctalia 5.5 plugin provides General, Keybinds, User Folders and Default Apps
-sections. User Folders and Default Apps edit `$XDG_CONFIG_HOME/user-dirs.dirs`
-and `mimeapps.list` (default `~/.config/`). It requires Python 3 on `PATH`
-and plugin API 24 or newer. General and Keybinds additionally need Python 3.11
-or newer and the `umbriel` CLI. It is separate from the PySide6 app.
+A Noctalia 5 plugin that edits your whole Umbriel configuration from a shell
+panel: every setting page, window/layer/workspace/security rules, outputs,
+scratchpads, input devices, effects, animation curves, environment variables
+and keybinds, plus XDG user folders and default applications.
 
-Add this directory as a local plugin source in a running Noctalia session:
+The standalone Umbriel Settings app runs this plugin's own interface code
+(`lib/`, `ui/`, `pages/`) with a sidebar layout (`app.luau`), and both use the
+same core (`python/umbriel_core`). So the panel and the app look alike, edit the
+config the same way and share backups, rule names and keybind locks.
+
+## Requirements
+
+- Noctalia 5.4.0 or newer (plugin API 43).
+- Python 3.11 or newer on `PATH`, with **tomlkit** (Arch: `pacman -S python-tomlkit`,
+  otherwise `pip install --user tomlkit`). Without tomlkit the panel explains what
+  to install; user folders and default apps still work.
+- The `umbriel` CLI for defaults, ranges and validation. Without it, settings
+  can still be edited but are not checked before writing.
+- Optional: `zenity` or `kdialog` (Browse for folders), `gio` (open the
+  standalone app), `xdg-open` (Edit file).
+
+## Install
 
 ```sh
-noctalia plugins lint /path/to/Umbriel-GUI/noctalia-plugin/user-folders
+noctalia plugins lint /path/to/Umbriel-GUI/noctalia-plugin/Umbriel-GUI-Plugin
 noctalia msg plugins source add umbriel-dev path /path/to/Umbriel-GUI/noctalia-plugin
-noctalia msg plugins enable umbriel-settings/user-folders
-noctalia msg panel-open umbriel-settings/user-folders:folders
+noctalia msg plugins enable umbriel-settings/Umbriel-GUI-Plugin
+noctalia msg panel-open umbriel-settings/Umbriel-GUI-Plugin:folders
 ```
 
-Replace `/path/to/Umbriel-GUI` with the checkout's absolute path. Alternatively,
-enable the plugin in **Settings → Plugins**. After enabling it, add the plugin's
-`umbriel-settings/user-folders:settings` widget to the bar using the Add-widget
-picker. Its **Umbriel-GUI** button opens and closes the panel; remove the old Custom
-Button if you added one. Existing installations must run
-`noctalia msg config-reload` to discover the new widget.
+Then add the `umbriel-settings/Umbriel-GUI-Plugin:settings` widget to a bar. Its
+**Umbriel-GUI** button toggles the panel and shows a dot while edits are unsaved.
+Run `noctalia msg config-reload` after updating the plugin's manifest.
 
-The main menu's **Open standalone app** button uses `gio` and
-`$XDG_DATA_HOME/applications/umbriel-config-gui.desktop` (default
-`~/.local/share/applications/umbriel-config-gui.desktop`). Run the standalone
-app once first to create that entry; the button then uses the source or
-AppImage installation recorded there. If that installation moves, run it again
-to update the entry. A successful launch request does not guarantee that the
-app itself started successfully.
+Upgrading from 0.1.x: the plugin ID changed from `umbriel-settings/user-folders`
+to `umbriel-settings/Umbriel-GUI-Plugin`. Run `noctalia msg config-reload`,
+disable the old ID (`noctalia msg plugins disable umbriel-settings/user-folders`),
+enable the new one, and re-add the bar widget. Panel drafts and cache start fresh;
+config backups are unaffected (they live in the app's data directory).
 
-Choose a section after opening the panel. The Back button retains
-unsaved edits while the panel stays open. Manifest edits require
-`noctalia msg config-reload`; script edits hot-reload. Disable the plugin or
-remove the `umbriel-dev` source in Settings
-or with `noctalia msg plugins disable` / `noctalia msg plugins source remove`.
+## Using it
 
-Paths must be absolute or start with `$HOME/`; empty fields remove an existing
-entry. Browse uses `zenity` or `kdialog` to select an existing folder; the
-chooser times out after 60 seconds. The panel does not create or move folders.
-It preserves unrelated
-entries and comments, rejects saves if the file changed since loading, and
-backs up an existing file as `user-dirs.dirs.bak` in the plugin's Noctalia
-data directory. Symlinked user-folder files are read-only in this prototype.
-Wait for the save confirmation before closing the panel, and restart
-applications to pick up changes. The Reload button discards unsaved edits;
-closing the panel also discards them.
-To keep the folder chooser usable, clicking outside no longer closes the
-panel; use Close, Escape, or the bar button instead.
+- **Home** opens with a search box. Type anything: setting names, words from
+  their help, config keys (`border_width`), rule names or shortcuts. Results jump
+  straight to the setting. Below the search, cards lead to every page and show
+  how many settings you have customized and how many edits are unsaved.
+- **Setting pages** show one group at a time. Each row has the control, the
+  default value, an ⓘ button with the full help and config key, ↶ to undo your
+  edit and the eraser to remove the key so Umbriel's default applies. Turn on
+  **Only customized** to see just what differs from the defaults.
+- **Rules, outputs, devices and effects** are lists; open an entry to edit it,
+  give rules a display name, reorder, duplicate or delete them. **Inspect
+  connected outputs** adds a monitor with one of its real modes.
+- **Keybinds** are grouped. Build shortcuts from modifier chips plus a key, pick
+  actions from a searchable catalog with argument hints, set repeat/locked
+  options, manage groups and lock shortcuts you never want to change by accident.
+- **Default apps** uses a searchable app list with icons.
 
-Default Apps supports common application roles and additional MIME types or
-file extensions in collapsible sections; Other file types initially starts
-collapsed. The General, Keybinds and Default Apps section states are saved in
-`section-expansion.json` in the plugin data directory and restored when the
-panel is reopened, including after Noctalia restarts. If the file cannot be
-restored, sections start collapsed and the plugin reports the error.
-Choose an installed application or enter its desktop-file
-ID. Changes preserve unrelated entries and existing fallback IDs; clearing a
-field removes its association. A backup is saved as `mimeapps.list.bak` in the
-plugin data directory, and external edits are detected before saving. Symlinked
-`mimeapps.list` files are read-only.
+Nothing is written until you press **Review & save** (Ctrl+S). The review lists
+every change in words, shows the file diff by section, and checks the new file
+with `umbriel config validate` first: if Umbriel rejects it, nothing is written
+and each problem links to its setting. **Tidy file layout** regroups the file in
+canonical order with section banners (on by default only for files that
+already have them).
 
-General offers the standalone app's six collapsible groups. It initially uses
-the config path last selected in Umbriel Settings, or
-`~/.config/umbriel/config.toml` if no path was saved. This is not necessarily
-the running compositor's config: check the displayed path, and enter another
-path and press Reload if needed. The config must already exist. Included files
-are validated but their values are not displayed or edited.
+Edits survive closing the panel (Esc) and even a Noctalia restart: they are kept
+as a draft until you save or discard them. If the config changes on disk in the
+meantime, setting edits are kept and rule/keybind edits are dropped with a note.
 
-Only changed fields are written. The helper validates the proposed config with
-`umbriel` before saving, preserves unrelated values and comments, detects
-external edits, rejects symlinks, and keeps a per-config backup in the plugin
-data directory. Multiline values containing comments and some inline-table or
-unusual TOML layouts cannot yet be safely edited here; the helper refuses those
-edits without saving. Use the standalone app for those cases. Restart Umbriel
-for settings marked as requiring a restart.
+Keys: Ctrl+F search, Ctrl+S review, Alt+Left back, Esc close.
 
-Keybinds lists bindings from the selected config in collapsible groups and
-supports searching, adding, editing and removing shortcuts. Enter shortcuts
-as text. Simple actions are edited directly; use **Edit advanced options**
-to edit a TOML table with options such as `repeat`, `submap`, `release` or
-`cooldown_ms`. Existing table values retain their other options unless you
-change them. Included configs are not displayed. The selected path is
-independent of General: check it and press Reload after changing it.
+## Files
 
-The plugin honors the standalone app's keybind locks and group assignments.
-Manage locks and groups in the standalone app; removing a binding also removes
-its group assignment. Some TOML layouts are read-only in the plugin. Saves
-validate with Umbriel, detect config and lock changes, and use the same
-per-config backup as General.
+- Config: the path last chosen in the app or the panel
+  (`$XDG_DATA_HOME/umbriel-config-gui/gui-config-path`), else
+  `~/.config/umbriel/config.toml`. Change it at the bottom of the home page.
+  Symlinked configs are refused; open the link's target instead. Included files
+  are validated but not shown.
+- Backups: a timestamped copy before every save or restore, in
+  `$XDG_DATA_HOME/umbriel-config-gui/configs/<id>/backups/`, shared with the app.
+  **Backups** on the home page compares, restores and deletes them.
+- Desktop backups: `$XDG_DATA_HOME/umbriel-config-gui/backups/user-dirs.dirs.bak`
+  and `mimeapps.list.bak`.
+- Panel cache and drafts: Noctalia's plugin data directory, normally
+  `~/.local/state/noctalia/plugins/data/umbriel-settings/Umbriel-GUI-Plugin/`.
 
-## Plugin data and backups
+## Development
 
-Noctalia stores plugin data separately from the standalone app, normally in
-`~/.local/state/noctalia/plugins/data/umbriel-settings/user-folders/`.
-`NOCTALIA_STATE_HOME` or `XDG_STATE_HOME` can change the state root. This
-directory holds `section-expansion.json`, the desktop-setting backups, and
-`umbriel-config-<config-id>.bak` for each Umbriel config edited by General or
-Keybinds. Each backup is replaced on the next save for that file; these are not
-the standalone app's timestamped snapshots.
+| Part | Used by |
+| --- | --- |
+| `lib/`, `ui/`, `pages/` (shared UI) and `umbriel_settings.py` (helper) | plugin and app |
+| `panel.luau`, `bar.luau`, `plugin.toml` | plugin |
+| `app.luau` (sidebar layout; not listed in `plugin.toml`, so Noctalia never loads it) | app |
+| `umbriel_core/` (copy of `python/umbriel_core`) | plugin |
 
-This plugin is experimental and does not yet include a custom-folder editor
-or all standalone settings. Use the standalone app for unsupported sections.
+`umbriel_settings.py` is the only helper. The panel writes a JSON request file,
+runs `python3 -B umbriel_settings.py <command> --request F --response G` and reads
+the response file (helper output and argv are size-limited). The app calls the
+same commands in-process. Edit `python/umbriel_core`, never the copy here, and run
+`tools/sync_plugin_core.py` (a test fails when the copy is stale).
+
+Shared-UI code must parse as both Luau and Lua 5.4 (the app runs it with lupa),
+stay within Noctalia's 25 ms per-callback CPU budget, and use only API calls the
+app host implements (`python/umbriel_config_gui/host/api.py`).
+
+```sh
+python tools/check.py plugin host   # plugin tests, luac, lint, then the app host tests
+```
+
+`test_panel.py` drives `panel.luau` and `app.luau` under plain `lua` with a mocked
+Noctalia API (`tests/harness.lua`) and real helper output; it does not prove live
+rendering or the CPU budget, which need a running Noctalia.

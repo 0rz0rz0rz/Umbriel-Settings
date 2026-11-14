@@ -6,7 +6,10 @@ from unittest.mock import Mock, patch
 
 import tomlkit
 
-from umbriel_config_gui import state
+from PySide6.QtWidgets import QApplication
+
+from umbriel_config_gui import common, desktop, settings_layout, state
+from umbriel_config_gui.field_widget import FieldWidget
 from umbriel_config_gui.window import Window
 
 
@@ -94,6 +97,63 @@ class SaveWorkflowTests(unittest.TestCase):
             self.assertFalse(Window.save(self.window))
         self.assertIn("Desktop settings were already saved", critical.call_args.args[2])
         self.assertTrue(self.window._dirty)
+
+
+class SaveButtonStateTests(unittest.TestCase):
+    """Save is only enabled while there are edits, so browsing must never mark the window dirty."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_browsing_keeps_save_disabled_and_an_edit_enables_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "config.toml")
+            with open(path, "w", encoding="utf-8") as config:
+                config.write(
+                    "[general]\n[[window_rule]]\nmatch.app_id = \"a\"\nopen_floating = true\n"
+                    "[[window_rule]]\nmatch.title = \"b\"\n"
+                    "default_floating_size_px = {width = 10, height = 20}\n"
+                )
+            with (
+                patch.object(state, "PATH", path),
+                patch.object(state, "ACTIVE_SCHEMA_OPTIONS", {}),
+                patch.object(common, "GUI_DATA_DIR", os.path.join(directory, "data")),
+                patch.object(settings_layout, "_GROUP_EXPANSION_PATH", os.path.join(directory, "state.json")),
+                patch.object(settings_layout, "_group_expansion_states", {}),
+                patch.object(desktop, "USER_DIRS", os.path.join(directory, "user-dirs.dirs")),
+                patch.object(desktop, "MIMEAPPS_PATH", os.path.join(directory, "mimeapps.list")),
+                patch.object(desktop, "installed_desktop_apps", return_value=[]),
+                patch("umbriel_config_gui.window.load_umbriel_schema", side_effect=FileNotFoundError("test")),
+            ):
+                window = Window(path)
+                self.addCleanup(window.deleteLater)
+                window.show()
+                self.addCleanup(setattr, window, "_dirty", False)
+                self.app.processEvents()
+                self.assertEqual(
+                    [action.text() for action in window.save_options_btn.menu().actions()],
+                    [window.rebuild_box.text(), window.diff_box.text(), window.validate_box.text()],
+                )
+                for name, row in window.side_tabs.page_rows.items():
+                    with self.subTest(page=name):
+                        window.side_tabs.nav.setCurrentRow(row)
+                        self.app.processEvents()
+                        self.app.processEvents()
+                        self.assertFalse(window._dirty)
+                rules = window.side_tabs.page_widgets["Window rules"]
+                for row in (1, 0, 1):
+                    rules.list.setCurrentRow(row)
+                    self.app.processEvents()
+                self.assertFalse(window._dirty)
+                self.assertFalse(window.save_btn.isEnabled())
+                self.assertFalse(window.isWindowModified())
+
+                size = next(field for field in rules.findChildren(FieldWidget)
+                            if field.f.path == ("default_floating_size_px",))
+                size.table_editors["height"].setValue(30)
+                self.assertTrue(window.save_btn.isEnabled())
+                self.assertTrue(window.isWindowModified())
 
 
 if __name__ == "__main__":

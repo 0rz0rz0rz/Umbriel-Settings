@@ -22,26 +22,14 @@ from .common import (
     tomlkit,
     totext,
 )
+from umbriel_core.keybinds import fmt_opts, parse_opts
+
 from .editors import EntryEditor
+from .field_widget import parse_toml_value
 from .field_defs import EFFECT_POOL_GROUPS, EFFECT_PRESET_GROUPS
 
 
 # ----------------------------------------------------------- key/value tables
-def parse_opts(text):
-    """Parse the keybind options column ('repeat=false, allow_when_locked=true') into a dict with real booleans/ints."""
-    out = {}
-    for part in filter(None, (p.strip() for p in text.split(","))):
-        k, _, v = part.partition("=")
-        v = v.strip()
-        out[k.strip()] = (v == "true") if v in ("true", "false") else int(v) if v.lstrip("-").isdigit() else v
-    return out
-
-
-def fmt_opts(o):
-    """Format an options dict back into the 'key=value, key=value' text shown in the table."""
-    return ", ".join(f"{k}={str(v).lower() if isinstance(v, bool) else v}" for k, v in o.items())
-
-
 def tidy_table(t):
     """Match the app's compact table styling with subtle border emphasis instead of filled selection blocks."""
     palette = t.palette()
@@ -268,9 +256,9 @@ class RawValueMapEditor(QWidget):
             if name in values:
                 raise ValueError(f"{self.path[-1]}: duplicate name {name!r}")
             try:
-                value = tomlkit.parse("value = " + text + "\n")["value"]
-            except Exception as e:
-                raise ValueError(f"{name}: invalid TOML value ({e})")
+                value = parse_toml_value(text)
+            except ValueError as e:
+                raise ValueError(f"{name}: invalid TOML value ({e})") from e
             if self.value_kind == "array" and not isinstance(value, tomlkit.items.Array):
                 raise ValueError(f"{name}: expected a TOML array")
             if self.value_kind == "table" and not isinstance(

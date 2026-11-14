@@ -1,89 +1,32 @@
 """Field editor widgets and config write-back."""
 
-import configparser
-import os
-import warnings
-
 from .common import (
-    MISSING, QColorDialog, QDoubleSpinBox, QFont, QHBoxLayout, QLineEdit,
+    MISSING, QColorDialog, QComboBox, QDoubleSpinBox, QFont, QHBoxLayout, QLineEdit,
     QPlainTextEdit, QPushButton, Signal, QSizePolicy, QSpinBox, QToolButton,
     QVBoxLayout, QWidget, WheelSafeComboBox, delp, getp, hexof, putp, py,
     qcolor, tomlkit, totext,
 )
+from umbriel_core.cursor_themes import installed_cursor_themes
+from umbriel_core.tomlops import parse_toml_value
+
 from .schema import field_schema_option
 from .kde_titlebar import TITLE_BAR_KEYS
 from .widgets import KdeColorControl, SettingSlider, SwitchCheckBox, TriStateControl
 
 
-def installed_cursor_themes():
-    """Find cursor themes and inheritance-only aliases in cursor search paths."""
-    cursor_path = os.environ.get("XCURSOR_PATH")
-    if cursor_path is not None:
-        roots = cursor_path.split(os.pathsep)
-    else:
-        data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-        data_dirs = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
-        roots = [
-            os.path.expanduser("~/.icons"),
-            os.path.join(data_home, "icons"),
-            *(os.path.join(directory, "icons") for directory in data_dirs.split(os.pathsep) if directory),
-            "/usr/share/pixmaps",
-        ]
-    themes = set()
-    aliases = {}
-    for root in roots:
-        if not root:
-            continue
-        root = os.path.expanduser(root)
-        try:
-            entries = list(os.scandir(root))
-        except FileNotFoundError:
-            continue
-        except OSError as error:
-            warnings.warn(f"Could not scan cursor theme directory {root}: {error}", RuntimeWarning)
-            continue
-        for entry in entries:
-            if not entry.is_dir():
-                continue
-            if os.path.isdir(os.path.join(entry.path, "cursors")):
-                themes.add(entry.name)
-                continue
-            index_path = os.path.join(entry.path, "index.theme")
-            try:
-                with os.scandir(entry.path) as children:
-                    if any(child.is_dir() for child in children):
-                        continue
-                with open(index_path, encoding="utf-8") as index_file:
-                    index = configparser.ConfigParser(interpolation=None, strict=False)
-                    index.read_file(index_file)
-            except FileNotFoundError:
-                continue
-            except (OSError, UnicodeError, configparser.Error) as error:
-                warnings.warn(f"Could not read cursor theme index {index_path}: {error}", RuntimeWarning)
-                continue
-            inherited = index.get("Icon Theme", "Inherits", fallback="")
-            aliases.setdefault(entry.name, set()).update(
-                name.strip() for name in inherited.split(",") if name.strip()
-            )
-    while True:
-        inherited_themes = {name for name, parents in aliases.items() if parents & themes}
-        new_themes = inherited_themes - themes
-        if not new_themes:
-            break
-        themes.update(new_themes)
-    return sorted(themes, key=lambda name: (name.casefold(), name))
-
-
-
 class FieldWidget(QWidget):
     """The editor widget for one Field: a spinbox, checkbox, dropdown, text box or color button, plus an optional 'set' checkbox."""
     valueChanged = Signal()
+    # Every row's switch and editor start at the same x; see SettingRow.
+    EDITOR_WIDTH = 300
+    SWITCH_WIDTH = 34
 
     def __init__(self, field, current, schema_path=None):
         """Create the right widget for the field kind and fill it with the current config value (or the default if the key is missing)."""
         super().__init__()
         self.f = field
-        self.schema_option = field_schema_option(schema_path or ".".join(field.path))
+        option_path = schema_path or ".".join(field.path)
+        self.schema_option = field_schema_option(option_path)
         self.default = (
             self.schema_option["default"]
             if self.schema_option is not None and "default" in self.schema_option
@@ -102,8 +45,15 @@ class FieldWidget(QWidget):
         if field.path == ("input", "cursor", "theme"):
             ex = installed_cursor_themes()
         self.tri = k == "bool" and field.opt
+        self.raw_single = k == "raw" and not isinstance(field.default, (list, dict))
         if self.tri:
             self.w = TriStateControl()
+            self.w.setFixedWidth(self.EDITOR_WIDTH)
+            # Only the schema knows what "unset" means; rule match fields have no default.
+            if self.schema_option is not None and isinstance(self.schema_option.get("default"), bool):
+                default_text = "on" if self.schema_option["default"] else "off"
+                self.w.setLabels((f"default ({default_text})", "on", "off"))
+                self.w.setToolTip(f"Choose default ({default_text}), on, or off.")
         elif k == "bool":
             self.w = SwitchCheckBox()
         elif k == "int":
@@ -119,10 +69,15 @@ class FieldWidget(QWidget):
             self.w = WheelSafeComboBox()
             self.w.addItems(ex or [])
             self.w.setEditable(k == "combo")
+            self.w.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            self.w.setMinimumContentsLength(12)
         elif k == "raw":
-            self.w = QPlainTextEdit()
-            self.w.setMinimumHeight(72)
-            self.w.setMaximumHeight(120)
+            if self.raw_single:
+                self.w = QLineEdit()
+            else:
+                self.w = QPlainTextEdit()
+                self.w.setMinimumHeight(72)
+                self.w.setMaximumHeight(120)
             raw_font = QFont(self.w.font())
             raw_font.setFamily("monospace")
             self.w.setFont(raw_font)
@@ -133,6 +88,9 @@ class FieldWidget(QWidget):
             self.w.setPlaceholderText(
                 f"TOML value, for example: {example}" if example else "Enter a TOML value"
             )
+        elif k == "table":
+            self.w = QWidget()
+            self.build_table_editors(option_path)
         elif k == "command_list":
             self.w = QWidget()
             self.command_rows = QVBoxLayout(self.w)
@@ -187,6 +145,7 @@ class FieldWidget(QWidget):
         self.slider = None
         if k in ("int", "float"):
             self.w.setFixedWidth(105)
+            # Slider fills what the spin box leaves of the editor column.
             if ex is not None:
                 scale = 1 if k == "int" else 1000
                 slider_min = round(self.w.minimum() * scale)
@@ -194,6 +153,8 @@ class FieldWidget(QWidget):
                 if (-2147483648 <= slider_min <= slider_max <= 2147483647
                         and slider_max - slider_min <= 2147483647):
                     self.slider = SettingSlider()
+                    self.slider.setMaximumWidth(16777215)
+                    self.slider.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
                     self.slider.setRange(slider_min, slider_max)
                     self.slider.setPageStep(max(1, (slider_max - slider_min) // 10))
                     self.slider.setAccessibleName(field.label)
@@ -213,12 +174,13 @@ class FieldWidget(QWidget):
             self.w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self.w.view().setMinimumWidth(240)
         elif k == "color":
-            self.w.setFixedWidth(110)
+            self.w.setMinimumWidth(90)
+            self.w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         elif k == "list":
             self.w.setMinimumWidth(420)
             self.w.setMaximumWidth(16777215)
             self.w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        elif k not in ("bool", "command_list"):
+        elif k not in ("bool", "command_list", "table"):
             self.w.setMaximumWidth(460)
             self.w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.check = None
@@ -239,21 +201,34 @@ class FieldWidget(QWidget):
             if self.opacity_slider is not None:
                 self.check.toggled.connect(self.opacity_slider.setEnabled)
                 self.check.toggled.connect(self.opacity_spin.setEnabled)
+            self.check.setFixedWidth(self.SWITCH_WIDTH)
             lay.addWidget(self.check)
+        else:
+            lay.addWidget(self.switch_placeholder())
+        self.editor_column = QWidget()
+        column = QHBoxLayout(self.editor_column)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(8)
+        expands = self.w.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
         if self.slider is not None:
-            lay.addWidget(self.slider)
+            column.addWidget(self.slider, 1)
+            expands = True
         if self.opacity_slider is not None:
-            lay.addWidget(self.kde_source)
-            lay.addWidget(self.w)
+            column.addWidget(self.kde_source)
+            column.addWidget(self.w, 1)
             self.opacity_widget = QWidget()
             opacity_layout = QHBoxLayout(self.opacity_widget)
             opacity_layout.setContentsMargins(0, 0, 0, 0)
+            opacity_layout.setSpacing(8)
             if self.check is not None:
                 self.opacity_check = SwitchCheckBox()
+                self.opacity_check.setFixedWidth(self.SWITCH_WIDTH)
                 self.opacity_check.setToolTip("Tick to write this color's opacity. Same switch as the color above.")
                 self.check.toggled.connect(self.opacity_check.setChecked)
                 self.opacity_check.toggled.connect(self.check.setChecked)
                 opacity_layout.addWidget(self.opacity_check)
+            else:
+                opacity_layout.addWidget(self.switch_placeholder())
             self.opacity_slider.setMaximumWidth(16777215)
             self.opacity_slider.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             opacity_layout.addWidget(self.opacity_slider, 1)
@@ -266,8 +241,15 @@ class FieldWidget(QWidget):
             opacity_layout.addWidget(self.opacity_help)
         else:
             if self.kde_button is not None:
-                lay.addWidget(self.kde_button)
-            lay.addWidget(self.w)
+                column.addWidget(self.kde_button)
+            column.addWidget(self.w, 1 if expands else 0)
+        if not expands:
+            column.addStretch(1)
+        self.editor_column.setMinimumWidth(self.EDITOR_WIDTH)
+        if column.minimumSize().width() <= self.EDITOR_WIDTH:
+            self.editor_column.setMaximumWidth(self.EDITOR_WIDTH)
+        self.editor_column.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        lay.addWidget(self.editor_column)
         self.help_button = QToolButton()
         self.help_button.setText("?")
         self.help_button.setAutoRaise(True)
@@ -291,7 +273,7 @@ class FieldWidget(QWidget):
                     self.opacity_slider.setEnabled(False)
                     self.opacity_spin.setEnabled(False)
         else:
-            self.set_value(py(current) if k not in ("raw", "strorlist") else current)
+            self.set_value(py(current) if k not in ("raw", "strorlist", "table") else current)
             if self.check:
                 self.check.setChecked(True)
         if self.slider is not None:
@@ -311,8 +293,102 @@ class FieldWidget(QWidget):
             self.w.currentTextChanged.connect(self.valueChanged)
         elif k == "raw":
             self.w.textChanged.connect(self.valueChanged)
-        elif k not in ("color", "command_list"):
+        elif k not in ("color", "command_list", "table"):
             self.w.textChanged.connect(self.valueChanged)
+
+    def switch_placeholder(self):
+        """Reserve the switch slot (a spacer item would skip the layout spacing)."""
+        placeholder = QWidget()
+        placeholder.setFixedSize(self.SWITCH_WIDTH, 1)
+        return placeholder
+
+    def build_table_editors(self, option_path):
+        """Edit a small table or [x, y] array with one compact control per key instead of raw TOML."""
+        layout = QHBoxLayout(self.w)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.table_is_list = isinstance(self.f.default, list)
+        self.table_editors = {}
+        self.table_shown = None
+        self.table_source = None
+        for index, key in enumerate(self.f.extra):
+            sample = self.f.default[index] if self.table_is_list else self.f.default.get(key)
+            if self.table_is_list:
+                option = self.schema_option or {}
+            else:
+                option = field_schema_option(f"{option_path}.{key}") or {}
+            values = option.get("values")
+            if values or isinstance(sample, str):
+                editor = WheelSafeComboBox()
+                editor.addItems([str(value) for value in values] if values else [str(sample)])
+                editor.setEditable(not values)
+                editor.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+                editor.setMinimumContentsLength(6)
+                editor.currentTextChanged.connect(self.valueChanged)
+            else:
+                is_float = isinstance(sample, float) or option.get("type") == "float"
+                editor = QDoubleSpinBox() if is_float else QSpinBox()
+                low = option.get("min", -100000)
+                high = option.get("max", 100000)
+                if is_float:
+                    editor.setDecimals(3)
+                    editor.setSingleStep(0.05 if high - low <= 10 else 10.0)
+                editor.setRange(low, high)
+                editor.setPrefix(f"{key[:1].upper()} ")
+                editor.valueChanged.connect(self.valueChanged)
+            editor.setMinimumWidth(48)  # 0 would fall back to the range-based size hint
+            editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            editor.setToolTip(key)
+            editor.setAccessibleName(f"{self.f.label} {key}")
+            layout.addWidget(editor, 1)
+            self.table_editors[key] = editor
+        self.w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def table_values(self):
+        values = []
+        for editor in self.table_editors.values():
+            values.append(editor.currentText() if isinstance(editor, QComboBox) else editor.value())
+        return values
+
+    def set_table_value(self, value):
+        """Show a table/array value; keys it lacks show the field default."""
+        plain = py(value) if value not in (None, "") else None
+        for index, (key, editor) in enumerate(self.table_editors.items()):
+            if self.table_is_list:
+                item = plain[index] if isinstance(plain, list) and index < len(plain) else self.f.default[index]
+            else:
+                item = plain.get(key, self.f.default.get(key)) if isinstance(plain, dict) else self.f.default.get(key)
+            editor.blockSignals(True)
+            if isinstance(editor, QComboBox):
+                if editor.findText(str(item)) < 0:
+                    editor.addItem(str(item))
+                editor.setCurrentText(str(item))
+            else:
+                try:
+                    editor.setValue(item)
+                except TypeError:
+                    pass
+            editor.blockSignals(False)
+        self.table_shown = self.table_values()
+        # Only a value read from the config is kept verbatim; defaults are rebuilt as inline tables.
+        self.table_source = value if isinstance(value, tomlkit.items.Item) else None
+
+    def get_table_value(self):
+        """Return the original value while untouched so partial tables are not rewritten."""
+        values = self.table_values()
+        if values == self.table_shown and self.table_source is not None:
+            return self.table_source
+        if self.table_is_list:
+            result = tomlkit.array()
+            result.extend(values)
+            return result
+        result = tomlkit.inline_table()
+        for key, value in zip(self.table_editors, values):
+            result[key] = value
+        return result
+
+    def raw_text(self):
+        return (self.w.text() if self.raw_single else self.w.toPlainText()).strip()
 
     def is_overridden(self):
         """Compare the editable value with its schema or field default."""
@@ -343,7 +419,11 @@ class FieldWidget(QWidget):
     def set_color(self, h):
         """Show a color on the button: background in the chosen color, text black or white for readability."""
         self.w.setText(h)
-        self.w.setStyleSheet(f"background:{h[:7]};color:{'#000' if qcolor(h).lightness() > 128 else '#fff'}")
+        foreground = '#000' if qcolor(h).lightness() > 128 else '#fff'
+        self.w.setStyleSheet(
+            f"QPushButton {{ background: {h[:7]}; color: {foreground}; }}"
+            "QPushButton:disabled { border: 1px dashed palette(placeholder-text); }"
+        )
         if self.opacity_slider is not None:
             alpha = qcolor(h).alpha()
             self.opacity_slider.blockSignals(True)
@@ -456,8 +536,14 @@ class FieldWidget(QWidget):
                     item.widget().deleteLater()
             for command in v:
                 self.add_command_row(str(command))
+        elif k == "table":
+            self.set_table_value(v)
         elif k == "raw":
-            self.w.setPlainText(totext(v) if v != "" else "")
+            text = totext(v) if v != "" else ""
+            if self.raw_single:
+                self.w.setText(text)
+            else:
+                self.w.setPlainText(text)
         elif k == "strorlist":
             self.w.setText(totext(v) if not isinstance(py(v), str) else str(py(v)))
         else:
@@ -487,26 +573,26 @@ class FieldWidget(QWidget):
                 for command in self.w.findChildren(QLineEdit)
                 if command.text().strip()
             ]
-        t = self.w.toPlainText().strip() if k == "raw" else self.w.text().strip()
+        if k == "table":
+            return self.get_table_value()
+        t = self.raw_text() if k == "raw" else self.w.text().strip()
         if k == "raw" or (k == "strorlist" and t.startswith("[")):
             try:
-                # The trailing newline matters: without it the parsed value carries no line break and is
-                # written glued to the next "[[...]]" header when it is the last key of a rule.
-                return tomlkit.parse("v = " + t + "\n")["v"]
-            except Exception as e:
-                raise ValueError(f"{self.f.label}: invalid TOML value ({e})")
+                return parse_toml_value(t)
+            except ValueError as e:
+                raise ValueError(f"{self.f.label}: invalid TOML value ({e})") from e
         return t if k == "strorlist" else self.w.text()
 
     def update_raw_feedback(self):
         """Mark malformed TOML values as the user edits them."""
-        text = self.w.toPlainText().strip()
+        text = self.raw_text()
         if not text:
             self.w.setStyleSheet("")
             self.w.setToolTip("Enter a TOML value, for example: [0.333, 0.5, 0.667]")
             return
         try:
-            tomlkit.parse("value = " + text + "\n")
-        except tomlkit.exceptions.TOMLKitError as error:
+            parse_toml_value(text)
+        except ValueError as error:
             self.w.setStyleSheet("border: 1px solid #d55;")
             self.w.setToolTip(f"Invalid TOML value: {error}")
         else:

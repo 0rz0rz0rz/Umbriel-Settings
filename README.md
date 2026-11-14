@@ -1,126 +1,83 @@
 # Umbriel Settings
 
-A desktop app for editing an Umbriel TOML config, keeping existing comments and formatting where possible.
+Edit your [Umbriel](https://github.com/noctalia-dev/umbriel) config, XDG user folders and default
+applications without losing the comments and formatting of your files. Umbriel Settings comes as:
 
-![Umbriel Settings screenshot](docs/settings-0.1.0-002.png)
+- a **standalone app** (PySide6), and
+- a **[Noctalia](https://github.com/noctalia-dev/noctalia) shell plugin**.
+
+Both share the same core and the same user interface code. The two versions look and behave alike,
+and a feature added once shows up in both. The app keeps a navigation sidebar on the left, and it
+does not need Noctalia.
+
+| Standalone app | Noctalia plugin |
+| --- | --- |
+| ![Home page of the standalone app](docs/home-app.png) | ![Home page of the Noctalia plugin panel](docs/home-plugin.png) |
 
 ## Features
 
-- General, appearance, colors, animation, input, layout and workspace settings
-- Keybind list and detail editor with dynamically sized collapsible group cards, concise action descriptions, filtering, bulk locking and action help
-- Animation curves, effect presets and pools; outputs, rules, scratchpads, input-device overrides and environment variables
-- Drag the divider between an entry list and its settings to resize either pane;
-  long entry names can be scrolled horizontally.
-- XDG user folders, default applications and MIME associations
-- Sliders for bounded settings, using installed Umbriel schema ranges when available
-- The **Overridden** switch filters setting fields to values different from their
-  schema defaults (or the GUI defaults when schema metadata is unavailable).
-  Unset optional fields are hidden; non-field editors are not filtered.
-  Inherited values from included configs are not resolved by this filter.
-- Section shortcuts expand or collapse their cards and scroll to newly opened
-  sections. Cards start expanded unless their previous expansion state was saved.
-- Title-bar background opacity controls, stored in the existing color values
-- Installed or custom cursor themes; **Schema coverage...** compares fields with the installed schema
-
-Cursor themes are discovered when opening Input using `XCURSOR_PATH`, or
-`~/.icons`, XDG icon directories and `/usr/share/pixmaps` if unset. Reopen the
-app to pick up newly installed themes.
-
-## Keybinds
-
-Select a shortcut in a collapsible group to edit its action and options. Search
-matches shortcuts, group names, action descriptions and raw actions; the full
-action is also available in the tooltip. Locked bindings show a key icon and
-cannot be edited or removed until unlocked. Deleting a group moves its bindings
-to **Ungrouped** without deleting or unlocking them.
-
-## Versions
-
-| Item | Version |
-| --- | --- |
-| Python GUI (`python/umbriel_config_gui/__init__.py`) | `0.1.0-003` |
-| AppImage (latest release) | `0.1.0-002` |
-| Noctalia plugin | `0.1.0` |
-
-The GUI version format is `<Umbriel version>-<three-digit GUI revision>`;
-the Noctalia plugin is versioned independently.
-
-## Desktop settings
-
-The GUI also edits:
-
-- **User folders** (Desktop, Documents, Downloads, Pictures, ...): `~/.config/user-dirs.dirs`
-- **Default applications** (browser, file manager, MIME types, ...): the `[Default Applications]` section of `~/.config/mimeapps.list`
-
-`$XDG_CONFIG_HOME` is respected. Unrelated entries and comments are preserved,
-unset options are not written, and desktop settings are saved separately after
-you accept the config diff. **User folders** provides editable paths and folder
-pickers in a settings card. **Default apps** groups common roles into cards;
-expand **Other file types** to search and edit individual MIME associations.
-Application selectors also accept custom desktop-file IDs.
-
-## Noctalia plugin
-
-The experimental **Umbriel-GUI** plugin provides a Noctalia bar button and
-native General, Keybinds, User Folders and Default Apps panels. It can also
-open the standalone app. See the [plugin README](noctalia-plugin/README.md)
-for setup, requirements, backups and current limitations.
+- **Every Umbriel setting**: general, appearance, colors, animation and curves, effects, input,
+  layout, workspaces, keybinds. It also covers window, layer, workspace and security rules, outputs,
+  scratchpads, input devices and environment variables.
+- **Search everything** from the sidebar (Ctrl+F): setting names, words from their help, config keys
+  (`border_width`), rule names and shortcuts. Results jump straight to the setting.
+- **Clear rows**: each setting shows its control, the default value, an ⓘ button with the full help
+  and config key, ↶ to undo your edit, and the eraser to remove the key so Umbriel's default applies.
+  **Only customized** shows just what differs from the defaults. A rule field without a default reads
+  **Any / Not set / On / Off**.
+- **Rules, outputs, devices and effects** are lists. Open an entry to edit it, give rules a display name,
+  reorder, duplicate or delete them. **Inspect connected outputs** adds a monitor with one of its real modes.
+- **Keybinds** are grouped. Build shortcuts from modifier chips and a key, then pick an action from a
+  searchable catalog with argument hints. You can also set repeat and locked options, manage groups,
+  and lock shortcuts so they can't be changed by accident.
+- **User folders and default apps**, with folder pickers, a searchable app list with icons, and
+  per-MIME-type associations.
+- **Follows your theme**: Noctalia colors, font and corner radius, or your qt6ct/KDE colors (see
+  [Theming](#theming)). Numbers use your locale's decimal separator (`LC_NUMERIC`).
 
 ## Saving safely
 
-- Review a diff before saving (on by default). External edits are detected and can be reloaded.
-- Umbriel CLI validation runs after saving; disable it with the checkbox or `--no-validate`. It is skipped if Umbriel is not on `PATH`. Errors restore the previous file; warnings are reported.
-- Files with GUI section banners can be regrouped on save, which may move comments. Disable **Rebuild file structure on save** to keep the layout.
-- **Backups...** lists timestamped TOML snapshots. Select one to restore, or check snapshots (using **Select all** / **Deselect all** if needed) and choose **Delete marked**; deletion requires confirmation and cannot be undone. Separately saved desktop settings are not rolled back.
+Nothing is written until you press **Review & save** (Ctrl+S).
 
-## Files and folders created
-
-The app respects `$XDG_DATA_HOME` (default `~/.local/share`) and
-`$XDG_CONFIG_HOME` (default `~/.config`). It creates or updates these paths as
-needed:
-
-- The GUI data directory, `$XDG_DATA_HOME/umbriel-config-gui/`, stores
-  `gui-config-path`, `gui-sidebar-order.json`, and `gui-state.json`. It also
-  holds `backups/user-dirs.dirs.bak` and `backups/mimeapps.list.bak` when
-  existing desktop settings are changed.
-- Per-config GUI data is stored in
-  `$XDG_DATA_HOME/umbriel-config-gui/configs/<config-id>/`. It can contain
-  `config.bak`, `gui-labels.json`, `gui-locked-keybinds.json`, and
-  `backups/<config-name>.<timestamp>.bak`.
-- On Linux, desktop integration installs
-  `$XDG_DATA_HOME/applications/umbriel-config-gui.desktop` and
-  `$XDG_DATA_HOME/icons/hicolor/128x128/apps/umbriel-config-gui.png`.
-- The Umbriel config is saved at the selected path (by default
-  `~/.config/umbriel/config.toml`). The **User folders** and
-  **Default apps** pages create or update `$XDG_CONFIG_HOME/user-dirs.dirs`
-  and `$XDG_CONFIG_HOME/mimeapps.list` when their settings are saved.
-
-The app creates parent directories for files it saves. Paths configured for
-Desktop, Documents, Downloads, and other user folders are only recorded in
-`user-dirs.dirs`; the app does not create or move those folders. Custom
-keybind groups are stored as TOML comments, which Umbriel ignores.
+- The review lists every change in words and shows the file diff by section.
+- **Check with Umbriel before writing** (on by default; `--no-validate` starts it off) runs
+  `umbriel config validate` on a temporary copy first. If Umbriel rejects the new file, nothing is
+  written and each problem links to its setting. The check is skipped when `umbriel` is not on `PATH`.
+- **Tidy file layout** regroups the file in canonical order with section banners. It is on by default
+  only for files that already have banners; `--no-rebuild` turns it off for good. Regrouping may move
+  comments.
+- A timestamped backup is made before every save or restore. **Backups** on the home page compares,
+  restores and deletes them. Desktop settings are backed up separately and are not rolled back with
+  the config.
+- Unsaved edits are kept as a draft when you close the window and restored next time. Closing with
+  unsaved edits asks first.
+- If the config changes on disk while the app is open, it reloads. Your setting edits are kept; rule
+  and keybind edits are dropped, with a note.
+- Symlinked configs are refused; open the link's target instead.
 
 ## Requirements
 
-Python 3, PySide6, tomlkit. The Umbriel CLI is optional (validation and schema comparison).
+Python 3.11+, PySide6 with QtWebEngine, tomlkit and lupa. The Umbriel CLI is optional (validation,
+defaults and ranges, schema comparison).
 
 ```sh
 # Arch Linux
-sudo pacman -S python pyside6 python-tomlkit
+sudo pacman -S python pyside6 qt6-webengine python-tomlkit python-lupa
 
 # Debian 13+
-sudo apt install python3 python3-pyside6.qtwidgets python3-tomlkit
+sudo apt install python3 python3-pyside6.qtwidgets python3-pyside6.qtwebenginewidgets \
+    python3-pyside6.qtwebchannel python3-tomlkit python3-lupa
 
 # Fedora
-sudo dnf install python3 python3-pyside6 python3-tomlkit
+sudo dnf install python3 python3-pyside6 python3-tomlkit python3-lupa
 
-# openSUSE Tumbleweed
-sudo zypper install python3 python3-pyside6 python3-tomlkit
-
-# Otherwise, use a virtual environment
+# Any distribution: a virtual environment (the PySide6 and lupa wheels include everything)
 python3 -m venv .venv && . .venv/bin/activate
 python -m pip install -r python/requirements.txt
 ```
+
+Package names for lupa and QtWebEngine differ between distributions; if one is missing, use the
+virtual environment.
 
 ## Run
 
@@ -130,83 +87,165 @@ python python/umbriel-config-gui.py [path/to/config.toml]
 cd python && python -m umbriel_config_gui [path/to/config.toml]
 ```
 
-Without a path, it opens `~/.config/umbriel/config.toml` unless another was used previously.
+Without a path, it opens the config used last, else `~/.config/umbriel/config.toml`. You can switch
+files at the bottom of the home page.
 
 ```text
 --config PATH     Select a config file (alternative to the positional path)
---no-validate     Skip Umbriel CLI validation after saving
---no-rebuild      Do not reorganize the file when saving
---check-schema    Compare GUI fields with the installed Umbriel schema and exit
+--no-validate     Start with "Check with Umbriel before writing" turned off
+--no-rebuild      Never regroup the file layout when saving
+--check-schema    Compare the app's fields with the installed Umbriel schema and exit
+--legacy-ui       Open the previous Qt widget interface (temporary)
 --version         Show the version and exit
 ```
 
-### AppImage
-
-Build a self-contained AppImage with Python, PySide6 and tomlkit:
-
-```sh
-appimage/build-appimage.sh        # writes dist/Umbriel-Settings-<version>-<arch>.AppImage
-```
-
-The build needs network access, `bash`, `python3` with `venv`, and FUSE (or `APPIMAGE_EXTRACT_AND_RUN=1`). Only QtCore, QtGui and QtWidgets are kept; the Umbriel CLI is looked up on `PATH`.
-
-The Wayland desktop entry points to the AppImage itself, so keep it at a stable path (or use that path in the keybind below).
-
-### Theming (qt6ct / Noctalia)
-
-AppImage and pip/venv installs cannot load the system qt6ct plugin. Instead, the app reads `~/.config/qt6ct/qt6ct.conf` and applies its style (or Fusion if unavailable), font, icon theme and KDE color scheme (`color_scheme_path`, e.g. Noctalia's `noctalia.colors`). Config and scheme changes are applied while the app is open.
-
-This only runs when `QT_QPA_PLATFORMTHEME` is `qt6ct`/`qt5ct` and Qt has not already applied the theme. Set `UMBRIEL_QT_THEME=none` to disable it or `UMBRIEL_QT_THEME=qt6ct` to force it.
-
-The app also adjusts unreadable hint text, borders and selected labels, especially in light schemes.
-
-Title-bar background opacity is saved as the alpha component of the Umbriel color
-(``#RRGGBBAA``). Reloading the Qt palette only changes this app's appearance;
-it does not update Umbriel's config. If another tool generates or overrides
-title-bar colors, it must preserve or set their alpha when regenerating them.
-
-On the Colors page, unset title-bar background and text fields preview the
-active and inactive `[WM]` colors from the KDE scheme selected in qt6ct. These
-previews follow scheme changes while the page is open; they are not necessarily
-the colors Umbriel uses from its defaults or included files. For each background,
-**KDE TB** imports the colorful `[WM]` color, while **KDE BG** imports the matching
-active or inactive `[Colors:Header]` background for a cleaner look. **Default**
-unsets the override; a custom color has no selected segment. Text fields have a
-**Use KDE color** button. Importing preserves alpha. Existing overrides
-are never changed automatically. Saved overrides are static, so a later theme
-change requires importing again; the GUI does not rewrite files in the background.
+Keys: Ctrl+F search, Ctrl+S review and save, Alt+Left back.
 
 ### Launch with a keybind
 
-Add to the `[keybinds]` section of your Umbriel config (or add it on the GUI's **Keybinds** page):
+Add it to the `[keybinds]` section of your Umbriel config, or on the app's **Keybinds** page:
 
 ```toml
 "Mod+Shift+C" = "spawn /usr/bin/python3 /path/to/Umbriel-GUI/python/umbriel-config-gui.py"
 ```
 
-Adjust the paths (use `.venv/bin/python` if you installed in a virtual environment) and quote paths containing spaces.
+Adjust the paths. Use `.venv/bin/python` with a virtual environment, and quote paths that contain
+spaces.
+
+### AppImage
+
+Build a self-contained AppImage with Python, PySide6 (including QtWebEngine), tomlkit, lupa and the
+shared interface:
+
+```sh
+appimage/build-appimage.sh        # writes dist/Umbriel-Settings-<version>-<arch>.AppImage
+```
+
+The build needs network access, `bash`, `python3` with `venv`, and FUSE (or
+`APPIMAGE_EXTRACT_AND_RUN=1`). The Umbriel CLI is looked up on `PATH`. The installed desktop entry
+points to the AppImage itself, so keep it at a stable path.
+
+## Theming
+
+The app uses the first of these that is available, and follows changes while it is open:
+
+1. **Noctalia's palette**: the exact colors the Noctalia plugin uses. Noctalia writes them for the app
+   through a user template, which you set up once:
+   - Save this as `~/.config/noctalia/templates/umbriel-settings-palette.conf`:
+
+     ```text
+     # Written by Noctalia for Umbriel Settings; regenerated on every theme change.
+     <* for name, value in colors *>
+     {{ name }}={{ value.default.hex }}
+     <* endfor *>
+     ```
+
+   - Add this to `~/.config/noctalia/noctalia-config.toml`. If your Noctalia version doesn't expand
+     `$XDG_CONFIG_HOME`, write the full paths instead.
+
+     ```toml
+     [theme.templates.user.umbriel_settings]
+     input_path = "$XDG_CONFIG_HOME/noctalia/templates/umbriel-settings-palette.conf"
+     output_path = "$XDG_CONFIG_HOME/umbriel-config-gui/noctalia-palette.conf"
+     ```
+
+2. **The qt6ct color scheme** (`color_scheme_path` in `~/.config/qt6ct/qt6ct.conf`, for example the
+   `noctalia.colors` scheme that Noctalia writes).
+3. **The Qt palette** of your desktop.
+
+The font and corner roundness come from `font_family` and `corner_radius_scale` in the `[shell]`
+section of `noctalia-config.toml` when present.
+
+For its own window and dialogs, the app also applies qt6ct's style, font, icon theme and color scheme
+when `QT_QPA_PLATFORMTHEME` is `qt6ct`/`qt5ct`. This is needed in the AppImage and pip installs, which
+can't load the system qt6ct plugin. Set `UMBRIEL_QT_THEME=none` to disable it, or
+`UMBRIEL_QT_THEME=qt6ct` to force it.
+
+On the Colors page, the **KDE** buttons import the title-bar colors of your KDE/qt6ct scheme and keep
+the alpha. Title-bar background opacity is stored as the alpha of the Umbriel color (`#RRGGBBAA`).
+Imported colors are static: after a theme change, import them again.
+
+## Desktop settings
+
+- **User folders** (Desktop, Documents, Downloads, ...): `$XDG_CONFIG_HOME/user-dirs.dirs`.
+- **Default apps** (browser, file manager, MIME types, ...): the `[Default Applications]` section of
+  `$XDG_CONFIG_HOME/mimeapps.list`. Application selectors also accept custom desktop-file IDs.
+
+Unrelated entries and comments are preserved, and unset options are not written. The app records
+folder paths but doesn't create or move the folders.
+
+## Noctalia plugin
+
+The **Umbriel Settings** plugin opens the same interface in a Noctalia panel, with a bar button that
+shows a dot while edits are unsaved. It shares backups, rule names and keybind locks with the app.
+See the [plugin README](noctalia-plugin/README.md) for setup and requirements.
+
+## Files and folders
+
+The app respects `$XDG_DATA_HOME` (default `~/.local/share`) and `$XDG_CONFIG_HOME` (default `~/.config`).
+
+| Path | Contents |
+| --- | --- |
+| Your Umbriel config (default `~/.config/umbriel/config.toml`) | Saved changes. Custom keybind groups are stored as TOML comments, which Umbriel ignores |
+| `$XDG_DATA_HOME/umbriel-config-gui/gui-config-path` | The config used last (shared with the plugin) |
+| `$XDG_DATA_HOME/umbriel-config-gui/configs/<config-id>/` | Per config: `backups/`, rule names (`gui-labels.json`), locked keybinds (`gui-locked-keybinds.json`) |
+| `$XDG_DATA_HOME/umbriel-config-gui/backups/` | `user-dirs.dirs.bak`, `mimeapps.list.bak` |
+| `$XDG_DATA_HOME/umbriel-config-gui/app-ui/` | The app's drafts, metadata cache and app icons |
+| `$XDG_CONFIG_HOME/umbriel-config-gui/noctalia-palette.conf` | Written by Noctalia if you set up the theme template |
+| `$XDG_DATA_HOME/applications/umbriel-config-gui.desktop`, `$XDG_DATA_HOME/icons/hicolor/128x128/apps/umbriel-config-gui.png` | Desktop entry and icon |
+| `$XDG_CONFIG_HOME/user-dirs.dirs`, `$XDG_CONFIG_HOME/mimeapps.list` | Desktop settings, when you save them |
+
+The legacy interface (`--legacy-ui`) also keeps `gui-sidebar-order.json` and `gui-state.json` in the
+data directory.
 
 ### Custom icon
 
-Replace `python/umbriel_config_gui/assets/icon.jpg` with your own JPEG and restart. If it is missing or invalid, the embedded default is used.
+Replace `python/umbriel_config_gui/assets/icon.jpg` with your own JPEG and restart. If it is missing
+or invalid, the embedded default is used.
 
-## Repository layout
+## Versions
+
+| Item | Version |
+| --- | --- |
+| App (`python/umbriel_config_gui/__init__.py`) | `0.1.0-004` |
+| AppImage (latest release) | `0.1.0-002` |
+| Noctalia plugin (`noctalia-plugin/Umbriel-GUI-Plugin/plugin.toml`) | `0.2.0` |
+
+The app version is `<Umbriel version>-<three-digit revision>`; the plugin is versioned independently.
+
+## Development
 
 ```text
-python/     Python application (launcher, umbriel_config_gui package, requirements.txt)
-appimage/   AppImage build script and recipe (desktop entry, icon, entrypoint)
-noctalia-plugin/   Noctalia plugin, helpers, tests and API notes
-docs/       Screenshots
+python/umbriel_core/        Shared logic (fields, help, schema, TOML edits, entries, keybinds, desktop files, saving, theme)
+noctalia-plugin/Umbriel-GUI-Plugin/
+  lib/ ui/ pages/           Shared user interface (Luau), used by the plugin and the app
+  umbriel_settings.py       Commands over the core (the plugin runs it; the app calls it in-process)
+  panel.luau bar.luau       Noctalia panel layout and bar button
+  app.luau                  App layout (sidebar + page)
+python/umbriel_config_gui/  The app: app.py, app_window.py and host/ (lupa runs the Luau UI; a web view draws it)
+                            Other modules: the legacy Qt interface (--legacy-ui), to be removed
+appimage/                   AppImage build script and recipe
+tools/                      check.py (runs the right tests), sync_plugin_core.py (copies the core into the plugin)
+tests/, noctalia-plugin/tests/   Tests
 ```
+
+```sh
+python tools/check.py               # runs the checks for your changed files, one line each
+python tools/check.py all           # core, plugin, app host, legacy app tests and the schema check
+python tools/sync_plugin_core.py    # after editing python/umbriel_core
+```
+
+The app's interface is the plugin's Luau code: `host/runtime.py` runs it with lupa (Lua 5.4) and
+implements the part of Noctalia's API it uses. `host/web/renderer.js` turns each rendered tree into
+HTML. Icons are [Tabler Icons](https://tabler.io/icons) (MIT, license in `host/web/fonts/`).
 
 ## License
 
-This project is licensed under the GNU General Public License, version 3 only.
-See [LICENSE](LICENSE).
+This project is licensed under the GNU General Public License, version 3 only. See [LICENSE](LICENSE).
 
 > **Disclaimer:** This project was created entirely by AI.
 
 ## Related projects
 
-- [Umbriel](https://github.com/noctalia-dev/umbriel) — the Wayland compositor whose configuration this app edits.
-- [Noctalia](https://github.com/noctalia-dev/noctalia) — the desktop shell; this app can follow its color scheme.
+- [Umbriel](https://github.com/noctalia-dev/umbriel): the Wayland compositor whose configuration this app edits.
+- [Noctalia](https://github.com/noctalia-dev/noctalia): the desktop shell; the plugin runs in it, and the app follows its theme.

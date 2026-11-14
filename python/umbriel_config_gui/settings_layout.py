@@ -3,6 +3,8 @@
 import json
 import os
 
+from umbriel_core.fields import NAV_SECTIONS
+
 from .common import (
     MISSING, GUI_DATA_DIR, QEvent, QFont, QFormLayout, QGroupBox, QHBoxLayout,
     QLabel, QMessageBox, QPainter, QPalette, QSizePolicy, QPushButton,
@@ -236,15 +238,7 @@ def save_group_expansion_state(page, title, expanded):
         )
 
 
-SIDEBAR_SECTIONS = [
-    ("Desktop", ["User folders", "Default apps"]),
-    ("Basics", ["General"]),
-    ("Look", ["Appearance", "Colors", "Animation", "Animation curves", "Effects"]),
-    ("Behavior", ["Input", "Layout", "Workspaces"]),
-    ("Bindings", ["Keybinds"]),
-    ("Rules and devices", ["Window rules", "Layer rules", "Workspace rules", "Outputs",
-                           "Scratchpads", "Input devices", "Security rules", "Environment"]),
-]
+SIDEBAR_SECTIONS = NAV_SECTIONS
 
 SETTING_SECTION_BUTTON_FONT_SIZE = 10
 SETTING_SECTION_BUTTON_HEIGHT = 32
@@ -342,6 +336,9 @@ def form_page(groups, doc, store, collapsible=True, category="", schema_prefix="
             group_description = f"Settings for {title.lower()}."
         box = CollapsibleGroup(title, n_set, collapsible, group_description)
         box.filter_notice = filter_notice
+        # SettingRow pads itself for its hover highlight; keep text where it was.
+        box.form.setContentsMargins(6, 2, 6, 10)
+        box.form.setVerticalSpacing(0)
         section_groups.append(box)
         if box.header is not None:
             if title in saved_expansion_states:

@@ -28,6 +28,11 @@ mkdir -p "$work/recipe" "$work/extra"
 cp "$here"/recipe/* "$work/recipe/"
 cp "$root/python/requirements.txt" "$work/recipe/requirements.txt"
 cp -r "$root/python/umbriel_config_gui" "$work/extra/umbriel_config_gui"
+cp -r "$root/python/umbriel_core" "$work/extra/umbriel_core"
+# The app runs the plugin's Luau UI; host/paths.py finds this bundled copy first.
+plugin="$root/noctalia-plugin/Umbriel-GUI-Plugin"
+mkdir -p "$work/extra/umbriel_config_gui/ui_shared"
+cp -r "$plugin"/{app.luau,lib,ui,pages,umbriel_settings.py} "$work/extra/umbriel_config_gui/ui_shared/"
 find "$work/extra" -name __pycache__ -type d -prune -exec rm -rf {} +
 
 # --no-packaging leaves an AppDir; appimagetool is run here because python-appimage
@@ -37,7 +42,7 @@ find "$work/extra" -name __pycache__ -type d -prune -exec rm -rf {} +
     "$work/venv/bin/python-appimage" build app --no-packaging \
         -p "$PYTHON_VERSION" -n umbriel-config-gui \
         "$work/recipe" \
-        -x "$work/extra/umbriel_config_gui"
+        -x "$work/extra/umbriel_config_gui" "$work/extra/umbriel_core"
 )
 
 appdir="$(find "$work" -maxdepth 1 -mindepth 1 -type d -name '*-'"$arch" | head -n 1)"
@@ -47,25 +52,27 @@ mkdir -p "$license_dir"
 cp "$root/LICENSE" "$license_dir/LICENSE"
 chmod -R a+rX "$appdir"
 
-# Only QtCore, QtGui and QtWidgets are used. Drop the other PySide6 modules, the Qt
-# libraries they pull in (WebEngine, 3D, Multimedia/ffmpeg, Quick, ...), tools and
-# translations. Platform, image-format and Wayland plugins are left untouched.
+# The app uses QtCore/Gui/Widgets plus QtWebEngine (with QtWebChannel/QtNetwork) for its UI.
+# WebEngine needs Qml/Quick/Positioning/OpenGL/PrintSupport libraries, QtWebEngineProcess
+# (Qt/libexec), its resources and locales. Drop the other PySide6 modules and Qt libraries
+# (3D, Multimedia/ffmpeg, Designer, Charts, ...), tools and the remaining translations.
 pyside="$(find "$appdir" -type d -name PySide6 -path '*site-packages*' | head -n 1)"
 [ -n "$pyside" ] || { echo "PySide6 not found in AppDir" >&2; exit 1; }
 find "$pyside" -maxdepth 1 \( -name 'Qt*.abi3.so' -o -name 'Qt*.pyi' \) \
-    ! -name 'QtCore.*' ! -name 'QtGui.*' ! -name 'QtWidgets.*' -delete
-find "$pyside" -maxdepth 1 -type f \( -name 'PySide6_*.json' -o -name 'libpyside6qml*' \) -delete
+    ! -name 'QtCore.*' ! -name 'QtGui.*' ! -name 'QtWidgets.*' ! -name 'QtNetwork.*' \
+    ! -name 'QtWebChannel.*' ! -name 'QtWebEngineCore.*' ! -name 'QtWebEngineWidgets.*' \
+    ! -name 'QtPrintSupport.*' -delete
+find "$pyside" -maxdepth 1 -type f -name 'PySide6_*.json' -delete
 find "$pyside/Qt/lib" -maxdepth 1 \( \
-    -name 'libQt6WebEngine*' -o -name 'libQt63D*' -o -name 'libQt6Quick*' -o -name 'libQt6Qml*' \
-    -o -name 'libQt6Multimedia*' -o -name 'libQt6Designer*' -o -name 'libQt6Pdf*' \
+    -name 'libQt63D*' -o -name 'libQt6Multimedia*' -o -name 'libQt6Designer*' -o -name 'libQt6Pdf*' \
     -o -name 'libQt6Charts*' -o -name 'libQt6Graphs*' -o -name 'libQt6DataVisualization*' \
-    -o -name 'libQt6Location*' -o -name 'libQt6Positioning*' -o -name 'libQt6Sensors*' \
+    -o -name 'libQt6Location*' -o -name 'libQt6Sensors*' \
     -o -name 'libQt6Bluetooth*' -o -name 'libQt6Nfc*' -o -name 'libQt6ShaderTools*' \
     -o -name 'libQt6Help*' -o -name 'libQt6Test*' -o -name 'libQt6Sql*' \
     -o -name 'libav*' -o -name 'libsw*' \) -delete
-rm -rf "$pyside/Qt/qml" "$pyside/Qt/translations" "$pyside/Qt/metatypes" "$pyside/Qt/libexec" \
-    "$pyside/Qt/resources" "$pyside/include" "$pyside/glue" "$pyside/doc" \
-    "$pyside"/Qt/plugins/{designer,multimedia,qmltooling,sceneparsers,assetimporters,geometryloaders,renderers,renderplugins,sqldrivers,sensors,position,geoservices,webview,texttospeech,canbus,scxmldatamodel}
+find "$pyside/Qt/translations" -mindepth 1 -maxdepth 1 ! -name 'qtwebengine_locales' -exec rm -rf {} +
+rm -rf "$pyside/Qt/qml" "$pyside/Qt/metatypes" "$pyside/include" "$pyside/glue" "$pyside/doc" \
+    "$pyside"/Qt/plugins/{designer,multimedia,qmltooling,sceneparsers,assetimporters,geometryloaders,renderers,renderplugins,sqldrivers,sensors,geoservices,webview,texttospeech,canbus,scxmldatamodel}
 for tool in assistant balsam balsamui designer linguist lrelease lupdate qmlformat qmllint qmlls qsb \
     uic rcc deploy pyside6-* ; do rm -rf "$pyside/$tool"; done
 

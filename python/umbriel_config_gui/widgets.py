@@ -7,6 +7,7 @@ from .common import (
     QEvent,
     QCheckBox,
     QFont,
+    QFontMetrics,
     QHBoxLayout,
     QLabel,
     QLayout,
@@ -80,6 +81,8 @@ class TriStateControl(QWidget):
         self.setFixedSize(192, 32)
         self._index = 0
         self._hovered = False
+        self.labels = tuple(self.LABELS)
+        self._fit_labels = False
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAccessibleName("Optional setting")
@@ -93,9 +96,40 @@ class TriStateControl(QWidget):
         """Return the selected segment index."""
         return self._index
 
+    def setLabels(self, labels):
+        """Replace the segment texts, e.g. to name the default value; segments then size to their text."""
+        self.labels = tuple(labels)
+        self._fit_labels = True
+        self.update()
+
+    def segmentEdges(self):
+        """Return segment boundaries: equal widths, or sized to the text for custom labels that would not fit."""
+        track = self.rect().adjusted(3, 3, -3, -3)
+        count = len(self.labels)
+        font = QFont(self.font())
+        font.setBold(True)
+        widths = [QFontMetrics(font).horizontalAdvance(label) for label in self.labels]
+        if not self._fit_labels or max(widths) <= track.width() / count or sum(widths) > track.width():
+            widths = [track.width() / count] * count
+        else:
+            spare = (track.width() - sum(widths)) / count
+            widths = [width + spare for width in widths]
+        edges = [float(track.left())]
+        for width in widths:
+            edges.append(edges[-1] + width)
+        return edges
+
+    def segmentAt(self, x):
+        """Return the segment index under the horizontal position x."""
+        edges = self.segmentEdges()
+        for index in range(len(self.labels)):
+            if x < edges[index + 1]:
+                return index
+        return len(self.labels) - 1
+
     def setCurrentIndex(self, index):
         """Select default (0), on (1), or off (2)."""
-        if not (-1 if self.ALLOW_NO_SELECTION else 0) <= index < len(self.LABELS):
+        if not (-1 if self.ALLOW_NO_SELECTION else 0) <= index < len(self.labels):
             raise IndexError(f"Tri-state index out of range: {index}")
         if index != self._index:
             self._index = index
@@ -125,9 +159,9 @@ class TriStateControl(QWidget):
         painter.drawRoundedRect(outer, radius, radius)
 
         track = self.rect().adjusted(3, 3, -3, -3)
-        segment_width = track.width() / len(self.LABELS)
+        edges = self.segmentEdges()
         if self._index >= 0:
-            selected_left = track.left() + segment_width * self._index
+            selected_left = edges[self._index]
             clip = QPainterPath()
             clip.addRoundedRect(
                 track.left(), track.top(), track.width(), track.height(),
@@ -139,20 +173,20 @@ class TriStateControl(QWidget):
             painter.setBrush(palette.color(QPalette.ColorRole.Highlight))
             painter.drawRect(
                 QRect(round(selected_left), track.top(),
-                      round(track.left() + segment_width * (self._index + 1)) - round(selected_left),
+                      round(edges[self._index + 1]) - round(selected_left),
                       track.height())
             )
             painter.restore()
 
         painter.setPen(palette.color(QPalette.ColorRole.Midlight))
-        for divider_index in (1, 2):
-            x = round(track.left() + segment_width * divider_index)
+        for divider_index in range(1, len(self.labels)):
+            x = round(edges[divider_index])
             if self._index not in (divider_index - 1, divider_index):
                 painter.drawLine(x, int(track.top() + 5), x, int(track.bottom() - 5))
 
-        for index, label in enumerate(self.LABELS):
-            left = round(track.left() + segment_width * index)
-            right = round(track.left() + segment_width * (index + 1))
+        for index, label in enumerate(self.labels):
+            left = round(edges[index])
+            right = round(edges[index + 1])
             text_rect = QRect(left, track.top(), right - left, track.height())
             font = QFont(self.font())
             font.setBold(index == self._index)
@@ -170,11 +204,7 @@ class TriStateControl(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            index = min(
-                len(self.LABELS) - 1,
-                max(0, int((event.position().x() - 3) / (self.width() - 6) * len(self.LABELS))),
-            )
-            self.activate(index)
+            self.activate(self.segmentAt(event.position().x()))
             self.setFocus()
             event.accept()
             return
@@ -184,11 +214,11 @@ class TriStateControl(QWidget):
         if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Up):
             candidates = range(max(0, self._index - 1), -1, -1)
         elif event.key() in (Qt.Key.Key_Right, Qt.Key.Key_Down):
-            candidates = range(max(0, self._index + 1), len(self.LABELS))
+            candidates = range(max(0, self._index + 1), len(self.labels))
         elif event.key() == Qt.Key.Key_Home:
-            candidates = range(len(self.LABELS))
+            candidates = range(len(self.labels))
         elif event.key() == Qt.Key.Key_End:
-            candidates = range(len(self.LABELS) - 1, -1, -1)
+            candidates = range(len(self.labels) - 1, -1, -1)
         else:
             super().keyPressEvent(event)
             return
@@ -280,11 +310,14 @@ class SettingLabel(QWidget):
 class SettingRow(QWidget):
     """Keep the editor beside its label while allowing only the label to wrap."""
 
+    HOVER_RADIUS = 8
+
     def __init__(self, label, editor):
         super().__init__()
         self.setMinimumWidth(0)
+        self._hovered = False
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(16)
         layout.addWidget(label, 1)
         layout.addWidget(editor)
@@ -293,6 +326,29 @@ class SettingRow(QWidget):
         )
         policy.setHeightForWidth(True)
         self.setSizePolicy(policy)
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def hideEvent(self, event):
+        self._hovered = False
+        super().hideEvent(event)
+
+    def paintEvent(self, event):
+        if not self._hovered:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self.palette().color(QPalette.ColorRole.Midlight))
+        painter.drawRoundedRect(self.rect(), self.HOVER_RADIUS, self.HOVER_RADIUS)
 
     def heightForWidth(self, width):
         return self.layout().heightForWidth(width)

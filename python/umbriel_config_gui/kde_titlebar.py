@@ -6,58 +6,19 @@ import os
 from PySide6.QtCore import QFileSystemWatcher, QObject, QSettings, QTimer
 from PySide6.QtGui import QColor
 
+from umbriel_core.kde import BACKGROUND_KEYS, TITLE_BAR_KEYS, read_title_bar_rgb
+
 from .qt6ct_theme import qt6ct_config_path
 
 
-TITLE_BAR_KEYS = {
-    ("colors", "title_bar", "background"): "activeBackground",
-    ("colors", "title_bar", "background_unfocused"): "inactiveBackground",
-    ("colors", "title_bar", "text"): "activeForeground",
-    ("colors", "title_bar", "text_unfocused"): "inactiveForeground",
-}
-
-BACKGROUND_KEYS = {
-    ("colors", "title_bar", "background"): "Colors:Header",
-    ("colors", "title_bar", "background_unfocused"): "Colors:Header][Inactive",
-}
-
-
 def read_title_bar_colors(path):
-    parser = configparser.RawConfigParser(interpolation=None)
-    parser.optionxform = str
-    with open(path, encoding="utf-8") as handle:
-        parser.read_file(handle)
-    def read_color(section, key):
-        if not parser.has_option(section, key):
-            return None
-        parts = parser.get(section, key).split(",")
-        if len(parts) != 3:
-            raise ValueError(f"Invalid [{section}] {key} color")
-        try:
-            components = [int(part.strip()) for part in parts]
-        except ValueError as error:
-            raise ValueError(f"Invalid [{section}] {key} color") from error
-        if any(component < 0 or component > 255 for component in components):
-            raise ValueError(f"Invalid [{section}] {key} color")
-        return QColor(*components)
-
-    colors, backgrounds, errors = {}, {}, {}
-    for kind, entries, output in (
-        ("title", ((path, "WM", key) for path, key in TITLE_BAR_KEYS.items()), colors),
-        ("background", ((path, section, "BackgroundNormal")
-                        for path, section in BACKGROUND_KEYS.items()), backgrounds),
-    ):
-        for field_path, section, key in entries:
-            try:
-                color = read_color(section, key)
-            except ValueError as error:
-                errors[(kind, field_path)] = str(error)
-                continue
-            if color is not None:
-                output[field_path] = color
-    if not colors and not backgrounds and not errors:
-        raise ValueError("The color scheme has no title-bar or header background colors")
-    return colors, backgrounds, errors
+    """Read title-bar colors from a KDE scheme as QColors keyed by field path."""
+    colors, backgrounds, errors = read_title_bar_rgb(path)
+    return (
+        {key: QColor(*rgb) for key, rgb in colors.items()},
+        {key: QColor(*rgb) for key, rgb in backgrounds.items()},
+        errors,
+    )
 
 
 class KdeTitleBarFollower(QObject):

@@ -75,6 +75,25 @@ class EntryEditorLayoutTests(unittest.TestCase):
         QTest.qWait(20)
         self.assertGreater(splitter.sizes()[0], 350)
 
+    def test_unnamed_rules_get_readable_italic_names_and_can_be_filtered(self):
+        doc = tomlkit.parse(
+            '[[window_rule]]\nmatch.app_id = "^org\\\\.mozilla\\\\.firefox$"\n'
+            '[[window_rule]]\nmatch.title = "^Picture-in-Picture$"\n'
+            '[[window_rule]]\nmatch.is_focused = false\n'
+        )
+        editor = EntryEditor(doc, "window_rule", "aot", WINDOW_RULE_GROUPS, "[[window_rule]]")
+        self.addCleanup(self.cleanup_widget, editor)
+        texts = [editor.list.item(row).text() for row in range(editor.list.count())]
+        self.assertEqual(texts, ["1. firefox (app id)", "2. Picture-in-Picture (title)", "3. not focused"])
+        self.assertTrue(editor.list.item(0).font().italic())
+        self.assertIn('match.app_id = "^org', editor.list.item(0).toolTip())
+
+        editor.filter_edit.setText("mozilla")
+        hidden = [editor.list.item(row).isHidden() for row in range(editor.list.count())]
+        self.assertEqual(hidden, [False, True, True])
+        editor.filter_edit.clear()
+        self.assertFalse(any(editor.list.item(row).isHidden() for row in range(editor.list.count())))
+
     def test_all_entry_editor_pages_have_resizable_panes(self):
         cases = (
             ("window_rule", "aot", WINDOW_RULE_GROUPS, "[[window_rule]]"),

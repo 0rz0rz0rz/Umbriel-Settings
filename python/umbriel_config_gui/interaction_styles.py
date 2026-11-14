@@ -19,6 +19,12 @@ def apply_interaction_styles(app):
         " border: 2px solid palette(highlight);"
         " border-radius: 5px;"
         "}"
+        # After :hover so an unset optional field never looks editable.
+        "QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled,"
+        " QPlainTextEdit:disabled {"
+        " background: palette(window); color: palette(placeholder-text);"
+        " border: 1px dashed palette(midlight); border-radius: 7px;"
+        "}"
         "QScrollBar:vertical { background: palette(window); border: none;"
         " width: 20px; margin: 0; }"
         "QScrollBar::handle:vertical { background: palette(light);"

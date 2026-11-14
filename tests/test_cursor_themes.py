@@ -117,7 +117,7 @@ class CursorThemeTests(unittest.TestCase):
             ):
                 window = Window(path)
                 self.addCleanup(window.deleteLater)
-                self.assertEqual(window.windowTitle(), f"Umbriel Settings - {path}")
+                self.assertEqual(window.windowTitle(), f"{path}[*]")
                 window.rebuild_box.setChecked(False)
                 window.validate_box.setChecked(False)
                 window.side_tabs.nav.setCurrentRow(window.side_tabs.page_rows["Input"])
@@ -126,10 +126,15 @@ class CursorThemeTests(unittest.TestCase):
                 widget = next(field for field in page.findChildren(FieldWidget)
                               if field.f.path == ("input", "cursor", "theme"))
                 window._dirty = False
+                self.assertFalse(window.save_btn.isEnabled())
+                self.assertFalse(window.isWindowModified())
                 widget.w.setCurrentText("Beta")
                 self.assertTrue(window._dirty)
+                self.assertTrue(window.save_btn.isEnabled())
+                self.assertTrue(window.isWindowModified())
                 with patch.object(window, "confirm_save_diff", return_value=True):
                     self.assertTrue(window.save())
+                self.assertFalse(window.save_btn.isEnabled())
                 with open(path, encoding="utf-8") as config:
                     self.assertEqual(tomlkit.parse(config.read())["input"]["cursor"]["theme"], "Beta")
 
