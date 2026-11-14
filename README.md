@@ -47,21 +47,52 @@ Nothing is written until you press **Review & save** (Ctrl+S):
 
 ## Install
 
-Needs Python 3.11+, PySide6 with QtWebEngine, tomlkit and lupa. The `umbriel` command is optional
-(validation, defaults and ranges, schema comparison).
+There are two ways to get the app. The `umbriel` command is optional either way; with it, the app shows
+defaults and ranges, checks your config before saving and compares its settings with your Umbriel version.
+
+### Option 1: AppImage (easiest)
+
+Download the latest `.AppImage` from the [releases](https://github.com/0rz0rz0rz/Umbriel-Settings/releases).
+It bundles Python and every library, so nothing else needs to be installed:
 
 ```sh
-sudo pacman -S python pyside6 qt6-webengine python-tomlkit python-lupa        # Arch
-sudo apt install python3 python3-pyside6.qtwidgets python3-pyside6.qtwebenginewidgets \
-    python3-pyside6.qtwebchannel python3-tomlkit python3-lupa                 # Debian 13+
-sudo dnf install python3 python3-pyside6 python3-tomlkit python3-lupa        # Fedora
-
-# Any distribution (also when a package above is missing):
-python3 -m venv .venv && . .venv/bin/activate && pip install -r python/requirements.txt
+chmod +x Umbriel-Settings-*.AppImage
+./Umbriel-Settings-*.AppImage
 ```
 
-Or download the AppImage from the [releases](https://github.com/0rz0rz0rz/Umbriel-Settings/releases), which
-bundles everything.
+### Option 2: From source
+
+You need Python 3.11 or newer, PySide6 with QtWebEngine, tomlkit and lupa. First get the code:
+
+```sh
+git clone https://github.com/0rz0rz0rz/Umbriel-Settings.git
+cd Umbriel-Settings
+```
+
+Then install the dependencies with your package manager:
+
+```sh
+# Arch Linux
+sudo pacman -S python pyside6 qt6-webengine python-tomlkit python-lupa
+
+# Debian 13 or newer
+sudo apt install python3 python3-pyside6.qtwidgets python3-pyside6.qtwebenginewidgets \
+    python3-pyside6.qtwebchannel python3-tomlkit python3-lupa
+
+# Fedora
+sudo dnf install python3 python3-pyside6 python3-tomlkit python3-lupa
+```
+
+Package names differ between distributions. If one is missing, use a virtual environment instead; it works
+everywhere:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r python/requirements.txt
+```
+
+To use the Noctalia plugin instead of (or next to) the app, see [Noctalia plugin](#noctalia-plugin).
 
 ## Run
 
