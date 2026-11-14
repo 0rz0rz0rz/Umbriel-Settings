@@ -99,6 +99,22 @@ entry.onKey("ctrl+f", true)
 clickText("Backups")
 assert(hasText("disk on fire"), "error shown: " .. screen())
 
+-- title-bar follow state (background follows the KDE header color at D7)
+local titlebarState = { noctalia = true, palette = true, old_include = "titlebar.toml", fields = {
+  background = { source = "kde_header", role = "surface_container", alpha = "D7", color = "#202020D7" } } }
+replies.titlebar = function() return true, json.encode(titlebarState) end
+replies["kde-colors"] = function() return true, json.encode({ available = true,
+  colors = { ["colors.title_bar.background"] = "#303030", ["colors.title_bar.background_unfocused"] = "#101010" },
+  backgrounds = { ["colors.title_bar.background"] = "#202020", ["colors.title_bar.background_unfocused"] = "#101010" } }) end
+replies["titlebar-follow"] = function(request)
+  if request.source then
+    titlebarState.fields[request.field] = { source = request.source, role = "surface", alpha = "FF", color = "#101010FF" }
+  else
+    titlebarState.fields[request.field] = nil
+  end
+  return true, json.encode(titlebarState)
+end
+
 -- smoke: every page and every group renders (covers every field kind's row)
 local function goHome()
   entry.onKey("ctrl+f", true)
@@ -120,6 +136,49 @@ clickText("Colors")
 find("box", function(n) return n.props.onClick ~= nil end).props.onClick()
 local picker = find("colorPicker", function() return true end)
 picker.props.onChangeEnd("#112233ff")
+flushReads()  -- a picked color stops following; deliver that answer
+assert(lastCall("titlebar-follow").request.source == nil, "picking a color stops following")
+if not hasText("Background unfocused") then clickText("Title bar") end
+local function opacitySlider(id)
+  return find("slider", function(n) return n.props.key == "f:" .. id .. ":opacity-slider" end, "opacity slider for " .. id)
+end
+assert(opacitySlider("colors.title_bar.background").props.value == 1, "the picked #112233FF is fully opaque")
+opacitySlider("colors.title_bar.background").props.onChange("0.5")
+assert(store.fieldChanges["colors.title_bar.background"].value == "#11223380", "0.5 is alpha 80, color kept")
+opacitySlider("colors.title_bar.background_unfocused").props.onChange("0.84")
+assert(store.fieldChanges["colors.title_bar.background_unfocused"].value == "#1A1A1FD6", "0.84 rounds to D6")
+flushReads()  -- runs the frame tick that renderSoon waits for
+assert(hasText("0.84 · D6"), "value and hex shown: " .. screen())
+
+-- title-bar backgrounds can follow Noctalia's palette instead of a fixed color
+store.revertField("colors.title_bar.background")
+store.revertField("colors.title_bar.background_unfocused")
+goHome()
+clickText("Colors")
+if not hasText("Background unfocused") then clickText("Title bar") end
+find("button", function(n) return n.props.key == "f:colors.title_bar.background:kde:KDE header" end).props.onClick()
+flushReads()
+assert(hasText("Follows Noctalia · KDE header"), "follow state shown: " .. screen())
+opacitySlider("colors.title_bar.background").props.onChange("0.5")
+local followCall = lastCall("titlebar-follow")
+assert(followCall.request.field == "background" and followCall.request.source == "kde_header"
+       and followCall.request.opacity == 0.5, "slider changes the followed opacity")
+assert(store.fieldChanges["colors.title_bar.background"].value == "#101010FF", "the followed color is queued for review")
+store.setField("include.optional.files", { "effect.toml", "titlebar.toml", "noctalia.toml" })
+find("button", function(n) return n.props.key == "f:colors.title_bar.background_unfocused:kde:KDE" end).props.onClick()
+followCall = lastCall("titlebar-follow")
+assert(followCall.request.field == "background_unfocused" and followCall.request.source == "kde", "KDE button follows")
+flushReads()
+assert(store.fieldChanges["colors.title_bar.background_unfocused"].value == "#101010FF", "KDE color queued")
+local includes = store.fieldChanges["include.optional.files"].value
+assert(#includes == 2 and includes[2] == "noctalia.toml", "the old titlebar.toml include is removed")
+assert(hasText("Follows Noctalia · KDE"), screen())
+-- typing a fixed color stops following
+local hex = find("input", function(n) return tostring(n.props.key):match("^f:colors%.title_bar%.background_unfocused:hex") end)
+hex.props.onChange("#123456FF")
+followCall = lastCall("titlebar-follow")
+assert(followCall.request.field == "background_unfocused" and followCall.request.source == nil, "a fixed color stops following")
+store.revertField("include.optional.files")
 goHome()
 clickText("Appearance")
 clickText("Windows")
@@ -207,6 +266,14 @@ goHome()
 clickText("Backups")
 clickText("Compare")
 assert(find("markdown", function(n) return n.props.text:find("```diff", 1, true) end))
+clickText("Select all")
+assert(hasText("Delete 1 backup") and hasText("Clear selection"), "select all marks every backup")
+replies["delete-backups"] = function(request)
+  return true, json.encode({ deleted = { "config.toml.1.bak" }, errors = {}, backups = { backups = {} } })
+end
+clickText("Delete 1 backup")
+assert(lastCall("delete-backups").request.snapshots[1] == "/b/config.toml.1.bak", "marked backup deleted")
+assert(hasText("No backups yet."), "list refreshed after delete")
 goHome()
 replies.about = function() return true, json.encode({ editor = "kate", palette = { noctalia = true } }) end
 replies["set-editor"] = function(request) return true, json.encode({ editor = request.editor }) end

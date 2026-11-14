@@ -3,7 +3,7 @@
 from . import CORE_VERSION, entry_ops
 from .actions import ACTION_CATEGORIES, ACTION_INFO, ARG_HELP, REQUIRED_ARG_ACTIONS
 from .cursor_themes import installed_cursor_themes
-from .fields import ACTION_TEMPLATES, NAV_SECTIONS, TABS
+from .fields import ACTION_TEMPLATES, NAV_SECTIONS, OPACITY_SLIDERS, TABS
 from .help import CATEGORY_HELP, GROUP_HELP, setting_help_text
 from .keybinds import BIND_BOOL_OPTIONS
 from .schema import field_schema_option
@@ -63,6 +63,8 @@ def describe_field(field, category, group, schema_options, schema_path, cursor_t
         info["min"], info["max"] = low, high
     if kind == "table":
         info["keys"] = list(field.extra or ())
+    if kind == "color" and field.path in OPACITY_SLIDERS:
+        info["opacity"] = True
     if option is not None and option.get("format") == "effect":
         info["placeholder"] = "Effect preset name"
     info["help"] = setting_help_text(field, group)

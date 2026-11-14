@@ -7,21 +7,34 @@ import stat
 
 from .paths import migrate_gui_directory
 
+MAX_BACKUPS = 10
+
 
 def backup_dir(config_dir):
     """Return the snapshot directory inside a per-config GUI data directory."""
     return os.path.join(config_dir, "backups")
 
 
-def create_backup_snapshot(path, config_dir):
-    """Keep a timestamped, restorable copy under the GUI's data directory."""
+def create_backup_snapshot(path, config_dir, protect=None):
+    """Keep a timestamped, restorable copy under the GUI's data directory; older ones beyond MAX_BACKUPS go,
+    except `protect` (the backup being restored)."""
     directory = backup_dir(config_dir)
     migrate_gui_directory(path + ".backups", directory)
     os.makedirs(directory, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     snapshot = os.path.join(directory, f"{os.path.basename(path)}.{stamp}.bak")
     shutil.copy2(path, snapshot)
+    prune_backup_snapshots(directory, path, protect=protect)
     return snapshot
+
+
+def prune_backup_snapshots(directory, config_path, keep=MAX_BACKUPS, protect=None):
+    """Delete the oldest snapshots so at most `keep` remain (never `protect`); return the deleted names."""
+    protect = os.path.abspath(protect) if protect else None
+    snapshots = [item for item in list_backup_snapshots(directory, config_path) if os.path.abspath(item) != protect]
+    keep -= 1 if protect and os.path.isfile(protect) else 0
+    deleted, _errors = delete_backup_snapshots(directory, config_path, snapshots[:max(0, len(snapshots) - keep)])
+    return deleted
 
 
 def list_backup_snapshots(directory, config_path):

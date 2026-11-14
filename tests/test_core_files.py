@@ -5,8 +5,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from umbriel_core import kde, noctalia_theme, paths
-from umbriel_core.backups import delete_backup_snapshots, list_backup_snapshots
+from umbriel_core import kde, noctalia_theme, paths, titlebar_apply, titlebar_theme
+from umbriel_core.backups import (
+    MAX_BACKUPS,
+    create_backup_snapshot,
+    delete_backup_snapshots,
+    list_backup_snapshots,
+    prune_backup_snapshots,
+)
 from umbriel_core.cursor_themes import installed_cursor_themes
 from umbriel_core.launch import child_env
 
@@ -65,6 +71,21 @@ class BackupTests(TempDirTestCase):
         self.assertEqual(deleted, [])
         self.assertIn("not a regular file", errors[0])
         self.assertTrue(os.path.exists(target))
+
+
+    def test_prune_keeps_the_newest_and_the_protected_backup(self):
+        names = [self.backup(f"config.toml.202601{day:02d}.bak") for day in range(1, 14)]
+        deleted = prune_backup_snapshots(self.directory, self.config_path, protect=names[0])
+        self.assertEqual(deleted, [os.path.basename(name) for name in names[1:4]])
+        self.assertEqual(list_backup_snapshots(self.directory, self.config_path), [names[0]] + names[4:])
+        self.assertEqual(MAX_BACKUPS, 10)
+
+    def test_new_snapshot_prunes_old_ones(self):
+        config = self.write("config.toml", text="[general]\n")
+        directory = os.path.join(self.root, "data", "backups")
+        for _ in range(MAX_BACKUPS + 2):
+            create_backup_snapshot(config, os.path.join(self.root, "data"))
+        self.assertEqual(len(list_backup_snapshots(directory, config)), MAX_BACKUPS)
 
 
 class CursorThemeTests(TempDirTestCase):
@@ -190,6 +211,120 @@ class PaletteTemplateTests(TempDirTestCase):
         os.symlink(target, os.path.join(self.root, "noctalia", "noctalia-config.toml"))
         with self.assertRaisesRegex(ValueError, "symlink"):
             noctalia_theme.install_template(self.backups)
+
+
+class TitlebarFollowTests(TempDirTestCase):
+    def setUp(self):
+        super().setUp()
+        patcher = patch.dict(os.environ, {"XDG_CONFIG_HOME": self.root})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.backups = os.path.join(self.root, "backups")
+        self.noctalia = self.write("noctalia", "noctalia-config.toml", text="[shell]\nfont_family = \"Inter\"\n")
+        self.write("umbriel-settings", "noctalia-palette.conf",
+                   text="primary=#aa0000\nsurface=#101010\nsurface_container=#202020\nprimary_container=#303030\n")
+        self.config = self.write("umbriel", "config.toml", text="")
+
+    def test_follow_writes_template_entry_and_current_colors(self):
+        state = titlebar_theme.follow(self.config, "background", "kde_header", 0xD7, self.backups)
+        self.assertEqual(state["fields"]["background"],
+                         {"role": "surface_container", "alpha": "D7", "source": "kde_header", "color": "#202020D7"})
+        state = titlebar_theme.follow(self.config, "background_unfocused", "kde", 0x80, self.backups)
+        self.assertEqual(set(state["fields"]), {"background", "background_unfocused"}, "the other field is kept")
+        with open(titlebar_theme.output_file(), encoding="utf-8") as handle:
+            self.assertIn('background = "#202020D7"', handle.read())
+        with open(titlebar_theme.template_file(), encoding="utf-8") as handle:
+            self.assertIn("{{colors.surface_container.default.hex_stripped}}D7", handle.read())
+        import tomllib
+        with open(self.noctalia, "rb") as handle:
+            entry = tomllib.load(handle)["theme"]["templates"]["user"]["umbriel_titlebar"]
+        self.assertEqual(entry["input_path"], "$XDG_CONFIG_HOME/noctalia/templates/umbriel-titlebar.toml")
+        self.assertEqual(entry["output_path"], titlebar_theme.output_file())
+        self.assertEqual(entry["post_hook"], f"python3 '{titlebar_theme.script_file()}' "
+                                             f"'{titlebar_theme.output_file()}' '{self.config}'")
+        self.assertTrue(os.path.isfile(titlebar_theme.script_file()))
+        state = titlebar_theme.follow(self.config, "background", None, 0, self.backups)
+        self.assertEqual(set(state["fields"]), {"background_unfocused"})
+        state = titlebar_theme.follow(self.config, "background_unfocused", None, 0, self.backups)
+        self.assertEqual(state["fields"], {})
+        with open(self.noctalia, "rb") as handle:
+            user = tomllib.load(handle).get("theme", {}).get("templates", {}).get("user", {})
+        self.assertNotIn("umbriel_titlebar", user, "the hook stops once nothing follows")
+        self.assertFalse(os.path.exists(titlebar_theme.template_file()))
+        self.assertFalse(os.path.exists(titlebar_theme.output_file()))
+        with open(self.noctalia, encoding="utf-8") as handle:
+            self.assertIn('font_family = "Inter"', handle.read())
+
+    def test_follow_rejects_bad_input(self):
+        for args in (("title", "kde", 255), ("background", "gtk", 255), ("background", "kde", 256)):
+            with self.assertRaises(ValueError):
+                titlebar_theme.follow(self.config, *args, self.backups)
+
+
+class TitlebarApplyTests(TempDirTestCase):
+    """The post_hook script that copies followed colors into the config."""
+
+    def setUp(self):
+        super().setUp()
+        self.backup = os.path.join(self.root, "config.toml.titlebar.bak")
+        patcher = patch.object(titlebar_apply, "backup_file", return_value=self.backup)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_replaces_only_the_two_keys_and_keeps_the_rest(self):
+        text = ('# mine\n[colors.title_bar]  # bar\nbackground = "#1F1F1FD7"  # old\ntext = "#FFFFFFFF"\n\n'
+                '[appearance]\nbackground = "keep"\n')
+        updated = titlebar_apply.apply(text, {"background": "#202020CC", "background_unfocused": "#101010CC"})
+        self.assertEqual(updated, '# mine\n[colors.title_bar]  # bar\nbackground_unfocused = "#101010CC"\n'
+                                  'background = "#202020CC"\ntext = "#FFFFFFFF"\n\n[appearance]\nbackground = "keep"\n')
+        self.assertEqual(titlebar_apply.apply(updated, {"background": "#202020CC"}), updated, "unchanged stays")
+
+    def test_adds_the_table_when_missing(self):
+        self.assertEqual(titlebar_apply.apply("[general]\n", {"background": "#202020CC"}),
+                         '[general]\n\n[colors.title_bar]\nbackground = "#202020CC"\n')
+
+    def test_keeps_crlf_and_other_keys(self):
+        text = '[colors.title_bar]\r\ntext = "#FFFFFFFF"\r\nbackground = "#000000FF"\r\n[general]\r\n'
+        self.assertEqual(titlebar_apply.apply(text, {"background": "#112233CC", "background_unfocused": "#000000CC"}),
+                         '[colors.title_bar]\r\nbackground_unfocused = "#000000CC"\r\ntext = "#FFFFFFFF"\r\n'
+                         'background = "#112233CC"\r\n[general]\r\n')
+
+    def test_main_never_writes_invalid_toml(self):
+        rendered = self.write("colors.toml", text='background = "#112233CC"\n')
+        for text in ('[colors]\ntitle_bar.background = "#000000FF"\n',
+                     '[colors]\ntitle_bar = { background = "#000000FF" }\n'):
+            config = self.write("config.toml", text=text)
+            with patch("sys.stderr"):
+                self.assertEqual(titlebar_apply.main([rendered, config]), 1, text)
+            with open(config, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), text)
+
+    def test_main_keeps_crlf_on_disk(self):
+        rendered = self.write("colors.toml", text='background = "#112233CC"\n')
+        config = os.path.join(self.root, "crlf.toml")
+        with open(config, "wb") as handle:
+            handle.write(b'[colors.title_bar]\r\nbackground = "#000000FF"\r\n')
+        self.assertEqual(titlebar_apply.main([rendered, config]), 0)
+        with open(config, "rb") as handle:
+            self.assertEqual(handle.read(), b'[colors.title_bar]\r\nbackground = "#112233CC"\r\n')
+
+    def test_main_backs_up_the_previous_config(self):
+        rendered = self.write("colors.toml", text='background = "#112233CC"\n')
+        config = self.write("config.toml", text="[colors.title_bar]\n")
+        self.assertEqual(titlebar_apply.main([rendered, config]), 0)
+        with open(self.backup, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "[colors.title_bar]\n")
+
+    def test_main_reads_rendered_file_and_refuses_symlinks(self):
+        rendered = self.write("colors.toml", text='[colors.title_bar]\nbackground = "#2f2322cc"  # source=kde\n')
+        config = self.write("config.toml", text="[colors.title_bar]\n")
+        self.assertEqual(titlebar_apply.main([rendered, config]), 0)
+        with open(config, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), '[colors.title_bar]\nbackground = "#2F2322CC"\n')
+        link = os.path.join(self.root, "link.toml")
+        os.symlink(config, link)
+        with patch("sys.stderr"):
+            self.assertEqual(titlebar_apply.main([rendered, link]), 1)
 
 
 class RenameMigrationTests(TempDirTestCase):

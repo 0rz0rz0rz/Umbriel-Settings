@@ -242,36 +242,70 @@ def template_status(config=None):
     }
 
 
-def install_template(backup_dir, config=None):
-    """Write the palette template and add its user-template entry to Noctalia's config (backed up first)."""
+def write_user_template(key, template, text, entry, backup_dir, config=None):
+    """Write a Noctalia user template and make [theme.templates.user.<key>] point at it.
+
+    Noctalia's config is changed only when the entry is missing or different; the old file is backed up first.
+    """
     import tomlkit
 
     config = config or noctalia_config_file()
-    template = template_file()
     for path in (config, template):
         if os.path.islink(path):
             raise ValueError(f"{path} is a symlink; edit its target directly.")
     if not os.path.isfile(config):
         raise ValueError(f"Noctalia's config was not found: {config}")
     with open(config, encoding="utf-8") as handle:
-        text = handle.read()
-    document = tomlkit.parse(text)
+        original = handle.read()
+    document = tomlkit.parse(original)
     node = document
-    for key in ("theme", "templates", "user"):
-        if key not in node:
-            node[key] = tomlkit.table(is_super_table=True)
-        node = node[key]
+    for part in ("theme", "templates", "user"):
+        if part not in node:
+            node[part] = tomlkit.table(is_super_table=True)
+        node = node[part]
         if not isinstance(node, dict):
-            raise ValueError(f"Noctalia's config: [{key}] is not a table.")
-    atomic_write(Path(template), PALETTE_TEMPLATE.encode("utf-8"), 0o644)
-    os.makedirs(os.path.join(config_home(), DATA_DIR_NAME), exist_ok=True)
-    if TEMPLATE_KEY not in node:
-        entry = tomlkit.table()
-        entry.update(TEMPLATE_ENTRY)
-        node[TEMPLATE_KEY] = entry
+            raise ValueError(f"Noctalia's config: [{part}] is not a table.")
+    atomic_write(Path(template), text.encode("utf-8"), 0o644)
+    current = node.get(key)
+    if not isinstance(current, dict) or any(current.get(name) != value for name, value in entry.items()):
+        if isinstance(current, dict):
+            current.update(entry)
+        else:
+            table = tomlkit.table()
+            table.update(entry)
+            node[key] = table
         updated = tomlkit.dumps(document)
         tomllib.loads(updated)
         os.makedirs(backup_dir, exist_ok=True)
-        atomic_write(Path(backup_dir) / "noctalia-config.toml.bak", text.encode("utf-8"))
+        atomic_write(Path(backup_dir) / "noctalia-config.toml.bak", original.encode("utf-8"))
         atomic_write(Path(config), updated.encode("utf-8"), stat.S_IMODE(os.stat(config).st_mode))
+
+
+def remove_user_template(key, template, backup_dir, config=None):
+    """Drop [theme.templates.user.<key>] from Noctalia's config (backed up first) and delete the template file."""
+    import tomlkit
+
+    config = config or noctalia_config_file()
+    if os.path.isfile(config) and not os.path.islink(config):
+        with open(config, encoding="utf-8") as handle:
+            original = handle.read()
+        document = tomlkit.parse(original)
+        user = document
+        for part in ("theme", "templates", "user"):
+            user = user.get(part) if isinstance(user, dict) else None
+        if isinstance(user, dict) and key in user:
+            del user[key]
+            updated = tomlkit.dumps(document)
+            tomllib.loads(updated)
+            os.makedirs(backup_dir, exist_ok=True)
+            atomic_write(Path(backup_dir) / "noctalia-config.toml.bak", original.encode("utf-8"))
+            atomic_write(Path(config), updated.encode("utf-8"), stat.S_IMODE(os.stat(config).st_mode))
+    if os.path.isfile(template) and not os.path.islink(template):
+        os.remove(template)
+
+
+def install_template(backup_dir, config=None):
+    """Write the palette template and add its user-template entry to Noctalia's config (backed up first)."""
+    write_user_template(TEMPLATE_KEY, template_file(), PALETTE_TEMPLATE, TEMPLATE_ENTRY, backup_dir, config)
+    os.makedirs(os.path.join(config_home(), DATA_DIR_NAME), exist_ok=True)
     return template_status(config)

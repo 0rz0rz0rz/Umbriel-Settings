@@ -339,6 +339,22 @@ class BackupAndDesktopTests(HelperTestCase):
         self.assertEqual(len(deleted["errors"]), 1)
         self.assertTrue(os.path.exists("/etc/passwd"))
 
+    def test_restore_keeps_the_restored_backup_when_pruning(self):
+        state = self.read()
+        report = self.save(state, fields={"general.mod_key": {"value": "Alt"}})
+        directory = os.path.dirname(report["backup"])
+        for index in range(12):
+            with open(os.path.join(directory, f"config.toml.29990101-{index:02d}.bak"), "w") as handle:
+                handle.write(CONFIG)
+        listing = self.ok("backups", {"config": str(self.config)})["backups"]
+        oldest = min(item["path"] for item in listing)
+        self.assertEqual(oldest, report["backup"])
+        restored = self.ok("restore", {"config": str(self.config), "snapshot": oldest,
+                                       "revision": self.read()["revision"]})
+        kept = [item["path"] for item in restored["backups"]["backups"]]
+        self.assertEqual(len(kept), 10)
+        self.assertIn(oldest, kept, "the restored backup is never pruned")
+
     def test_desktop_read_and_save(self):
         xdg = self.root / "xdg-config"
         xdg.mkdir()
@@ -410,6 +426,21 @@ class EditorAndAboutTests(HelperTestCase):
         self.assertEqual((palette["template"], palette["entry"], palette["palette"]), (True, True, False))
         self.assertTrue(config.read_text().startswith("# mine\n"))
         self.assertTrue((self.root / "data" / "umbriel-settings" / "noctalia-backups" / "noctalia-config.toml.bak").exists())
+
+
+class TitlebarFollowTests(HelperTestCase):
+    def test_follow_converts_opacity_and_reports_state(self):
+        self.assertEqual(self.ok("titlebar", {"config": str(self.config)})["fields"], {})
+        noctalia = self.root / "xdg-config" / "noctalia" / "noctalia-config.toml"
+        noctalia.parent.mkdir(parents=True)
+        noctalia.write_text("")
+        state = self.ok("titlebar-follow", {"config": str(self.config), "field": "background",
+                                            "source": "kde_header", "opacity": 0.84})
+        self.assertEqual(state["fields"]["background"]["alpha"], "D6")
+        self.assertEqual(state["old_include"], "titlebar.toml")
+        self.assertIn("post_hook", noctalia.read_text())
+        self.assertIn("Opacity", self.fails("titlebar-follow", {"config": str(self.config), "field": "background",
+                                                                "source": "kde", "opacity": 2})["error"])
 
 
 if __name__ == "__main__":

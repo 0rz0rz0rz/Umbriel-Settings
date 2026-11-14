@@ -1,22 +1,28 @@
 -- Settings pages: groups as an accordion (one open at a time keeps renders small), rows from ui/fields.
 local kit = require("../ui/kit.luau")
 local fields = require("../ui/fields.luau")
+local titlebar = require("../lib/titlebar.luau")
 
 local M = {}
 
-local function kdeSources(ctx, path)
+-- KDE color buttons for title-bar colors. On the followable backgrounds they also show without a readable qt6ct
+-- scheme when Noctalia is installed, because following uses Noctalia's palette roles, not the scheme file.
+local function kdeSources(ctx, path, follows)
   if string.sub(path, 1, 17) ~= "colors.title_bar." then return nil end
   ctx.loadKde()
-  local kde = ctx.kde
-  if not kde then return nil end
+  local kde = ctx.kde or { colors = {}, backgrounds = {} }
+  local state = follows and titlebar.state(ctx) or nil
+  local noctalia = state ~= nil and state.noctalia == true
   local sources = {}
-  if kde.colors[path] then
-    table.insert(sources, { label = "KDE", hex = kde.colors[path], tooltip = "the KDE window decoration colors" })
+  if kde.colors[path] or noctalia then
+    table.insert(sources, { label = "KDE", source = "kde", hex = kde.colors[path],
+                           tooltip = "the KDE window decoration colors" })
   end
-  if kde.backgrounds[path] then
-    table.insert(sources, { label = "KDE header", hex = kde.backgrounds[path], tooltip = "the KDE header background" })
+  if kde.backgrounds[path] or noctalia then
+    table.insert(sources, { label = "KDE header", source = "kde_header", hex = kde.backgrounds[path],
+                           tooltip = "the KDE header background" })
   end
-  return sources
+  return #sources > 0 and sources or nil
 end
 
 function M.pageFieldSpec(ctx, fid)
@@ -24,13 +30,19 @@ function M.pageFieldSpec(ctx, fid)
   local field = store.meta.fields[fid]
   local value, set = store.value(fid)
   local changed = store.isChanged(fid)
+  local follows = field.opacity and field.kind == "color"  -- title-bar backgrounds can follow Noctalia
   return {
     key = "f:" .. fid, field = field, value = value, set = set, changed = changed,
-    onSet = function(v) store.setField(fid, v) end,
+    onSet = function(v)
+      store.setField(fid, v)
+      if follows and titlebar.following(ctx, fid) then titlebar.follow(ctx, fid, nil) end  -- a fixed color stops following
+    end,
     onUnset = field.opt and function() store.unsetField(fid) end or nil,
     onRevert = changed and function() store.revertField(fid) end or nil,
     diagnostic = ctx.diagnostics and ctx.diagnostics[fid] or nil,
-    kdeColors = kdeSources(ctx, field.path),
+    kdeColors = kdeSources(ctx, field.path, follows),
+    follow = follows and titlebar.following(ctx, fid) or nil,
+    onFollow = follows and function(source, opacity) titlebar.follow(ctx, fid, source, opacity) end or nil,
   }
 end
 

@@ -241,13 +241,45 @@ local function backupsPage(ctx, route)
     end)
   end
   if state.list == nil and not state.loading and not state.error then refresh() end
-  local header = { kit.header(ctx, "Backups", "A copy is taken before every save and restore") }
+  local header = { kit.header(ctx, "Backups", "A copy is taken before every save and restore; the newest 10 are kept") }
   local content = {}
   if state.error then table.insert(content, kit.notice(state.error, "error", nil, "bk-error")) end
   if state.loading then table.insert(content, kit.empty("Loading…", "loader")) end
   local marked = 0
   for _ in pairs(state.marked) do marked = marked + 1 end
-  for index, item in ipairs(state.list or {}) do
+  local list = state.list or {}
+  if #list > 0 then
+    local tools = {
+      ui.button({ text = marked == #list and "Clear selection" or "Select all", controlSize = "sm", variant = "outline",
+                  glyph = marked == #list and "deselect" or "select-all", onClick = function()
+        local all = marked ~= #list
+        state.marked = {}
+        if all then for _, item in ipairs(list) do state.marked[item.path] = true end end
+        ctx.render()
+      end }),
+    }
+    if marked > 0 and marked < #list then
+      table.insert(tools, ui.button({ text = "Clear selection", controlSize = "sm", variant = "ghost", onClick = function()
+        state.marked = {}
+        ctx.render()
+      end }))
+    end
+    if marked > 0 then
+      table.insert(tools, ui.button({ text = "Delete " .. kit.plural(marked, "backup"), glyph = "trash",
+                                      variant = "destructive", controlSize = "sm", onClick = function()
+        local paths = {}
+        for snapshot in pairs(state.marked) do table.insert(paths, snapshot) end
+        ctx.helper.call("delete-backups", { config = path, snapshots = paths }, function(err, data)
+          if err then ctx.flash(err.error, "error") return end
+          state.marked = {}
+          state.list = data.backups.backups
+          if #data.errors > 0 then ctx.flash(table.concat(data.errors, "\n"), "warning") else ctx.render() end
+        end)
+      end }))
+    end
+    table.insert(content, ui.row({ key = "bk-tools", gap = 8, align = "center" }, tools))
+  end
+  for index, item in ipairs(list) do
     local key = "bk-" .. index
     table.insert(content, ui.row({ key = key, gap = 8, align = "center", paddingH = 12, paddingV = 8, radius = 10,
                                    fill = "surface_container" }, {
@@ -286,21 +318,6 @@ local function backupsPage(ctx, route)
     end
   end
   if state.list and #state.list == 0 then table.insert(content, kit.empty("No backups yet.", "history")) end
-  if marked > 0 then
-    table.insert(content, ui.row({ key = "bk-delete", gap = 8 }, {
-      ui.button({ text = "Delete " .. kit.plural(marked, "backup"), glyph = "trash", variant = "destructive",
-                  controlSize = "sm", onClick = function()
-        local paths = {}
-        for snapshot in pairs(state.marked) do table.insert(paths, snapshot) end
-        ctx.helper.call("delete-backups", { config = path, snapshots = paths }, function(err, data)
-          if err then ctx.flash(err.error, "error") return end
-          state.marked = {}
-          state.list = data.backups.backups
-          if #data.errors > 0 then ctx.flash(table.concat(data.errors, "\n"), "warning") else ctx.render() end
-        end)
-      end }),
-    }))
-  end
   return { header = header, content = content }
 end
 

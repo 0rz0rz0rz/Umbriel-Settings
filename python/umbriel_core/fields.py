@@ -74,6 +74,10 @@ def dwindle(p, opt=False):
     ]
 
 
+# Color fields that get an opacity slider (0-1, written as the color's alpha byte) under their row.
+OPACITY_SLIDERS = {("colors", "title_bar", "background"), ("colors", "title_bar", "background_unfocused")}
+
+
 def color_group(title, prefix, items):
     """Build a titled group of color fields from (name, default) pairs under the TOML table `prefix`."""
     return (title, [F(n.replace("_", " ").capitalize(), f"{prefix}.{n}", "color", d, None, True) for n, d in items])

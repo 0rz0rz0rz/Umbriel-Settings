@@ -34,6 +34,10 @@ does not need Noctalia.
   per-MIME-type associations.
 - **Follows your theme**: Noctalia colors, font and corner radius, or your qt6ct/KDE colors (see
   [Theming](#theming)). Numbers use your locale's decimal separator (`LC_NUMERIC`).
+- **Title bars that follow Noctalia**: the title-bar backgrounds can keep a KDE color and an opacity
+  across palette changes (see [Title-bar colors](#title-bar-colors)).
+- **About** (home page) shows the version and which options of your Umbriel version have no setting here
+  yet. It also sets the editor **Edit file** uses and, in the app, sets up the Noctalia palette template.
 
 ## Saving safely
 
@@ -46,8 +50,8 @@ Nothing is written until you press **Review & save** (Ctrl+S).
 - **Tidy file layout** regroups the file in canonical order with section banners. It is on by default
   only for files that already have banners; `--no-rebuild` turns it off for good. Regrouping may move
   comments.
-- A timestamped backup is made before every save or restore. **Backups** on the home page compares,
-  restores and deletes them. Desktop settings are backed up separately and are not rolled back with
+- A timestamped backup is made before every save or restore; the newest 10 are kept. **Backups** on
+  the home page compares, restores and deletes them (one by one or with **Select all**). Desktop settings are backed up separately and are not rolled back with
   the config.
 - Unsaved edits are kept as a draft when you close the window and restored next time. Closing with
   unsaved edits asks first.
@@ -149,7 +153,8 @@ the old desktop entry and icon. Update by hand:
 The app uses the first of these that is available, and follows changes while it is open:
 
 1. **Noctalia's palette**: the exact colors the Noctalia plugin uses. Noctalia writes them for the app
-   through a user template, which you set up once:
+   through a user template. **About → Set up palette template** does this for you: it writes the template
+   and adds the entry to `noctalia-config.toml` (after backing it up). To set it up by hand instead:
    - Save this as `~/.config/noctalia/templates/umbriel-settings-palette.conf`:
 
      ```text
@@ -180,9 +185,32 @@ when `QT_QPA_PLATFORMTHEME` is `qt6ct`/`qt5ct`. This is needed in the AppImage a
 can't load the system qt6ct plugin. Set `UMBRIEL_QT_THEME=none` to disable it, or
 `UMBRIEL_QT_THEME=qt6ct` to force it.
 
-On the Colors page, the **KDE** buttons import the title-bar colors of your KDE/qt6ct scheme and keep
-the alpha. Title-bar background opacity is stored as the alpha of the Umbriel color (`#RRGGBBAA`).
-Imported colors are static: after a theme change, import them again.
+### Title-bar colors
+
+Umbriel draws the title bars of server-side decorated windows (`prefer_no_csd = true`, for example Dolphin)
+itself, from `[colors.title_bar]`. The KDE color scheme only colors what Qt draws inside the window.
+
+On **Colors → Title bar**, **Background** and **Background unfocused** have an **Opacity** slider (0–1,
+stored as the alpha of the `#RRGGBBAA` color: 0.84 is `D6`) and two buttons:
+
+- **KDE** follows Noctalia's `primary_container` (focused) and `surface` (unfocused) colors, the colors of
+  KDE window decorations in Noctalia's KDE scheme.
+- **KDE header** follows `surface_container` and `surface`, the KDE header colors.
+
+Pressing one makes the color **follow Noctalia**, at the opacity you set:
+
+- The row shows **Follows Noctalia · KDE header** and the current color.
+- The color is queued as a normal edit. After **Review & save**, every palette change updates it by itself;
+  the app doesn't need to run.
+- Typing or picking a fixed color, or the unlink button, stops following.
+
+How it works: the app writes the Noctalia user template `~/.config/noctalia/templates/umbriel-titlebar.toml`
+and its `[theme.templates.user.umbriel_titlebar]` entry. Noctalia renders the colors to
+`~/.config/umbriel-settings/titlebar-colors.toml` and then runs the entry's `post_hook`,
+`~/.config/umbriel-settings/titlebar_apply.py`. That script copies the two colors into `[colors.title_bar]`
+of your Umbriel config and changes nothing else. An include file can't do this job: Noctalia's built-in
+`umbriel` template always moves `noctalia.toml` to the end of `include.optional.files`, so its colors would
+win. Only the config file itself is applied after it. The script needs only `python3`.
 
 ## Desktop settings
 
@@ -210,7 +238,11 @@ The app respects `$XDG_DATA_HOME` (default `~/.local/share`) and `$XDG_CONFIG_HO
 | `$XDG_DATA_HOME/umbriel-settings/configs/<config-id>/` | Per config: `backups/`, rule names (`gui-labels.json`), locked keybinds (`gui-locked-keybinds.json`) |
 | `$XDG_DATA_HOME/umbriel-settings/backups/` | `user-dirs.dirs.bak`, `mimeapps.list.bak` |
 | `$XDG_DATA_HOME/umbriel-settings/app-ui/` | The app's drafts, metadata cache and app icons |
+| `$XDG_DATA_HOME/umbriel-settings/editor-command` | The editor command for **Edit file**, if you set one under About |
+| `$XDG_DATA_HOME/umbriel-settings/noctalia-backups/` | A copy of `noctalia-config.toml` from before the app last changed it |
 | `$XDG_CONFIG_HOME/umbriel-settings/noctalia-palette.conf` | Written by Noctalia if you set up the theme template |
+| `$XDG_CONFIG_HOME/umbriel-settings/titlebar-colors.toml`, `titlebar_apply.py`, `config.toml.titlebar.bak` | Followed title-bar colors, the script that copies them into your config ([Title-bar colors](#title-bar-colors)) and the config from before its last change |
+| `$XDG_CONFIG_HOME/noctalia/templates/umbriel-settings-palette.conf`, `umbriel-titlebar.toml` | Noctalia user templates, with their entries in `noctalia-config.toml` |
 | `$XDG_DATA_HOME/applications/umbriel-settings.desktop`, `$XDG_DATA_HOME/icons/hicolor/128x128/apps/umbriel-settings.png` | Desktop entry and icon |
 | `$XDG_CONFIG_HOME/user-dirs.dirs`, `$XDG_CONFIG_HOME/mimeapps.list` | Desktop settings, when you save them |
 

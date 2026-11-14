@@ -162,12 +162,19 @@ local function colorControl(ctx, spec, effective)
                end }),
   }
   for _, source in ipairs(spec.kdeColors or {}) do
+    local followed = spec.follow ~= nil and spec.follow.source == source.source
     table.insert(controls, ui.button({
       key = key .. ":kde:" .. source.label, text = source.label, controlSize = "sm", variant = "ghost",
-      tooltip = "Use " .. source.hex .. " from " .. source.tooltip,
+      selected = followed,
+      tooltip = spec.onFollow and source.source and ("Follow Noctalia: keep using " .. source.tooltip
+        .. " after palette changes") or ("Use " .. tostring(source.hex) .. " from " .. source.tooltip),
       onClick = function()
         local alpha = string.len(value) == 9 and string.sub(value, 8, 9) or "FF"
-        spec.onSet(string.sub(source.hex, 1, 7) .. alpha)
+        if spec.onFollow and source.source then
+          spec.onFollow(source.source, tonumber(alpha, 16) / 255)
+        else
+          spec.onSet(string.sub(source.hex, 1, 7) .. alpha)
+        end
         bump(view, key)
         ctx.render()
       end,
@@ -329,11 +336,46 @@ local function listRows(ctx, spec, effective)
   return rows
 end
 
+-- Opacity 0-1 for a #RRGGBB(AA) color, written back as its alpha byte (0.84 = D7).
+local function opacityRow(ctx, spec, effective)
+  local key, view = spec.key, ctx.view
+  local follow = spec.follow
+  local color = type(effective) == "string" and effective or spec.field.initial
+  if follow then color = "#000000" .. follow.alpha end
+  local rgb, alphaHex = string.match(type(color) == "string" and color or "#000000FF", "^(#%x%x%x%x%x%x)(%x?%x?)$")
+  if not rgb then return nil end
+  alphaHex = string.upper(alphaHex ~= "" and alphaHex or "FF")
+  local alpha = tonumber(alphaHex, 16) / 255
+  return ui.row({ key = key .. ":opacity", gap = 12, align = "center" }, {
+    ui.column({ flexGrow = 1 }, { kit.muted("Opacity") }),
+    ui.row({ width = M.EDITOR_WIDTH, gap = 6, align = "center", opacity = (spec.set or follow) and 1 or 0.75 }, {
+      ui.slider({ key = key .. ":opacity-slider", min = 0, max = 1, step = 0.01, value = alpha,
+                  flexGrow = 1, controlSize = "sm", tooltip = "Opacity (alpha of the color)",
+                  onChange = function(text)
+                    local number = tonumber(text)
+                    if number == nil then return end
+                    number = math.max(0, math.min(1, number))
+                    if follow then
+                      spec.onFollow(follow.source, number)
+                    else
+                      spec.onSet(rgb .. string.format("%02X", math.floor(number * 255 + 0.5)))
+                    end
+                    bump(view, key)
+                    ctx.renderSoon()
+                  end }),
+      ui.label({ text = string.format("%.2f · %s", alpha, alphaHex), fontSize = 12 }),
+    }),
+    ui.row({ width = 96 }, {}),
+  })
+end
+
 -- spec: key, field, value, set, changed, onSet(v), onUnset() or nil, onRevert() or nil, diagnostic, kdeColors
 function M.row(ctx, spec)
   local field, view, key = spec.field, ctx.view, spec.key
   local effective = spec.value
   if not spec.set then effective = field.default end
+  local follow = spec.follow
+  if follow and follow.color then effective = follow.color end
   local kind = field.kind
   local controls, below = {}, nil
   if kind == "bool" and spec.onUnset and not hasDefault(field) then
@@ -367,7 +409,9 @@ function M.row(ctx, spec)
   local status
   local defaultText = hasDefault(field) and M.format(field, field.default) or nil
   if defaultText == "empty" then defaultText = nil end
-  if defaultText then
+  if follow then
+    status = "Follows Noctalia · " .. (follow.source == "kde" and "KDE" or "KDE header")
+  elseif defaultText then
     status = (spec.set and "Default " or "Not set · uses default ") .. defaultText
   elseif spec.set then
     status = "Set"
@@ -386,6 +430,10 @@ function M.row(ctx, spec)
         spec.onUnset(); bump(view, key); view.custom[key] = nil; ctx.render()
       end }))
   end
+  if follow then
+    table.insert(actions, ui.button({ key = key .. ":unfollow", glyph = "link-off", variant = "ghost", controlSize = "sm",
+      tooltip = "Stop following Noctalia", onClick = function() spec.onFollow(nil); bump(view, key); ctx.render() end }))
+  end
   table.insert(actions, ui.button({ key = key .. ":help", glyph = "info-circle", variant = "ghost", controlSize = "sm",
     tooltip = "Show help", selected = view.help[key] == true,
     onClick = function() view.help[key] = not view.help[key] or nil; ctx.render() end }))
@@ -402,6 +450,10 @@ function M.row(ctx, spec)
   }
   if below then
     table.insert(children, ui.column({ key = key .. ":list", gap = 4, paddingH = 8 }, below))
+  end
+  if kind == "color" and field.opacity then
+    local row = opacityRow(ctx, spec, effective)
+    if row then table.insert(children, row) end
   end
   if view.openColor == key and kind == "color" then
     table.insert(children, ui.row({ key = key .. ":picker", justify = "end" }, {

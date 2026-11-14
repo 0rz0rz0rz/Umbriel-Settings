@@ -24,7 +24,8 @@ The same interface also runs as a standalone desktop app, available from the
 - `umbriel` on `PATH`, for setting defaults, ranges, validation before saving and **Inspect connected
   outputs**. Without it, settings can still be edited but are not checked before writing.
 - Optional: `zenity` or `kdialog` for **Browse** on user folders, `gio` to open the standalone app, and
-  `xdg-open` for **Edit file**. Each button explains what is missing when its tool is not installed.
+  `xdg-open` for **Edit file** (or an editor command set under **About**). Each button explains what is
+  missing when its tool is not installed.
 
 ## Usage
 
@@ -47,6 +48,12 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
   catalog with argument hints, and lock shortcuts so they can't be changed by accident.
 - **User folders** and **Default apps** edit `user-dirs.dirs` and `mimeapps.list`, with a searchable app
   list and per-MIME-type associations.
+- **Title-bar colors follow Noctalia**: on Colors → Title bar, the two background colors have an
+  **Opacity** slider and **KDE** / **KDE header** buttons. A button makes the color follow Noctalia's palette
+  at that opacity: after you save once, every palette change updates it, even with the panel closed. Typing
+  a fixed color stops following.
+- **About** shows the version, which options of your Umbriel version have no setting here yet, and the
+  editor command **Edit file** uses.
 
 Nothing is written until you press **Review & save** (Ctrl+S). The review lists every change in words,
 shows the file diff and validates the new file with `umbriel config validate` first: if Umbriel rejects it,
@@ -64,18 +71,29 @@ Keys: Ctrl+F search, Ctrl+S review, Alt+Left back, Esc close.
 ## Notes
 
 - **Files read**: the Umbriel config (the path last chosen in the panel or app, else
-  `~/.config/umbriel/config.toml`), `user-dirs.dirs`, `mimeapps.list`, installed `.desktop` files, and
-  `kdeglobals`/qt6ct color files when you choose KDE colors for title bars.
+  `~/.config/umbriel/config.toml`), `user-dirs.dirs`, `mimeapps.list`, installed `.desktop` files,
+  `kdeglobals`/qt6ct color files when you choose KDE colors for title bars, and `noctalia-config.toml` plus
+  the palette file for title bars that follow Noctalia.
 - **Files written**, only when you save, restore or delete backups: the Umbriel config (validated first,
   written atomically, symlinks refused), `$XDG_CONFIG_HOME/user-dirs.dirs` and
   `$XDG_CONFIG_HOME/mimeapps.list` (other entries and MIME fallbacks are kept). A timestamped backup is
-  made before every write, under `$XDG_DATA_HOME/umbriel-settings/`, which also stores the chosen config
-  path, rule names and keybind locks. Panel drafts and cache live in Noctalia's plugin data directory.
+  made before every write (the newest 10 config backups are kept), under `$XDG_DATA_HOME/umbriel-settings/`, which also stores the chosen config
+  path, rule names, keybind locks and the editor command. Panel drafts and cache live in Noctalia's plugin
+  data directory.
+- **Title bars that follow Noctalia**, only when you press **KDE** / **KDE header**: the plugin writes the
+  user template `~/.config/noctalia/templates/umbriel-titlebar.toml` and its `umbriel_titlebar` entry in
+  `noctalia-config.toml` (backed up first), plus `~/.config/umbriel-settings/titlebar_apply.py`. On every
+  palette change Noctalia renders `~/.config/umbriel-settings/titlebar-colors.toml` and runs that script as
+  the entry's `post_hook`. The script sets only `background` / `background_unfocused` in
+  `[colors.title_bar]` of the Umbriel config. The config is edited directly because Noctalia's built-in
+  umbriel template always puts `noctalia.toml` last among the includes.
 - **Processes**: `python3 -B umbriel_settings.py <command>` with JSON request and response files in the
   plugin data directory; `umbriel config validate` (on a temporary `.umbriel-settings-*.toml` copy next to
   the config, removed afterwards), `umbriel config schema --json` and
   `umbriel outputs --json`; `zenity`/`kdialog` for the folder picker; `gio launch` to open the standalone
-  app; `xdg-open` to open the config in your editor. The last three run only when you press their buttons.
+  app; `xdg-open` or your editor command to open the config. The last three run only when you press their
+  buttons. Noctalia itself runs `python3 titlebar_apply.py` after palette changes while a title-bar color
+  follows Noctalia.
 - **Network**: none.
 - `umbriel_core/` is the plain-Python config library shared with the standalone app, bundled so the plugin
   works on its own. `app.luau` is the standalone app's layout; it is not listed in `plugin.toml`, so

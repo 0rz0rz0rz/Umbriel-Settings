@@ -192,7 +192,7 @@ def cmd_restore(request):
         raise HelperError(f"The backup is not valid TOML: {error}") from error
     if os.path.islink(current.path):
         raise HelperError("The config is a symlink; edit its target directly.")
-    backups.create_backup_snapshot(current.path, current.config_dir)
+    backups.create_backup_snapshot(current.path, current.config_dir, protect=snapshot)
     paths.write_text_file(current.path, text)
     return {"state": current.read(), "backups": backup_listing(current.path)}
 
@@ -388,6 +388,24 @@ def cmd_palette_template(request):
     return {"palette": noctalia_theme.install_template(os.path.join(data_dir(), "noctalia-backups"))}
 
 
+def cmd_titlebar(request):
+    from umbriel_core import titlebar_theme
+    return titlebar_theme.status()
+
+
+def cmd_titlebar_follow(request):
+    """Let a title-bar background follow Noctalia's palette (source kde/kde_header, opacity 0-1); source null stops."""
+    need_tomlkit()
+    from umbriel_core import titlebar_theme
+    source, opacity = request.get("source"), request.get("opacity", 1)
+    if source is not None and not isinstance(source, str):
+        raise HelperError("The color source must be text.")
+    if isinstance(opacity, bool) or not isinstance(opacity, (int, float)) or not 0 <= opacity <= 1:
+        raise HelperError("Opacity must be between 0 and 1.")
+    return titlebar_theme.follow(config_path(request), str(request.get("field")), source, round(opacity * 255),
+                                 os.path.join(data_dir(), "noctalia-backups"))
+
+
 COMMANDS = {
     "meta": cmd_meta, "read": cmd_read, "preview": cmd_preview, "save": cmd_save, "set-config": cmd_set_config,
     "backups": cmd_backups, "backup-diff": cmd_backup_diff, "restore": cmd_restore,
@@ -395,6 +413,7 @@ COMMANDS = {
     "extension": cmd_extension, "outputs": cmd_outputs, "kde-colors": cmd_kde_colors,
     "pick-folder": cmd_pick_folder, "launch-app": cmd_launch_app, "open-config": cmd_open_config,
     "set-editor": cmd_set_editor, "about": cmd_about, "palette-template": cmd_palette_template,
+    "titlebar": cmd_titlebar, "titlebar-follow": cmd_titlebar_follow,
 }
 
 
