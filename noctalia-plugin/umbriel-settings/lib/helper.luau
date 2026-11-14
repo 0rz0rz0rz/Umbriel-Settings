@@ -65,8 +65,10 @@ function M.call(command, request, cb, opts)
     end
     local status = noctalia.json.decode(result.stdout or "")
     if type(status) ~= "table" then
-      local detail = result.stderr ~= "" and result.stderr or ("exit status " .. tostring(result.exitCode))
-      if result.exitCode == 127 or string.find(detail, "No such file", 1, true) then
+      local stderr = result.stderr or ""
+      -- a traceback is long; its last line names the error
+      local detail = string.match(stderr, "([^\n]+)%s*$") or ("exit status " .. tostring(result.exitCode))
+      if result.exitCode == 127 or string.find(stderr, "No such file", 1, true) then
         finish({ error = "python3 was not found. Install Python 3.", code = "missing_python" })
       else
         finish({ error = "The helper failed: " .. detail })

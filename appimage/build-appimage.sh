@@ -82,7 +82,8 @@ rm -f "$pyside/Qt/resources/qtwebengine_devtools_resources.pak"
 rm -rf "$pyside/Qt/qml" "$pyside/Qt/metatypes" "$pyside/include" "$pyside/glue" "$pyside/doc" \
     "$pyside"/Qt/plugins/{designer,multimedia,qmltooling,sceneparsers,assetimporters,geometryloaders,renderers,renderplugins,sqldrivers,sensors,geoservices,webview,texttospeech,canbus,scxmldatamodel}
 for tool in assistant balsam balsamui designer linguist lrelease lupdate qmlformat qmllint qmlls qsb \
-    uic rcc deploy pyside6-* ; do rm -rf "$pyside/$tool"; done
+    uic rcc deploy; do rm -rf "${pyside:?}/$tool"; done
+rm -rf "${pyside:?}"/pyside6-*
 
 chmod -R a+rX "$appdir"
 appimagetool="$("$work/venv/bin/python" -c 'from python_appimage.utils.deps import ensure_appimagetool as e; print(e())')"

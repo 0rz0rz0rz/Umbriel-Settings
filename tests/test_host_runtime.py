@@ -145,6 +145,49 @@ class HostRuntimeTests(unittest.TestCase):
         self.assertIn("General", texts)
         self.assertIn(str(self.config), texts)
 
+    def new_app(self, data_dir):
+        """A second app instance (fresh Lua state) on the same files, like a restart."""
+        from umbriel_settings.host.api import NoctaliaApi
+        from umbriel_settings.host.runtime import LuaHost
+        host = LuaHost(self.host.ui_dir, on_error=lambda error: None)
+        api = NoctaliaApi(host, self.scheduler, data_dir,
+                          on_state=lambda key, value: self.states.__setitem__(key, value))
+        host.start("app.luau", {"initialConfig": str(self.config)}, api.globals())
+        self.host = host
+        return api
+
+    def test_a_crashing_helper_shows_an_error_and_try_again_recovers(self):
+        from umbriel_settings.host.paths import shared_ui_dir
+
+        class Broken:
+            def run(self, argv):
+                raise RuntimeError("helper exploded")
+
+        api = self.new_app(str(Path(self.temp.name) / "app-ui-broken"))
+        helper = os.path.abspath(os.path.join(shared_ui_dir(), "umbriel_settings.py"))
+        api._helpers[helper] = Broken()
+        with patch("sys.stderr"):
+            self.host.call("onOpen")
+            self.settle()
+        self.assertIn("helper exploded", self.screen(), "the error is shown instead of loading forever")
+        del api._helpers[helper]
+        self.click("Try again")
+        self.find(lambda n: n["props"].get("key") == "sidebar", "loads after retrying")
+
+    def test_unsaved_user_folder_edits_survive_a_restart(self):
+        self.click("User folders")
+        field = self.find(lambda n: n["kind"] == "input" and str(n["props"].get("key", "")).startswith("fold-MUSIC-"))
+        self.host.invoke(field["props"]["onChange"], "$HOME/Tunes")
+        self.settle()
+        self.assertEqual(self.states.get("umbriel.pending"), 1)
+        self.host.call("onClose")
+        self.states.clear()
+        self.new_app(str(Path(self.temp.name) / "app-ui"))
+        self.host.call("onOpen")
+        self.settle()
+        self.assertEqual(self.states.get("umbriel.pending"), 1, "the folder edit came back")
+        self.assertIn("Restored unsaved user folder and default app edits.", self.screen())
+
     def test_tree_conversion_and_callbacks(self):
         toggle_page = self.find(lambda n: n["props"].get("key") == "nav-General")
         self.assertIn("$callback", toggle_page["props"]["onClick"])

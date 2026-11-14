@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 
 from umbriel_core.launch import child_env
 
@@ -215,8 +216,12 @@ class NoctaliaApi:
 
         def work():
             if in_process:
-                return {"exitCode": 0, "stdout": self._helper(args[2]).run(args[3:]), "stderr": "",
-                        "timedOut": False}
+                # The callback must always run: an exception here would leave the UI waiting for the helper.
+                try:
+                    return {"exitCode": 0, "stdout": self._helper(args[2]).run(args[3:]), "stderr": "",
+                            "timedOut": False}
+                except Exception:  # an import error or a helper bug; reported like a crashed process
+                    return {"exitCode": 1, "stdout": "", "stderr": traceback.format_exc(), "timedOut": False}
             try:
                 command = args if self.host.is_table(argv) else ["/bin/sh", "-c", args[0]]
                 result = subprocess.run(command, capture_output=True, text=True, timeout=seconds, check=False,

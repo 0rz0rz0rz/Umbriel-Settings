@@ -1,13 +1,16 @@
+import collections
 import os
 import subprocess
 import sys
 import tempfile
 import textwrap
+import tomllib
 import unittest
 
 import tomlkit
 
 from umbriel_core import entries, entry_ops, kde, keybinds, paths, schema
+from umbriel_core.layout import BANNER_RE, rebuild_config
 from umbriel_core.tomlops import MISSING, getp
 
 PYTHON_DIR = os.path.dirname(os.path.dirname(os.path.abspath(entries.__file__)))
@@ -137,6 +140,46 @@ class CoreKeybindTests(unittest.TestCase):
             self.assertEqual(keybinds.load_locked(config, config_dir), {"super+q"})
             keybinds.save_locked({"b", "a"}, config_dir)
             self.assertEqual(keybinds.load_locked(config, config_dir), {"a", "b"})
+
+
+class CoreLayoutTests(unittest.TestCase):
+    """"Tidy file layout" regroups the whole file: it must keep every value and comment and be stable."""
+
+    CASES = {
+        "multiline string with a table header inside": (
+            '[general]\nx = 1\n\n[environment]\nA = """\n[window_rule]\nmatch\n"""\n'),
+        "CRLF line ends": "[general]\r\nx = 1\r\n\r\n[input]\r\nrepeat = 2\r\n",
+        "arrays of tables before plain tables": (
+            '[[window_rule]]\nmatch.app_id = "a"\n\n[[window_rule]]\nmatch.app_id = "b"\n\n[general]\nx = 1\n'),
+        "dotted keys at the top": "general.x = 1\ninput.repeat = 2\n",
+        "inline keybind tables": (
+            '[keybinds]\n# launchers\n"Mod+A" = "spawn x"\n"Mod+B" = { action = "spawn y", locked = true }\n'),
+        "comment that looks like a banner": "# ==========\n# Fake\n# ==========\n[general]\nx = 1  # mine\n",
+    }
+
+    @staticmethod
+    def content_lines(text):
+        """Non-empty lines other than section banners, which the rebuild adds or replaces."""
+        return collections.Counter(line.strip() for line in text.splitlines()
+                                   if line.strip() and not BANNER_RE.match(line) and not line.startswith("# ---"))
+
+    def check(self, name, text):
+        rebuilt = rebuild_config(text)
+        self.assertEqual(tomllib.loads(rebuilt), tomllib.loads(text), name)
+        self.assertEqual(rebuild_config(rebuilt), rebuilt, f"{name}: a second rebuild changes nothing")
+        missing = self.content_lines(text) - self.content_lines(rebuilt)
+        self.assertFalse(missing, f"{name}: lost {list(missing)}")
+
+    def test_rebuild_keeps_values_comments_and_is_stable(self):
+        for name, text in self.CASES.items():
+            self.check(name, text)
+
+    def test_rebuild_of_the_stock_config(self):
+        stock = "/usr/share/umbriel/config.toml"
+        if not os.path.isfile(stock):
+            self.skipTest("Umbriel's stock config is not installed")
+        with open(stock, encoding="utf-8") as handle:
+            self.check("stock config", handle.read())
 
 
 class CorePathTests(unittest.TestCase):

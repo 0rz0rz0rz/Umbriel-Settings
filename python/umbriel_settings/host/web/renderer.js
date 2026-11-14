@@ -19,6 +19,9 @@ function color(value) {
   return alpha ? `color-mix(in srgb, ${base} ${Math.round(parseFloat(alpha) * 100)}%, transparent)` : base;
 }
 function px(value) { return typeof value === "number" ? `${value}px` : ""; }
+function attr(el, name, value) {
+  if (value == null || value === "") el.removeAttribute(name); else el.setAttribute(name, String(value));
+}
 
 function invoke(callback, ...args) {
   if (!callback || !bridge) return;
@@ -60,7 +63,7 @@ function create(node) {
   let el;
   if (kind === "button") {
     el = document.createElement("button");
-    el.innerHTML = '<i class="glyph"></i><span class="text"></span>';
+    el.innerHTML = '<i class="glyph" aria-hidden="true"></i><span class="text"></span>';
     el.addEventListener("click", (e) => { e.stopPropagation(); hideTip(); invoke(el.__props.onClick); });
     el.addEventListener("contextmenu", (e) => {
       if (el.__props.onRightClick) { e.preventDefault(); invoke(el.__props.onRightClick); }
@@ -84,7 +87,7 @@ function create(node) {
   } else if (kind === "toggle") {
     el = document.createElement("label");
     el.className = "switch";
-    el.innerHTML = '<input type="checkbox"><span class="track"></span>';
+    el.innerHTML = '<input type="checkbox" role="switch"><span class="track" aria-hidden="true"></span>';
     el.querySelector("input").addEventListener("change", (e) => {
       const checked = e.target.checked;
       e.target.checked = !!el.__props.checked; // value-driven: the next render decides
@@ -100,9 +103,11 @@ function create(node) {
   } else if (kind === "colorPicker") {
     el = document.createElement("div");
     el.className = "flex col picker";
-    el.innerHTML = '<input type="color"><div class="flex rowdir" style="gap:8px;align-items:center">'
-      + '<span class="label" style="font-size:12px">Alpha</span><input type="range" min="0" max="255" style="flex:1">'
-      + '<input class="text sm hex" style="width:110px"></div><div class="flex rowdir swatches" style="gap:6px;flex-wrap:wrap"></div>';
+    el.innerHTML = '<input type="color" aria-label="Color"><div class="flex rowdir" style="gap:8px;align-items:center">'
+      + '<span class="label" style="font-size:12px">Alpha</span>'
+      + '<input type="range" min="0" max="255" style="flex:1" aria-label="Alpha">'
+      + '<input class="text sm hex" style="width:110px" aria-label="Hex color"></div>'
+      + '<div class="flex rowdir swatches" style="gap:6px;flex-wrap:wrap"></div>';
     const [rgb, alpha, hex] = el.querySelectorAll("input");
     const emit = (end) => {
       const value = (rgb.value + Number(alpha.value).toString(16).padStart(2, "0")).toUpperCase();
@@ -126,12 +131,14 @@ function create(node) {
   } else if (kind === "glyph") {
     el = document.createElement("i");
     el.className = "glyph";
+    el.setAttribute("aria-hidden", "true");
   } else if (kind === "image") {
     el = document.createElement("img");
     el.draggable = false;
   } else if (kind === "progress") {
     el = document.createElement("div");
     el.className = "progress";
+    el.setAttribute("role", "progressbar");
     el.appendChild(document.createElement("div"));
   } else if (kind === "scroll") {
     el = document.createElement("div");
@@ -213,6 +220,11 @@ function apply(el, node) {
   el.__props = p;
   el.dataset.key = p.key == null ? "" : String(p.key);
   layout(el, p, kind);
+  // Screen readers: clickable containers act as buttons; icon-only controls are named by their tooltip.
+  if (["column", "row", "box", "image"].includes(kind)) {
+    attr(el, "role", p.onClick ? "button" : null);
+    attr(el, "aria-label", p.onClick ? p.tooltip : null);
+  }
   if (kind === "label" || kind === "fillLabel") {
     el.textContent = p.text == null ? "" : String(p.text);
     el.style.fontSize = px(p.fontSize);
@@ -238,11 +250,14 @@ function apply(el, node) {
     icon.style.fontSize = px(p.glyphSize || (p.controlSize === "sm" ? 16 : 18));
     text.textContent = p.text || "";
     text.style.display = p.text ? "" : "none";
+    attr(el, "aria-label", p.text ? null : p.tooltip);
+    attr(el, "aria-pressed", p.selected ? "true" : null);
     if (p.fontSize) text.style.fontSize = px(p.fontSize);
     el.disabled = p.enabled === false;
   } else if (kind === "input") {
     el.classList.toggle("sm", p.controlSize === "sm");
     el.placeholder = p.placeholder || "";
+    attr(el, "aria-label", p.tooltip || p.placeholder);
     el.disabled = p.enabled === false;
     if (p.fontSize) el.style.fontSize = px(p.fontSize);
     if (p.frameVisible === false) { el.style.border = "none"; el.style.background = "transparent"; }
@@ -258,15 +273,18 @@ function apply(el, node) {
       }
     }
     el.selectedIndex = typeof p.selectedIndex === "number" ? p.selectedIndex : -1;
+    attr(el, "aria-label", p.tooltip);
     el.disabled = p.enabled === false;
   } else if (kind === "toggle") {
     const box = el.querySelector("input");
     box.checked = !!p.checked;
+    attr(box, "aria-label", p.tooltip || p.label);
     box.disabled = p.enabled === false;
   } else if (kind === "slider") {
     el.min = p.min ?? 0; el.max = p.max ?? 100; el.step = p.step ?? "any";
     if (!el.__dragging && p.value !== old.value) el.value = p.value ?? el.min;
     el.disabled = p.enabled === false;
+    attr(el, "aria-label", p.tooltip);
     fillSlider(el);
   } else if (kind === "colorPicker") {
     if (p.value !== old.value && p.value) setPicker(el, p.value);
@@ -290,6 +308,7 @@ function apply(el, node) {
   } else if (kind === "image") {
     const src = p.path ? (p.path.startsWith("/") ? `file://${p.path}` : p.path) : "";
     if (el.getAttribute("src") !== src) el.src = src;
+    el.alt = p.tooltip || "";
     el.style.objectFit = p.fit || "contain";
     el.style.borderRadius = px(p.radius);
   } else if (kind === "separator") {
@@ -302,7 +321,9 @@ function apply(el, node) {
   } else if (kind === "spacer") {
     if (p.flexGrow == null) el.style.flexGrow = p.width || p.height ? "" : "1";
   } else if (kind === "progress") {
-    el.firstChild.style.width = `${Math.max(0, Math.min(1, p.progress || 0)) * 100}%`;
+    const value = Math.max(0, Math.min(1, p.progress || 0));
+    el.firstChild.style.width = `${value * 100}%`;
+    attr(el, "aria-valuenow", Math.round(value * 100));
   }
   if (kind !== "button" && p.tooltip == null) clearTimeout(el.__tipTimer);
 }

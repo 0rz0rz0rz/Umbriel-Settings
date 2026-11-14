@@ -120,7 +120,7 @@ local function numberControl(ctx, spec, effective)
   end
   table.insert(controls, ui.input({
     key = key .. ":num:" .. gen(view, key), value = effective ~= nil and M.format(field, effective) or "",
-    width = hasRange and 84 or nil, flexGrow = hasRange and nil or 1, controlSize = "sm",
+    width = hasRange and 84 or nil, flexGrow = (not hasRange) and 1 or nil, controlSize = "sm",
     placeholder = (effective == nil and field.initial ~= nil) and ("e.g. " .. M.format(field, field.initial))
       or field.min ~= nil and (M.number(field.min) .. " – " .. M.number(field.max)) or "number",
     onChange = function(text)
@@ -128,10 +128,11 @@ local function numberControl(ctx, spec, effective)
       if number ~= nil and clamp(field, number) ~= nil then
         view.invalid[key] = nil
         spec.onSet(number)
+      elseif noctalia.string.trim(text) == "" then
+        view.invalid[key] = nil  -- an empty box is still being typed into, not an error
       else
-        view.invalid[key] = noctalia.string.trim(text) == "" and nil
-          or (integer and "Enter a whole number" or "Enter a number")
-            .. (field.min ~= nil and (" between " .. M.number(field.min) .. " and " .. M.number(field.max)) or "")
+        view.invalid[key] = (integer and "Enter a whole number" or "Enter a number")
+          .. (field.min ~= nil and (" between " .. M.number(field.min) .. " and " .. M.number(field.max)) or "")
       end
       ctx.render()
     end,

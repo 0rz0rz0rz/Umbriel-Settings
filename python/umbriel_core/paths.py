@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import shutil
+import stat
+import tempfile
 
 DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/umbriel/config.toml")
 DATA_DIR_NAME = "umbriel-settings"
@@ -79,29 +81,42 @@ def migrate_gui_directory(legacy_path, new_path):
         pass
 
 
-def write_text_file(path, text):
-    """Write text atomically so file watchers never see a partially written file."""
-    real = os.path.realpath(path)
-    directory = os.path.dirname(real)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-    tmp = real + ".gui-tmp"
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())  # make sure the data is on disk before it replaces the old file
+def atomic_write(path, data, mode=None):
+    """Replace `path` with `data` (str or bytes) so readers and file watchers never see a partial file.
+
+    The data goes to a unique temporary file in the same directory and reaches the disk before it replaces the
+    old file. `mode` defaults to the replaced file's permissions, else 0o644. A symlink at `path` is replaced
+    itself; callers that must refuse symlinks check first.
+    """
+    path = os.fspath(path)
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    if mode is None:
         try:
-            shutil.copymode(real, tmp)
+            mode = stat.S_IMODE(os.stat(path).st_mode)
         except OSError:
-            pass
-        os.replace(tmp, real)
+            mode = 0o644
+    handle, tmp = tempfile.mkstemp(dir=directory, prefix=f".{os.path.basename(path)}.", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "wb") as out:
+            out.write(data)
+            out.flush()
+            os.fsync(out.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
         except OSError:
             pass
         raise
+
+
+def write_text_file(path, text):
+    """Write text atomically; a symlinked GUI file is written through to its target."""
+    atomic_write(os.path.realpath(path), text)
 
 
 def config_fingerprint(path):

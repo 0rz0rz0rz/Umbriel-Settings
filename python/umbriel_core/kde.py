@@ -1,4 +1,4 @@
-"""Read KDE title-bar colors from the color scheme selected in qt6ct."""
+"""Read KDE color schemes (.colors files), such as the one selected in qt6ct."""
 
 import configparser
 import os
@@ -19,6 +19,36 @@ BACKGROUND_KEYS = {
 def qt6ct_config_path():
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
     return os.path.join(base, "qt6ct", "qt6ct.conf")
+
+
+def parse_rgb(value):
+    """(r, g, b) from a KDE color value "r,g,b" (an alpha part is ignored), or None when it isn't one."""
+    parts = value.split(",")
+    if len(parts) < 3:
+        return None
+    try:
+        rgb = tuple(int(part.strip()) for part in parts[:3])
+    except ValueError:
+        return None
+    return rgb if all(0 <= component <= 255 for component in rgb) else None
+
+
+def read_scheme(path):
+    """{(section, key): (r, g, b)} for every valid color in a KDE .colors file; {} when it can't be read."""
+    parser = configparser.RawConfigParser(strict=False, interpolation=None)
+    parser.optionxform = str
+    try:
+        with open(path, encoding="utf-8") as handle:
+            parser.read_file(handle)
+    except (OSError, UnicodeError, configparser.Error):
+        return {}
+    colors = {}
+    for section in parser.sections():
+        for key, value in parser.items(section):
+            rgb = parse_rgb(value)
+            if rgb is not None:
+                colors[(section, key)] = rgb
+    return colors
 
 
 def read_title_bar_rgb(path):

@@ -27,14 +27,25 @@ function M.create(layout, options)
                 isApp = options.isApp == true, menuHandlers = {} }
   if options.rebuildDefault == false then store.rebuild = false end
 
+  local loadMeta  -- defined under "loading"; the error screen retries it
+
   local function route() return stack[#stack] end
   ctx.route = route
   function ctx.rootRoute() return stack[1] end
 
   local function body(current)
     if not store.meta then
-      return { header = { kit.header(ctx, "Umbriel Settings", "Loading settings…") },
-               content = { ctx.loadError and kit.notice(ctx.loadError, "error") or kit.empty("Loading…", "loader") } }
+      local content = { ctx.loadError and kit.notice(ctx.loadError, "error") or kit.empty("Loading…", "loader") }
+      if ctx.loadError and not loading.meta then
+        table.insert(content, ui.row({ key = "retry-row" }, {
+          ui.button({ key = "retry", text = "Try again", glyph = "refresh", variant = "primary", onClick = function()
+            ctx.loadError = nil
+            loadMeta()
+            ctx.render()
+          end }),
+        }))
+      end
+      return { header = { kit.header(ctx, "Umbriel Settings", "Loading settings…") }, content = content }
     end
     local name = current.name
     if name == "home" then return home.render(ctx) end
@@ -158,6 +169,10 @@ function M.create(layout, options)
     if path then request.config = path elseif store.state then request.config = store.state.path end
     helper.call((path and remember ~= false) and "set-config" or "read", request, function(err, state)
       loading.config = false
+      if ctx.changedDuringLoad then  -- the file changed while it was read: read it again
+        ctx.changedDuringLoad = false
+        if not err then ctx.reload() end
+      end
       if err then
         ctx.configError = err.error
         ctx.render()
@@ -194,7 +209,8 @@ function M.create(layout, options)
         ctx.desktopError = err.error
       else
         ctx.desktopError = nil
-        store.loadDesktop(data)
+        local note = store.loadDesktop(data)
+        if note then table.insert(notices, { text = note, kind = "info" }) end
       end
       ctx.render()
     end)
@@ -220,7 +236,7 @@ function M.create(layout, options)
     end)
   end
 
-  local function loadMeta()
+  function loadMeta()
     if loading.meta then return end
     loading.meta = true
     local dataDir = noctalia.pluginDataDir()
@@ -292,7 +308,8 @@ function M.create(layout, options)
 
   -- The app re-reads the config when it changes on disk; unsaved edits are rebased by store.load.
   function handlers.onExternalChange()
-    if store.meta and store.state and not loading.config then ctx.reload() end
+    if not (store.meta and store.state) then return end
+    if loading.config then ctx.changedDuringLoad = true else ctx.reload() end
   end
 
   return ctx, handlers

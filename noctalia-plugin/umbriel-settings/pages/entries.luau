@@ -109,7 +109,7 @@ local function listPage(ctx, route)
 end
 
 local function entryPage(ctx, route)
-  local store, view = ctx.store, ctx.view
+  local store = ctx.store
   local eid, index = route.editor, route.index
   local editor = store.meta.editors[eid]
   local items = store.entryItems(eid)

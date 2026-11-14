@@ -6,10 +6,11 @@ import mimetypes
 import os
 import re
 import shutil
-import stat
 from pathlib import Path
 
-from .xdg_dirs import atomic_write, read_document
+from .backups import snapshot_file
+from .paths import atomic_write
+from .xdg_dirs import read_document
 
 ROLES = {
     "Web browser": ["text/html", "application/xhtml+xml", "x-scheme-handler/http", "x-scheme-handler/https"],
@@ -48,11 +49,32 @@ def defaults(text):
     return result
 
 
+def locale_keys(environ=None):
+    """`Name[...]` suffixes to try for the message locale, most specific first (de_DE@euro → de_DE, de)."""
+    environ = os.environ if environ is None else environ
+    value = next((environ.get(name) for name in ("LC_ALL", "LC_MESSAGES", "LANG") if environ.get(name)), "")
+    value = value.split(".", 1)[0].split("@", 1)[0]
+    if not value or value in ("C", "POSIX"):
+        return []
+    return [value, value.split("_", 1)[0]] if "_" in value else [value]
+
+
+def shown_here(entry, desktops):
+    """Apply a desktop entry's OnlyShowIn/NotShowIn to the current desktops (XDG_CURRENT_DESKTOP)."""
+    only = {item for item in entry.get("OnlyShowIn", "").split(";") if item}
+    hidden = {item for item in entry.get("NotShowIn", "").split(";") if item}
+    if only and not only & desktops:
+        return False
+    return not hidden & desktops
+
+
 def installed_apps():
     data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
     roots = [data_home / "applications"]
     roots.extend(Path(root) / "applications" for root in
                  (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if root)
+    languages = locale_keys()
+    desktops = {item for item in os.environ.get("XDG_CURRENT_DESKTOP", "").split(":") if item}
     apps, seen = [], set()
     for root in roots:
         for directory, subdirs, filenames in os.walk(root):
@@ -76,12 +98,14 @@ def installed_apps():
                 entry = parser["Desktop Entry"]
                 if (entry.get("Type", "Application") != "Application"
                         or entry.get("Hidden", "").lower() == "true"
-                        or entry.get("NoDisplay", "").lower() == "true"):
+                        or entry.get("NoDisplay", "").lower() == "true"
+                        or not shown_here(entry, desktops)):
                     continue
                 executable = entry.get("TryExec", "")
                 if executable and not shutil.which(executable):
                     continue
-                apps.append({"id": app_id, "name": entry.get("Name", app_id[:-8])})
+                name = next((entry[f"Name[{key}]"] for key in languages if entry.get(f"Name[{key}]")), None)
+                apps.append({"id": app_id, "name": name or entry.get("Name") or app_id[:-8]})
     return sorted(apps, key=lambda app: (app["name"].casefold(), app["id"].casefold()))
 
 
@@ -179,11 +203,8 @@ def save(path, backup_dir, expected_revision, changes):
         raise ValueError("Default applications changed externally. Reload before saving.")
     updated = update_text(text, updates).encode("utf-8")
     if revision != "missing":
-        atomic_write(backup_dir / "mimeapps.list.bak", text.encode("utf-8"))
-        mode = stat.S_IMODE(path.stat().st_mode)
-    else:
-        mode = 0o600
-    atomic_write(path, updated, mode)
+        snapshot_file(str(path), str(backup_dir))
+    atomic_write(path, updated)
     return snapshot(updated.decode("utf-8"), hashlib.sha256(updated).hexdigest(), apps)
 
 

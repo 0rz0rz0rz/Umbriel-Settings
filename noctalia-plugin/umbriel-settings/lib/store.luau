@@ -312,6 +312,7 @@ end
 
 function M.discardAll()
   M.fieldChanges, M.entryOps, M.mapOps, M.keybindsDirty = {}, {}, {}, false
+  M.desktopDraft = nil
   if M.state then
     M.entries = deepCopy(M.state.editors)
     M.maps = deepCopy(M.state.maps)
@@ -324,6 +325,34 @@ function M.discardAll()
   end
 end
 
+-- Desktop edits from a draft wait here until the desktop files are loaded (see restoreDraft).
+M.desktopDraft = nil
+
+-- Puts drafted desktop edits back when the files are unchanged; returns a message or nil.
+local function applyDesktopDraft(draft)
+  local d, before = M.desktop, M.desktopChanges()
+  local skipped = false
+  if type(draft.userdirs) == "table" then
+    if draft.userdirs.revision == d.userdirs.revision then
+      d.userdirs.values = deepCopy(draft.userdirs.values or {})
+    else
+      skipped = true
+    end
+  end
+  if type(draft.apps) == "table" then
+    if draft.apps.revision == d.apps.revision then
+      d.apps.roles = deepCopy(draft.apps.roles or {})
+      d.apps.mimes = deepCopy(draft.apps.mimes or {})
+    else
+      skipped = true
+    end
+  end
+  if skipped then return "User folders or default apps changed on disk; their unsaved edits were discarded." end
+  if M.desktopChanges() and not before then return "Restored unsaved user folder and default app edits." end
+  return nil
+end
+
+-- Returns a message when drafted desktop edits were restored or dropped.
 function M.loadDesktop(data)
   local apps = data.apps
   M.desktop = {
@@ -333,6 +362,9 @@ function M.loadDesktop(data)
              originalMimes = deepCopy(apps.mimes), revision = apps.revision, apps = apps.apps,
              roleMimes = apps.role_mimes },
   }
+  local draft = M.desktopDraft
+  M.desktopDraft = nil
+  return draft and applyDesktopDraft(draft) or nil
 end
 
 -- ------------------------------------------------------------------ drafts
@@ -342,29 +374,45 @@ local function draftPath()
   return dir and (dir .. "/draft.json") or nil
 end
 
+local function desktopDraft()
+  local d = M.desktop
+  if not d or not M.desktopChanges() then return M.desktopDraft end  -- not loaded yet: keep the pending one
+  return { userdirs = { revision = d.userdirs.revision, values = d.userdirs.values },
+           apps = { revision = d.apps.revision, roles = d.apps.roles, mimes = d.apps.mimes } }
+end
+
 function M.saveDraft()
   local path = draftPath()
-  if not path or not M.state then return end
-  if M.pendingCount() == 0 then
+  if not path or not (M.state or M.desktop) then return end
+  local desktop = desktopDraft()
+  if M.pendingCount() == 0 and not desktop then
     if noctalia.fileExists(path) then noctalia.removeFile(path) end
     return
   end
-  local draft = {
-    path = M.state.path, revision = M.state.revision, fields = M.fieldChanges, entryOps = M.entryOps,
-    mapOps = M.mapOps, keybinds = M.keybindsDirty and M.keybinds or nil,
-  }
+  local draft = { desktop = desktop }
+  if M.state then
+    draft.path, draft.revision, draft.fields = M.state.path, M.state.revision, M.fieldChanges
+    draft.entryOps, draft.mapOps = M.entryOps, M.mapOps
+    draft.keybinds = M.keybindsDirty and M.keybinds or nil
+  end
   local encoded = noctalia.json.encode(draft)
   if encoded then noctalia.writeFile(path, encoded) end
 end
 
--- Re-apply a draft after the first `read`; returns a message or nil.
+-- Re-apply a draft after the first `read`; returns a message or nil. Desktop edits don't depend on the
+-- config and are applied when the desktop files load.
 function M.restoreDraft()
   local path = draftPath()
   if not path or not noctalia.fileExists(path) or not M.state then return nil end
   local raw = noctalia.readFile(path)
   local draft = raw and noctalia.json.decode(raw)
   noctalia.removeFile(path)
-  if type(draft) ~= "table" or draft.path ~= M.state.path then return nil end
+  if type(draft) ~= "table" then return nil end
+  local desktopNote = nil
+  if type(draft.desktop) == "table" then
+    if M.desktop then desktopNote = applyDesktopDraft(draft.desktop) else M.desktopDraft = draft.desktop end
+  end
+  if draft.path ~= M.state.path then return desktopNote end
   local restored = 0
   for fid, change in pairs(draft.fields or {}) do
     if M.meta.fields[fid] then M.fieldChanges[fid] = change; restored = restored + 1 end
@@ -377,8 +425,9 @@ function M.restoreDraft()
     end
     if draft.keybinds then M.keybinds = draft.keybinds; M.keybindsDirty = true; restored = restored + 1 end
   end
-  if restored == 0 then return nil end
-  return "Restored " .. restored .. " unsaved change(s) from last time."
+  if restored == 0 then return desktopNote end
+  local note = "Restored " .. restored .. " unsaved change(s) from last time."
+  return desktopNote and (note .. " " .. desktopNote) or note
 end
 
 return M

@@ -65,7 +65,8 @@ class UserFoldersPluginTests(unittest.TestCase):
             '# User folders\nXDG_DOCUMENTS_DIR="$HOME/Work"\nXDG_CUSTOM_DIR="/old"\n'
             'XDG_MUSIC_DIR="/data/My Music"\n',
         )
-        self.assertEqual((self.backup / "user-dirs.dirs.bak").read_text(), original)
+        backups = sorted(self.backup.glob("user-dirs.dirs.*.bak"))
+        self.assertEqual([path.read_text() for path in backups], [original])
         self.save(saved["revision"], {"MUSIC": ""})
         self.assertNotIn("XDG_MUSIC_DIR", self.path.read_text())
 

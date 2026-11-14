@@ -66,7 +66,8 @@ class DefaultAppsPluginTests(unittest.TestCase):
         self.assertIn("application/example=example.desktop;", text)
         self.assertNotIn("application/json=", text)
         self.assertIn("[Added Associations]\ntext/html=other.desktop;", text)
-        self.assertEqual((self.backup / "mimeapps.list.bak").read_text(), original)
+        backups = sorted(self.backup.glob("mimeapps.list.*.bak"))
+        self.assertEqual([path.read_text() for path in backups], [original])
         self.assertEqual(saved["roles"]["Web browser"], "new.desktop")
 
     def test_external_changes_and_invalid_updates_are_rejected(self):
@@ -93,6 +94,17 @@ class DefaultAppsPluginTests(unittest.TestCase):
         self.assertEqual(loaded["apps"], [{"id": "example.desktop", "name": "Example"}])
         self.assertEqual(self.helper("extension", ".pdf")["mime"], "application/pdf")
         self.helper("extension", "bad/extension", success=False)
+
+    def test_app_names_follow_the_locale_and_desktop_filters_apply(self):
+        appdir = self.root / "data" / "applications"
+        appdir.mkdir(parents=True)
+        (appdir / "files.desktop").write_text("[Desktop Entry]\nName=Files\nName[de]=Dateien\n")
+        (appdir / "kde.desktop").write_text("[Desktop Entry]\nName=KDE only\nOnlyShowIn=KDE;\n")
+        (appdir / "notgnome.desktop").write_text("[Desktop Entry]\nName=Not GNOME\nNotShowIn=GNOME;\n")
+        self.env.update(LC_ALL="", LC_MESSAGES="", LANG="de_AT.UTF-8", XDG_CURRENT_DESKTOP="Umbriel:GNOME")
+        self.assertEqual(self.helper("read")["apps"], [{"id": "files.desktop", "name": "Dateien"}])
+        self.env.update(LANG="C.UTF-8", XDG_CURRENT_DESKTOP="KDE")
+        self.assertEqual([app["name"] for app in self.helper("read")["apps"]], ["Files", "KDE only", "Not GNOME"])
 
     def test_symlink_is_not_replaced(self):
         self.path.parent.mkdir()

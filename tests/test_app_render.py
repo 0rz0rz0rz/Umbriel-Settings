@@ -115,6 +115,14 @@ class AppRenderTests(unittest.TestCase):
         self.assertNotIn("Mod key", shown, "groups start collapsed in the app")
         self.click("Session")
         self.wait_for_text("Mod key")
+        # Screen readers: clickable rows are buttons, and icon-only buttons are named by their tooltip.
+        self.assertGreater(self.js("document.querySelectorAll('#root button.icon').length"), 0)
+        self.assertGreater(self.js("document.querySelectorAll('#root [role=button]').length"), 0)
+        unnamed = self.js("[...document.querySelectorAll('#root button.icon, #root [role=button]')]"
+                          ".filter(b => !b.getAttribute('aria-label') && !b.innerText.replace(/[\\ue000-\\uf8ff]/g, '')"
+                          ".trim()).map(b => b.outerHTML.slice(0, 160)).join('\\n')")
+        self.assertEqual(unnamed, "", "icon-only controls need a tooltip")
+
         self.click("Window rules")
         self.wait_for_text("firefox")
 

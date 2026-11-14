@@ -9,12 +9,11 @@ Sources, first available wins:
 import configparser
 import os
 import re
-import stat
 import tomllib
-from pathlib import Path
 
-from .paths import DATA_DIR_NAME, LEGACY_DIR_NAME
-from .xdg_dirs import atomic_write
+from . import kde
+from .backups import snapshot_file
+from .paths import DATA_DIR_NAME, LEGACY_DIR_NAME, atomic_write
 
 ROLES = (
     "primary", "on_primary", "primary_container", "on_primary_container", "secondary", "on_secondary",
@@ -79,13 +78,6 @@ def parse_palette(text):
     return roles
 
 
-def _rgb(text):
-    parts = [part.strip() for part in text.split(",")[:3]]
-    if len(parts) != 3 or not all(part.isdigit() for part in parts):
-        return None
-    return "#" + "".join(f"{min(255, int(part)):02x}" for part in parts)
-
-
 # KDE scheme (section, key) → role. Missing roles are derived later by fill_roles.
 KDE_ROLES = {
     "surface": ("Colors:Window", "BackgroundNormal"),
@@ -103,20 +95,8 @@ KDE_ROLES = {
 
 
 def palette_from_kde_scheme(path):
-    parser = configparser.RawConfigParser(strict=False, interpolation=None)
-    parser.optionxform = str
-    try:
-        with open(path, encoding="utf-8") as handle:
-            parser.read_file(handle)
-    except (OSError, UnicodeError, configparser.Error):
-        return {}
-    roles = {}
-    for role, (section, key) in KDE_ROLES.items():
-        if parser.has_option(section, key):
-            color = _rgb(parser.get(section, key))
-            if color:
-                roles[role] = color
-    return roles
+    colors = kde.read_scheme(path)
+    return {role: "#{:02x}{:02x}{:02x}".format(*colors[place]) for role, place in KDE_ROLES.items() if place in colors}
 
 
 def qt6ct_scheme(config_dir=None):
@@ -265,7 +245,7 @@ def write_user_template(key, template, text, entry, backup_dir, config=None):
         node = node[part]
         if not isinstance(node, dict):
             raise ValueError(f"Noctalia's config: [{part}] is not a table.")
-    atomic_write(Path(template), text.encode("utf-8"), 0o644)
+    atomic_write(template, text, 0o644)
     current = node.get(key)
     if not isinstance(current, dict) or any(current.get(name) != value for name, value in entry.items()):
         if isinstance(current, dict):
@@ -276,9 +256,8 @@ def write_user_template(key, template, text, entry, backup_dir, config=None):
             node[key] = table
         updated = tomlkit.dumps(document)
         tomllib.loads(updated)
-        os.makedirs(backup_dir, exist_ok=True)
-        atomic_write(Path(backup_dir) / "noctalia-config.toml.bak", original.encode("utf-8"))
-        atomic_write(Path(config), updated.encode("utf-8"), stat.S_IMODE(os.stat(config).st_mode))
+        snapshot_file(config, backup_dir)
+        atomic_write(config, updated)
 
 
 def remove_user_template(key, template, backup_dir, config=None):
@@ -297,9 +276,8 @@ def remove_user_template(key, template, backup_dir, config=None):
             del user[key]
             updated = tomlkit.dumps(document)
             tomllib.loads(updated)
-            os.makedirs(backup_dir, exist_ok=True)
-            atomic_write(Path(backup_dir) / "noctalia-config.toml.bak", original.encode("utf-8"))
-            atomic_write(Path(config), updated.encode("utf-8"), stat.S_IMODE(os.stat(config).st_mode))
+            snapshot_file(config, backup_dir)
+            atomic_write(config, updated)
     if os.path.isfile(template) and not os.path.islink(template):
         os.remove(template)
 

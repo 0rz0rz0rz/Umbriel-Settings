@@ -8,6 +8,7 @@ import tempfile
 import textwrap
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -367,6 +368,29 @@ class BackupAndDesktopTests(HelperTestCase):
         self.assertIn("# keep", (xdg / "user-dirs.dirs").read_text())
         self.assertEqual(self.ok("extension", {"extension": "pdf"})["mime"], "application/pdf")
 
+    def test_wrongly_shaped_desktop_requests_are_rejected(self):
+        for request in ({"userdirs": "x"}, {"apps": ["x"]}):
+            self.assertEqual(self.fails("desktop-save", request)["code"], "error", request)
+
+    def test_unexpected_errors_still_answer(self):
+        """A helper bug must still produce a reply, or the app's UI would wait for it forever."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("umbriel_settings_under_test", HELPER)
+        module = importlib.util.module_from_spec(spec)
+        saved = list(sys.path)
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            sys.path[:] = saved
+
+        def broken(request):
+            raise RuntimeError("boom")
+        module.COMMANDS["about"] = broken
+        with unittest.mock.patch("sys.stderr"):
+            reply = json.loads(module.run(["about"]))
+        self.assertEqual((reply["ok"], reply["code"]), (False, "internal"))
+        self.assertIn("RuntimeError: boom", reply["error"])
+
     def test_wrongly_shaped_sections_are_reported_not_crashed(self):
         self.config.write_text(CONFIG + '\n[[output]]\nname = "DP-1"\n')
         reply = self.fails("read", {"config": str(self.config)})
@@ -425,7 +449,8 @@ class EditorAndAboutTests(HelperTestCase):
         palette = self.ok("palette-template", {})["palette"]
         self.assertEqual((palette["template"], palette["entry"], palette["palette"]), (True, True, False))
         self.assertTrue(config.read_text().startswith("# mine\n"))
-        self.assertTrue((self.root / "data" / "umbriel-settings" / "noctalia-backups" / "noctalia-config.toml.bak").exists())
+        backups = self.root / "data" / "umbriel-settings" / "noctalia-backups"
+        self.assertEqual(len(list(backups.glob("noctalia-config.toml.*.bak"))), 1)
 
 
 class TitlebarFollowTests(HelperTestCase):
@@ -441,6 +466,13 @@ class TitlebarFollowTests(HelperTestCase):
         self.assertIn("post_hook", noctalia.read_text())
         self.assertIn("Opacity", self.fails("titlebar-follow", {"config": str(self.config), "field": "background",
                                                                 "source": "kde", "opacity": 2})["error"])
+        other = self.root / "other" / "config.toml"
+        other.parent.mkdir()
+        other.write_text("")
+        self.assertEqual(self.ok("titlebar", {"config": str(other)})["fields"], {}, "following is per config")
+        self.assertIn("background", self.ok("titlebar", {"config": str(self.config)})["fields"])
+        self.assertIn("choose a title bar field", self.fails("titlebar-follow", {"config": str(self.config),
+                      "source": "kde"})["error"].lower())
 
 
 if __name__ == "__main__":

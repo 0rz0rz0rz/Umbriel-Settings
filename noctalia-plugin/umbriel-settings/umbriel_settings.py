@@ -14,12 +14,12 @@ import os
 import shutil
 import subprocess
 import sys
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from umbriel_core import backups, paths, schema  # noqa: E402
 from umbriel_core.launch import child_env  # noqa: E402
-from umbriel_core.xdg_dirs import atomic_write  # noqa: E402
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 TOMLKIT_HINT = ("Python's tomlkit module is missing. Install it with your package manager "
@@ -225,11 +225,12 @@ def cmd_desktop_save(request):
     from umbriel_core import mimeapps, xdg_dirs
     backup_dir = Path(data_dir()) / "backups"
     result = {}
-    folders = request.get("userdirs")
+    folders, apps = request.get("userdirs"), request.get("apps")
+    if any(part is not None and not isinstance(part, dict) for part in (folders, apps)):
+        raise HelperError("Desktop changes must be objects.")
     if folders:
         result["userdirs"] = xdg_dirs.save(
             xdg_dirs.config_path(), backup_dir, folders.get("revision"), folders.get("changes"))
-    apps = request.get("apps")
     if apps:
         result["apps"] = mimeapps.save(
             mimeapps.config_path(), backup_dir, apps.get("revision"), apps.get("changes"))
@@ -390,7 +391,7 @@ def cmd_palette_template(request):
 
 def cmd_titlebar(request):
     from umbriel_core import titlebar_theme
-    return titlebar_theme.status()
+    return titlebar_theme.status(config_path(request))
 
 
 def cmd_titlebar_follow(request):
@@ -402,7 +403,10 @@ def cmd_titlebar_follow(request):
         raise HelperError("The color source must be text.")
     if isinstance(opacity, bool) or not isinstance(opacity, (int, float)) or not 0 <= opacity <= 1:
         raise HelperError("Opacity must be between 0 and 1.")
-    return titlebar_theme.follow(config_path(request), str(request.get("field")), source, round(opacity * 255),
+    field = request.get("field")
+    if not isinstance(field, str):
+        raise HelperError("Choose a title bar field.")
+    return titlebar_theme.follow(config_path(request), field, source, round(opacity * 255),
                                  os.path.join(data_dir(), "noctalia-backups"))
 
 
@@ -418,8 +422,8 @@ COMMANDS = {
 
 
 def atomic_write_text(path, text):
-    from pathlib import Path
-    atomic_write(Path(path), text.encode("utf-8"))
+    """Responses, caches and the editor command are private to the user."""
+    paths.atomic_write(path, text, 0o600)
 
 
 def parse_args(argv):
@@ -456,6 +460,11 @@ def run(argv):
         return json.dumps({"ok": False, "error": str(error), "code": error.code})
     except (OSError, UnicodeError, ValueError, KeyError, TypeError) as error:
         return json.dumps({"ok": False, "error": str(error) or type(error).__name__, "code": "error"})
+    except Exception as error:  # a bug: still answer, so the panel and the app never wait forever
+        traceback.print_exc(file=sys.stderr)
+        return json.dumps({"ok": False, "error": f"Internal error ({type(error).__name__}: {error}). "
+                                                 "Please report it with the details printed to stderr.",
+                           "code": "internal"})
 
 
 def main(argv):

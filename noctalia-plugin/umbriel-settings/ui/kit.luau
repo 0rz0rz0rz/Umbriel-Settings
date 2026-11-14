@@ -64,7 +64,8 @@ function M.notice(text, kind, onDismiss, key)
     ui.label({ text = text, fontSize = 12, flexGrow = 1, maxLines = 6 }),
   }
   if onDismiss then
-    table.insert(children, ui.button({ glyph = "x", variant = "ghost", controlSize = "sm", onClick = onDismiss }))
+    table.insert(children, ui.button({ glyph = "x", variant = "ghost", controlSize = "sm", tooltip = "Dismiss",
+                                       onClick = onDismiss }))
   end
   return ui.row({ key = key or ("notice-" .. text), gap = 8, align = "center", padding = 10, radius = 10,
                   fill = color .. "/0.12" }, children)

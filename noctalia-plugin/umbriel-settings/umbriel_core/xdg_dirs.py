@@ -1,11 +1,12 @@
-"""Read and update XDG user folder paths (user-dirs.dirs), plus shared safe file IO."""
+"""Read and update XDG user folder paths (user-dirs.dirs)."""
 
 import hashlib
 import os
 import re
-import stat
-import tempfile
 from pathlib import Path
+
+from .backups import snapshot_file
+from .paths import atomic_write
 
 ENTRY = re.compile(r'^\s*XDG_([A-Z]+)_DIR\s*=\s*"(.*)"\s*$')
 KEY = re.compile(r"^[A-Z]+$")
@@ -47,20 +48,6 @@ def validate_changes(changes):
             raise ValueError(f"{key}: path contains unsupported shell characters.")
 
 
-def atomic_write(path, data, mode=0o600):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_name = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as tmp:
-            tmp_name = tmp.name
-            os.fchmod(tmp.fileno(), mode)
-            tmp.write(data)
-        os.replace(tmp_name, path)
-    finally:
-        if tmp_name and os.path.exists(tmp_name):
-            os.unlink(tmp_name)
-
-
 def save(path, backup_dir, expected_revision, changes):
     validate_changes(changes)
     if path.is_symlink():
@@ -86,9 +73,6 @@ def save(path, backup_dir, expected_revision, changes):
             output.append(f'XDG_{key}_DIR="{value}"\n')
     updated = "".join(output).encode("utf-8")
     if revision != "missing":
-        atomic_write(backup_dir / "user-dirs.dirs.bak", text.encode("utf-8"))
-        mode = stat.S_IMODE(path.stat().st_mode)
-    else:
-        mode = 0o600
-    atomic_write(path, updated, mode)
+        snapshot_file(str(path), str(backup_dir))
+    atomic_write(path, updated)
     return snapshot(updated.decode("utf-8"), hashlib.sha256(updated).hexdigest())

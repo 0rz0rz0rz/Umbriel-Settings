@@ -7,14 +7,13 @@ and re-applied while the app runs.
 
 Set UMBRIEL_QT_THEME=none to disable, or =qt6ct to force it.
 """
-import configparser
 import os
 
 from PySide6.QtCore import QFileSystemWatcher, QSettings, QTimer
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 from PySide6.QtWidgets import QStyleFactory
 
-from umbriel_core.kde import qt6ct_config_path
+from umbriel_core.kde import qt6ct_config_path, read_scheme
 
 _ROLE_SECTIONS = (
     (QPalette.ColorRole.Window, "Window", "BackgroundNormal"),
@@ -39,33 +38,10 @@ _DISABLED_TEXT_ROLES = (
 )
 
 
-def _parse_color(value):
-    try:
-        red, green, blue = (int(part) for part in value.split(",")[:3])
-    except ValueError:
-        return None
-    color = QColor(red, green, blue)
-    return color if color.isValid() else None
-
-
 def read_kde_color_scheme(path):
-    """Return {(section, key): QColor} from a KDE .colors file, or {} if unreadable."""
-    parser = configparser.RawConfigParser(strict=False, interpolation=None)
-    parser.optionxform = str
-    try:
-        with open(path, encoding="utf-8") as handle:
-            parser.read_file(handle)
-    except (OSError, UnicodeDecodeError, configparser.Error):
-        return {}
-    colors = {}
-    for section in parser.sections():
-        if not section.startswith("Colors:"):
-            continue
-        for key, value in parser.items(section):
-            color = _parse_color(value)
-            if color is not None:
-                colors[(section[len("Colors:"):], key)] = color
-    return colors
+    """Return {(section, key): QColor} from a KDE .colors file ("Colors:" dropped from sections), or {}."""
+    return {(section[len("Colors:"):], key): QColor(*rgb) for (section, key), rgb in read_scheme(path).items()
+            if section.startswith("Colors:")}
 
 
 def build_palette(colors, base_palette):
