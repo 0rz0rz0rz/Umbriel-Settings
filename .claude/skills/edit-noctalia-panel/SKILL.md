@@ -14,7 +14,7 @@ The same Luau code runs in the Noctalia panel (`panel.luau`) and in the standalo
   - `ui/fields.luau` (one row per field kind, locale-aware numbers), `ui/kit.luau` (header, cards, badges, notices, `navRow`, `plural`), `ui/sidebar.luau` (app only).
   - `pages/*.luau`: `home`, `form`, `entries`, `maps`, `keybinds`, `desktop`, `review`.
 - Pages return `{ header = {...}, content = {...} }`. New routes need a branch in `body()` and, for nav pages, `ctx.openPage`.
-- App-only or plugin-only behavior: branch on `ctx.isApp` (e.g. no close button or "Standalone app" button in the app). App options arrive in `ctx.options` (`validateDefault`, `rebuildDefault`, `initialConfig`).
+- App-only or plugin-only behavior: branch on `ctx.isApp` (e.g. no close button or "Standalone app" button in the app). App options arrive in `ctx.options` (`appVersion`, `validateDefault`, `rebuildDefault`, `initialConfig`).
 - Field metadata comes from the helper's `meta`; never hard-code field lists. New settings come from `umbriel_core/fields.py`.
 - Edits go through `store` (`setField`/`unsetField`, `entryOp`, `mapSet`/`mapRemove`, `keybindsDirty`); the helper replays them on save. Entry ops use zero-based indices.
 - Inputs are uncontrolled: stable keys, bump `ctx.view.gen[key]` to replace text. `ui.select` is zero-based. Never read `.children` of a built node; build lists first.

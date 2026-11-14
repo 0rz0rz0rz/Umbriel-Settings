@@ -11,6 +11,7 @@ local maps = require("../pages/maps.luau")
 local keybinds = require("../pages/keybinds.luau")
 local desktop = require("../pages/desktop.luau")
 local review = require("../pages/review.luau")
+local about = require("../pages/about.luau")
 
 local M = {}
 
@@ -42,6 +43,7 @@ function M.create(layout, options)
     if name == "map" then return maps.render(ctx, current) end
     if name == "keybinds" or name == "keybind" or name == "actions" then return keybinds.render(ctx, current) end
     if name == "folders" or name == "apps" or name == "appPicker" then return desktop.render(ctx, current) end
+    if name == "about" then return about.render(ctx, current) end
     return review.render(ctx, current)
   end
 

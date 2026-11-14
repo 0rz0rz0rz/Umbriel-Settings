@@ -48,7 +48,7 @@ same commands in-process. Edit `python/umbriel_core`, never the copy here, and r
 
 Shared-UI code must parse as both Luau and Lua 5.4 (the app runs it with lupa),
 stay within Noctalia's 25 ms per-callback CPU budget, and use only API calls the
-app host implements (`python/umbriel_config_gui/host/api.py`).
+app host implements (`python/umbriel_settings/host/api.py`).
 
 ```sh
 python tools/check.py plugin host   # plugin tests, luac, lint, then the app host tests

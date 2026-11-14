@@ -18,6 +18,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from umbriel_core import backups, paths, schema  # noqa: E402
+from umbriel_core.launch import child_env  # noqa: E402
 from umbriel_core.xdg_dirs import atomic_write  # noqa: E402
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -65,13 +66,18 @@ def config_path(request):
     return paths.load_saved_config_path(saved_config_file(), paths.DEFAULT_CONFIG_PATH)
 
 
-def schema_state():
-    """Return (options by path, info) from the installed Umbriel, or ({}, reason) when unavailable."""
+def schema_state(coverage=False):
+    """Return (options by path, info) from the installed Umbriel, or ({}, reason) when unavailable.
+
+    With `coverage`, info also lists options without a setting (`missing`) and settings Umbriel lacks (`stale`).
+    """
     try:
         document = schema.load_umbriel_schema()
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         return {}, {"available": False, "reason": str(error)}
     info = {"available": True, "version": document.get("version"), "revision": document.get("revision")}
+    if coverage:
+        info["missing"], info["stale"] = schema.check_schema_coverage(document)
     return schema.schema_options_by_path(document), info
 
 
@@ -86,7 +92,7 @@ def session(request):
 def cmd_meta(request):
     """Write meta.json and search.json next to the response and return their paths."""
     from umbriel_core.meta import build_meta
-    options, info = schema_state()
+    options, info = schema_state(coverage=True)
     meta = build_meta(options, info, plugin_version())
     search = []
     for fid, field in meta["fields"].items():
@@ -215,6 +221,7 @@ def cmd_desktop(request):
 def cmd_desktop_save(request):
     """Save user folders and default apps; each part checks its own revision."""
     from pathlib import Path
+
     from umbriel_core import mimeapps, xdg_dirs
     backup_dir = Path(data_dir()) / "backups"
     result = {}
@@ -266,7 +273,7 @@ def cmd_kde_colors(request):
         return {"available": False, "reason": str(error)}
 
     def hex_map(found):
-        return {".".join(path): "#%02X%02X%02XFF" % rgb for path, rgb in found.items()}
+        return {".".join(path): "#{:02X}{:02X}{:02X}FF".format(*rgb) for path, rgb in found.items()}
 
     return {
         "available": True, "scheme": scheme, "colors": hex_map(colors), "backgrounds": hex_map(backgrounds),
@@ -284,7 +291,7 @@ def cmd_pick_folder(request):
     else:
         raise HelperError("Install zenity or kdialog to browse for folders, or type the path.", "missing_chooser")
     try:
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=55, check=False)
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=55, check=False, env=child_env())
     except subprocess.TimeoutExpired as error:
         raise HelperError("The folder chooser was open too long and was closed.") from error
     chosen = result.stdout.strip()
@@ -299,7 +306,7 @@ def cmd_pick_folder(request):
 def cmd_launch_app(request):
     """Start the standalone app through its per-user desktop entry, detached from this helper's output."""
     data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-    entry = os.path.join(data_home, "applications", "umbriel-config-gui.desktop")
+    entry = os.path.join(data_home, "applications", "umbriel-settings.desktop")
     if not os.path.isfile(entry):
         raise HelperError("Standalone desktop entry not found. Run Umbriel Settings once first.", "missing_app")
     gio = shutil.which("gio")
@@ -308,7 +315,7 @@ def cmd_launch_app(request):
     try:
         result = subprocess.run(
             [gio, "launch", entry], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, start_new_session=True, timeout=10, check=False,
+            stderr=subprocess.DEVNULL, start_new_session=True, timeout=10, check=False, env=child_env(),
         )
     except subprocess.TimeoutExpired as error:
         raise HelperError("Desktop launcher timed out; the app may still open.") from error
@@ -317,13 +324,68 @@ def cmd_launch_app(request):
     return {}
 
 
+def editor_file():
+    return os.path.join(data_dir(), "editor-command")
+
+
+def saved_editor():
+    try:
+        with open(editor_file(), encoding="utf-8") as handle:
+            return handle.read().strip()
+    except OSError:
+        return ""
+
+
+def editor_argv(command):
+    """Split an editor command (the file is appended); None for the default app."""
+    import shlex
+    try:
+        argv = shlex.split(command)
+    except ValueError as error:
+        raise HelperError(f"Editor command: {error}.") from error
+    if not argv:
+        return None
+    if not shutil.which(argv[0]):
+        raise HelperError(f"Editor not found: {argv[0]}", "missing_editor")
+    return argv
+
+
 def cmd_open_config(request):
     path = config_path(request)
-    if not shutil.which("xdg-open"):
-        raise HelperError("xdg-open was not found.")
-    subprocess.Popen(["xdg-open", path], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, start_new_session=True)
+    argv = editor_argv(saved_editor())
+    if argv is None:
+        if not shutil.which("xdg-open"):
+            raise HelperError("xdg-open was not found. Set an editor command under About.", "missing_editor")
+        argv = ["xdg-open"]
+    subprocess.Popen(argv + [path], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True, env=child_env())
     return {}
+
+
+def cmd_set_editor(request):
+    """Remember the command "Edit file" uses; empty means the default app (xdg-open)."""
+    command = request.get("editor")
+    command = command.strip() if isinstance(command, str) else ""
+    if any(char in command for char in "\r\n\0"):
+        raise HelperError("The editor command must be a single line.")
+    editor_argv(command)
+    if command:
+        atomic_write_text(editor_file(), command + "\n")
+    elif os.path.exists(editor_file()):
+        os.unlink(editor_file())
+    return {"editor": command}
+
+
+def cmd_about(request):
+    from umbriel_core import noctalia_theme
+    return {"editor": saved_editor(), "palette": noctalia_theme.template_status()}
+
+
+def cmd_palette_template(request):
+    """Set up the Noctalia user template that writes the palette the standalone app follows."""
+    need_tomlkit()
+    from umbriel_core import noctalia_theme
+    return {"palette": noctalia_theme.install_template(os.path.join(data_dir(), "noctalia-backups"))}
 
 
 COMMANDS = {
@@ -332,6 +394,7 @@ COMMANDS = {
     "delete-backups": cmd_delete_backups, "desktop": cmd_desktop, "desktop-save": cmd_desktop_save,
     "extension": cmd_extension, "outputs": cmd_outputs, "kde-colors": cmd_kde_colors,
     "pick-folder": cmd_pick_folder, "launch-app": cmd_launch_app, "open-config": cmd_open_config,
+    "set-editor": cmd_set_editor, "about": cmd_about, "palette-template": cmd_palette_template,
 }
 
 

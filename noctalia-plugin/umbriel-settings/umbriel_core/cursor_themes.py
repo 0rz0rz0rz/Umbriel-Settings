@@ -30,7 +30,7 @@ def installed_cursor_themes():
         except FileNotFoundError:
             continue
         except OSError as error:
-            warnings.warn(f"Could not scan cursor theme directory {root}: {error}", RuntimeWarning)
+            warnings.warn(f"Could not scan cursor theme directory {root}: {error}", RuntimeWarning, stacklevel=2)
             continue
         for entry in entries:
             if not entry.is_dir():
@@ -49,7 +49,7 @@ def installed_cursor_themes():
             except FileNotFoundError:
                 continue
             except (OSError, UnicodeError, configparser.Error) as error:
-                warnings.warn(f"Could not read cursor theme index {index_path}: {error}", RuntimeWarning)
+                warnings.warn(f"Could not read cursor theme index {index_path}: {error}", RuntimeWarning, stacklevel=2)
                 continue
             inherited = index.get("Icon Theme", "Inherits", fallback="")
             aliases.setdefault(entry.name, set()).update(

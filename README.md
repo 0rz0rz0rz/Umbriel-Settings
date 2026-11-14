@@ -82,9 +82,9 @@ virtual environment.
 ## Run
 
 ```sh
-python python/umbriel-config-gui.py [path/to/config.toml]
+python python/umbriel-settings.py [path/to/config.toml]
 # or
-cd python && python -m umbriel_config_gui [path/to/config.toml]
+cd python && python -m umbriel_settings [path/to/config.toml]
 ```
 
 Without a path, it opens the config used last, else `~/.config/umbriel/config.toml`. You can switch
@@ -95,7 +95,6 @@ files at the bottom of the home page.
 --no-validate     Start with "Check with Umbriel before writing" turned off
 --no-rebuild      Never regroup the file layout when saving
 --check-schema    Compare the app's fields with the installed Umbriel schema and exit
---legacy-ui       Open the previous Qt widget interface (temporary)
 --version         Show the version and exit
 ```
 
@@ -103,14 +102,24 @@ Keys: Ctrl+F search, Ctrl+S review and save, Alt+Left back.
 
 ### Launch with a keybind
 
-Add it to the `[keybinds]` section of your Umbriel config, or on the app's **Keybinds** page:
+Add one of these to the `[keybinds]` section of your Umbriel config, or on the app's **Keybinds**
+page:
 
 ```toml
-"Mod+Shift+C" = "spawn /usr/bin/python3 /path/to/Umbriel-Settings/python/umbriel-config-gui.py"
+# From a checkout (for example ~/Applications/Umbriel-Settings)
+"Mod+Shift+C" = "spawn /usr/bin/python3 /home/you/Applications/Umbriel-Settings/python/umbriel-settings.py"
+
+# From a checkout with a virtual environment
+"Mod+Shift+C" = "spawn /home/you/Applications/Umbriel-Settings/.venv/bin/python /home/you/Applications/Umbriel-Settings/python/umbriel-settings.py"
+
+# From the AppImage
+"Mod+Shift+C" = "spawn /home/you/Applications/Umbriel-Settings-0.1.0-004-x86_64.AppImage"
+
+# Through the desktop entry the app installs on its first start (works for any of the above)
+"Mod+Shift+C" = "spawn gio launch /home/you/.local/share/applications/umbriel-settings.desktop"
 ```
 
-Adjust the paths. Use `.venv/bin/python` with a virtual environment, and quote paths that contain
-spaces.
+Replace `/home/you` with your home directory and adjust the paths; quote paths that contain spaces.
 
 ### AppImage
 
@@ -124,6 +133,16 @@ appimage/build-appimage.sh        # writes dist/Umbriel-Settings-<version>-<arch
 The build needs network access, `bash`, `python3` with `venv`, and FUSE (or
 `APPIMAGE_EXTRACT_AND_RUN=1`). The Umbriel CLI is looked up on `PATH`. The installed desktop entry
 points to the AppImage itself, so keep it at a stable path.
+
+### Upgrading from `umbriel-config-gui`
+
+Earlier versions used the name `umbriel-config-gui`. The app or the plugin, whichever starts first,
+moves `$XDG_DATA_HOME/umbriel-config-gui` to `$XDG_DATA_HOME/umbriel-settings`; the app also replaces
+the old desktop entry and icon. Update by hand:
+
+- Keybinds that run `python/umbriel-config-gui.py`: use `python/umbriel-settings.py` (see above).
+- The Noctalia theme template: change its `output_path` to the new folder (see Theming). Until then
+  the app keeps reading `$XDG_CONFIG_HOME/umbriel-config-gui/noctalia-palette.conf`.
 
 ## Theming
 
@@ -146,7 +165,7 @@ The app uses the first of these that is available, and follows changes while it 
      ```toml
      [theme.templates.user.umbriel_settings]
      input_path = "$XDG_CONFIG_HOME/noctalia/templates/umbriel-settings-palette.conf"
-     output_path = "$XDG_CONFIG_HOME/umbriel-config-gui/noctalia-palette.conf"
+     output_path = "$XDG_CONFIG_HOME/umbriel-settings/noctalia-palette.conf"
      ```
 
 2. **The qt6ct color scheme** (`color_scheme_path` in `~/.config/qt6ct/qt6ct.conf`, for example the
@@ -187,31 +206,30 @@ The app respects `$XDG_DATA_HOME` (default `~/.local/share`) and `$XDG_CONFIG_HO
 | Path | Contents |
 | --- | --- |
 | Your Umbriel config (default `~/.config/umbriel/config.toml`) | Saved changes. Custom keybind groups are stored as TOML comments, which Umbriel ignores |
-| `$XDG_DATA_HOME/umbriel-config-gui/gui-config-path` | The config used last (shared with the plugin) |
-| `$XDG_DATA_HOME/umbriel-config-gui/configs/<config-id>/` | Per config: `backups/`, rule names (`gui-labels.json`), locked keybinds (`gui-locked-keybinds.json`) |
-| `$XDG_DATA_HOME/umbriel-config-gui/backups/` | `user-dirs.dirs.bak`, `mimeapps.list.bak` |
-| `$XDG_DATA_HOME/umbriel-config-gui/app-ui/` | The app's drafts, metadata cache and app icons |
-| `$XDG_CONFIG_HOME/umbriel-config-gui/noctalia-palette.conf` | Written by Noctalia if you set up the theme template |
-| `$XDG_DATA_HOME/applications/umbriel-config-gui.desktop`, `$XDG_DATA_HOME/icons/hicolor/128x128/apps/umbriel-config-gui.png` | Desktop entry and icon |
+| `$XDG_DATA_HOME/umbriel-settings/gui-config-path` | The config used last (shared with the plugin) |
+| `$XDG_DATA_HOME/umbriel-settings/configs/<config-id>/` | Per config: `backups/`, rule names (`gui-labels.json`), locked keybinds (`gui-locked-keybinds.json`) |
+| `$XDG_DATA_HOME/umbriel-settings/backups/` | `user-dirs.dirs.bak`, `mimeapps.list.bak` |
+| `$XDG_DATA_HOME/umbriel-settings/app-ui/` | The app's drafts, metadata cache and app icons |
+| `$XDG_CONFIG_HOME/umbriel-settings/noctalia-palette.conf` | Written by Noctalia if you set up the theme template |
+| `$XDG_DATA_HOME/applications/umbriel-settings.desktop`, `$XDG_DATA_HOME/icons/hicolor/128x128/apps/umbriel-settings.png` | Desktop entry and icon |
 | `$XDG_CONFIG_HOME/user-dirs.dirs`, `$XDG_CONFIG_HOME/mimeapps.list` | Desktop settings, when you save them |
-
-The legacy interface (`--legacy-ui`) also keeps `gui-sidebar-order.json` and `gui-state.json` in the
-data directory.
 
 ### Custom icon
 
-Replace `python/umbriel_config_gui/assets/icon.jpg` with your own JPEG and restart. If it is missing
+Replace `python/umbriel_settings/assets/icon.jpg` with your own JPEG and restart. If it is missing
 or invalid, the embedded default is used.
 
 ## Versions
 
 | Item | Version |
 | --- | --- |
-| App (`python/umbriel_config_gui/__init__.py`) | `0.1.0-004` |
+| App (`python/umbriel_settings/__init__.py`) | `0.1.0-004` |
 | AppImage (latest release) | `0.1.0-002` |
-| Noctalia plugin (`noctalia-plugin/umbriel-settings/plugin.toml`) | `0.3.0` |
+| Noctalia plugin (`noctalia-plugin/umbriel-settings/plugin.toml`) | `0.1.4` |
 
-The app version is `<Umbriel version>-<three-digit revision>`; the plugin is versioned independently.
+The app version is `<Umbriel version>-<three-digit revision>`: each new build raises the revision (`-004` → `-005`);
+the first part changes only when Umbriel's own version does (then the revision restarts at `-001`). Noctalia needs
+plain `MAJOR.MINOR.PATCH`, so the plugin uses `<Umbriel major>.<minor>.<revision>` (`0.1.0-004` → `0.1.4`).
 
 ## Development
 
@@ -222,8 +240,7 @@ noctalia-plugin/umbriel-settings/
   umbriel_settings.py       Commands over the core (the plugin runs it; the app calls it in-process)
   panel.luau bar.luau       Noctalia panel layout and bar button
   app.luau                  App layout (sidebar + page)
-python/umbriel_config_gui/  The app: app.py, app_window.py and host/ (lupa runs the Luau UI; a web view draws it)
-                            Other modules: the legacy Qt interface (--legacy-ui), to be removed
+python/umbriel_settings/  The app: app.py, app_window.py, appicon.py and host/ (lupa runs the Luau UI; a web view draws it)
 appimage/                   AppImage build script and recipe
 tools/                      check.py (runs the right tests), sync_plugin_core.py (copies the core into the plugin)
 tests/, noctalia-plugin/tests/   Tests
@@ -231,9 +248,13 @@ tests/, noctalia-plugin/tests/   Tests
 
 ```sh
 python tools/check.py               # runs the checks for your changed files, one line each
-python tools/check.py all           # core, plugin, app host, legacy app tests and the schema check
+python tools/check.py all           # core, plugin (incl. CPU budget), app host (incl. web render), schema check, ruff
 python tools/sync_plugin_core.py    # after editing python/umbriel_core
 ```
+
+GitHub Actions runs the same checks (without the schema check, which needs `umbriel`) on every push
+and pull request. Lint settings and the dependency ranges are in `pyproject.toml`;
+`python/requirements.txt` pins the versions the AppImage bundles.
 
 The app's interface is the plugin's Luau code: `host/runtime.py` runs it with lupa (Lua 5.4) and
 implements the part of Noctalia's API it uses. `host/web/renderer.js` turns each rendered tree into

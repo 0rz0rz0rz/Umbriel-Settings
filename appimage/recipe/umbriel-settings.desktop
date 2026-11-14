@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Umbriel Settings
+Comment=Configure the Umbriel desktop environment
+Exec=umbriel-settings %f
+Icon=umbriel-settings
+Terminal=false
+Categories=Settings;DesktopSettings;
+StartupNotify=true
+StartupWMClass=umbriel-settings

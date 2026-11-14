@@ -2,8 +2,8 @@
 """Run the checks that cover the current changes and print one line per check.
 
   python tools/check.py              # pick checks from `git status` (changed + untracked files)
-  python tools/check.py core plugin  # run named checks: core, plugin, host, app, schema, all
-  python tools/check.py test_sidebar # run single app test files by name
+  python tools/check.py core plugin  # run named checks: core, plugin, host, schema, lint, all
+  python tools/check.py test_core_values  # run single test files from tests/ by name
   python tools/check.py -v ...       # also print the full output of passing checks
 
 Failing checks print only their failure blocks (trimmed to --lines), which keeps logs short.
@@ -21,14 +21,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON = ROOT / "python"
 TESTS = ROOT / "tests"
 PLUGIN = ROOT / "noctalia-plugin" / "umbriel-settings"
-HOST_TESTS = ["test_host_runtime", "test_host_bridge"]
-CORE_TESTS = ["test_core"]
-ORDER = ["core", "plugin", "host", "app", "schema"]
-
-
-def app_tests():
-    skip = set(HOST_TESTS + CORE_TESTS)
-    return sorted(p.stem for p in TESTS.glob("test_*.py") if p.stem not in skip)
+CORE_TESTS = sorted(p.stem for p in TESTS.glob("test_core*.py"))
+HOST_TESTS = sorted(p.stem for p in TESTS.glob("test_*.py") if p.stem not in CORE_TESTS)
+ORDER = ["core", "plugin", "host", "schema", "lint"]
 
 
 def env():
@@ -75,35 +70,32 @@ CHECKS = {
         ("lint", ["noctalia", "plugins", "lint", str(PLUGIN)], None),
     ],
     "host": [("tests", unittest_modules(HOST_TESTS), "unittest")],
-    "app": [("tests", None, "unittest")],  # filled with app_tests() at run time
-    "schema": [("coverage", [sys.executable, "umbriel-config-gui.py", "--check-schema"], None)],
+    "schema": [("coverage", [sys.executable, "umbriel-settings.py", "--check-schema"], None)],
+    "lint": [("ruff", ["ruff", "check", "--quiet", "."], None)],
 }
 
 
 def checks_for_paths(paths):
     wanted, files = set(), set()
     for path in paths:
+        if path.endswith(".py") or path == "pyproject.toml":
+            wanted.add("lint")
         if path.startswith("python/umbriel_core/"):
-            wanted |= {"core", "plugin", "host", "app"}
+            wanted |= {"core", "plugin", "host"}
             if path.endswith(("fields.py", "actions.py", "schema.py")):
                 wanted.add("schema")
         elif path.startswith("noctalia-plugin/"):
             wanted |= {"plugin", "host"}
-        elif path.startswith(("python/umbriel_config_gui/host/", "python/umbriel_config_gui/app")) \
-                or Path(path).stem in HOST_TESTS:
+        elif path.startswith("python/umbriel_settings/") or Path(path).stem in HOST_TESTS:
             wanted.add("host")
         elif path.startswith("tests/") and path.endswith(".py"):
             stem = Path(path).stem
             if stem in CORE_TESTS:
                 wanted.add("core")
-            elif stem.startswith("test_"):
+            elif stem.startswith("test_") and (ROOT / path).exists():  # deleted tests show up in git status
                 files.add(stem)
-        elif path.startswith("python/") and path.endswith(".py"):
-            wanted.add("app")
         elif path == "tools/sync_plugin_core.py":
             wanted.add("core")
-    if "app" in wanted:
-        files.clear()
     return [name for name in ORDER if name in wanted], sorted(files)
 
 
@@ -129,7 +121,7 @@ def run_step(name, step, argv, kind, verbose, limit):
         return (f"ok   {name}:{step}" if not failures else f"FAIL {name}:{step}\n" + "\n".join(failures)), not failures
     if not shutil.which(argv[0]) and not os.path.isabs(argv[0]):
         return f"skip {name}:{step} (no {argv[0]})", True
-    cwd = PYTHON if name in ("host", "app", "core", "schema") else ROOT
+    cwd = PYTHON if name in ("host", "core", "schema") else ROOT
     code, output, seconds = run(argv, cwd=cwd)
     detail = unittest_summary(output) if kind == "unittest" else (output.strip().splitlines() or [""])[-1][:100]
     line = f"{'ok  ' if code == 0 else 'FAIL'} {name}:{step}  {detail}  {seconds:.1f}s"
@@ -142,7 +134,7 @@ def run_step(name, step, argv, kind, verbose, limit):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("checks", nargs="*", help="check names or app test file names")
+    parser.add_argument("checks", nargs="*", help="check names or test file names from tests/")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--lines", type=int, default=60, help="max failure lines per check")
     args = parser.parse_args()
@@ -162,8 +154,6 @@ def main():
     ok = True
     for name in [n for n in ORDER if n in names]:
         for step, argv, kind in CHECKS[name]:
-            if argv is None:
-                argv = unittest_modules(app_tests())
             line, passed = run_step(name, step, argv, kind, args.verbose, args.lines)
             print(line, flush=True)
             ok &= passed

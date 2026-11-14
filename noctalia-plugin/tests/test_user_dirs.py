@@ -1,6 +1,5 @@
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -8,7 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "umbriel-settings"
@@ -27,7 +26,7 @@ class UserFoldersPluginTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path = self.root / "config" / "user-dirs.dirs"
-        self.backup = self.root / "data" / "umbriel-config-gui" / "backups"
+        self.backup = self.root / "data" / "umbriel-settings" / "backups"
         self.env = {**os.environ, "XDG_CONFIG_HOME": str(self.path.parent),
                     "XDG_DATA_HOME": str(self.root / "data"), "PYTHONDONTWRITEBYTECODE": "1"}
 
@@ -102,7 +101,7 @@ class UserFoldersPluginTests(unittest.TestCase):
 
     def test_standalone_launcher_checks_entry_and_reports_errors(self):
         data = self.root / "data with spaces"
-        desktop = data / "applications" / "umbriel-config-gui.desktop"
+        desktop = data / "applications" / "umbriel-settings.desktop"
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         log = self.root / "launch-args"
@@ -144,7 +143,7 @@ class UserFoldersPluginTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("gio"), "gio is required for the launcher integration test")
     def test_standalone_launcher_detaches_app_output(self):
         data = self.root / "data"
-        desktop = data / "applications" / "umbriel-config-gui.desktop"
+        desktop = data / "applications" / "umbriel-settings.desktop"
         desktop.parent.mkdir(parents=True)
         marker = self.root / "app-ran"
         app = self.root / "fake-app"

@@ -6,13 +6,13 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
 
-from umbriel_config_gui.host.api import fuzzy_score
-from umbriel_config_gui.host.bridge import Bridge, QtScheduler
 from umbriel_core.meta import PAGE_GLYPHS
+from umbriel_settings.host.api import fuzzy_score
+from umbriel_settings.host.bridge import Bridge, QtScheduler
 
 ROOT = Path(__file__).resolve().parents[1]
 UI_DIR = ROOT / "noctalia-plugin" / "umbriel-settings"
-GLYPH_MAP = ROOT / "python" / "umbriel_config_gui" / "host" / "web" / "fonts" / "tabler-map.json"
+GLYPH_MAP = ROOT / "python" / "umbriel_settings" / "host" / "web" / "fonts" / "tabler-map.json"
 GLYPH_NAME = re.compile(r'\b(?:glyph|icon)\s*=\s*"([a-z0-9-]+)"|ui\.glyph\(\{\s*name\s*=\s*"([a-z0-9-]+)"')
 
 

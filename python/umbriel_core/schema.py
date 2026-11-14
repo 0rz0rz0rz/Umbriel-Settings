@@ -134,7 +134,7 @@ def check_schema_coverage(schema):
         if not any(
             len(path.split(".")) >= len(field_path.split("."))
             and all(pattern_matches(field_part, schema_part) for field_part, schema_part
-                    in zip(field_path.split("."), path.split(".")))
+                    in zip(field_path.split("."), path.split("."), strict=False))
             for path in schema_paths
         ):
             stale.append(field_path)

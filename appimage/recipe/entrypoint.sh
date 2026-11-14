@@ -4,13 +4,13 @@
 # terminals, umbriel) get the user's original environment back (see launch.py).
 for name in PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE PYTHONNOUSERSITE; do
     if eval "[ -n \"\${$name+x}\" ]"; then
-        eval "export UMBRIEL_GUI_HOST_$name=\"\$$name\""
+        eval "export UMBRIEL_SETTINGS_HOST_$name=\"\$$name\""
     fi
 done
-export UMBRIEL_GUI_APPIMAGE_ENV=1
+export UMBRIEL_SETTINGS_APPIMAGE_ENV=1
 
 unset PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE
 export PYTHONNOUSERSITE=1
 export PYTHONPATH="$APPDIR"
 
-exec "{{ python-executable }}" -s -m umbriel_config_gui "$@"
+exec "{{ python-executable }}" -s -m umbriel_settings "$@"

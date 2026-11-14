@@ -108,6 +108,38 @@ for _, name in ipairs({ "meta", "search", "state", "desktop", "saved" }) do
   fixtures[name] = assert(readFile(fixtureDir .. "/" .. name .. ".json"), name)
 end
 
+-- ------------------------------------------------------------------ callback timing
+-- Noctalia stops a plugin after repeated callbacks over 25 ms of CPU. Every callback the UI hands to the
+-- mocked API is timed; nested callbacks (the mock runs helper replies synchronously) are subtracted from
+-- the outer one, so each entry measures what Noctalia would see as one callback.
+local timing = { max = 0, name = "none", count = 0, stack = {} }
+local function timed(name, fn)
+  return function(...)
+    local frame = { start = os.clock(), nested = 0 }
+    table.insert(timing.stack, frame)
+    local results = table.pack(pcall(fn, ...))
+    table.remove(timing.stack)
+    local total = os.clock() - frame.start
+    local own = total - frame.nested
+    local parent = timing.stack[#timing.stack]
+    if parent then parent.nested = parent.nested + total end
+    timing.count = timing.count + 1
+    if own > timing.max then timing.max, timing.name = own, name end
+    if not results[1] then error(results[2], 0) end
+    return table.unpack(results, 2, results.n)
+  end
+end
+-- Mocked API functions that are native in Noctalia (JSON): their time is not charged to the caller.
+local function native(fn)
+  return function(...)
+    local start = os.clock()
+    local results = table.pack(fn(...))
+    local parent = timing.stack[#timing.stack]
+    if parent then parent.nested = parent.nested + (os.clock() - start) end
+    return table.unpack(results, 1, results.n)
+  end
+end
+
 -- ------------------------------------------------------------------ mocks
 local tree
 local files = {}
@@ -122,6 +154,11 @@ for _, kind in ipairs({ "column", "row", "scroll", "label", "input", "button", "
                         "slider", "colorPicker", "glyph", "box", "spacer", "markdown", "image" }) do
   ui[kind] = function(props, children)
     assert(type(props) == "table", "ui." .. kind .. " needs props")
+    for key, value in pairs(props) do
+      if type(value) == "function" and key:match("^on") then
+        props[key] = timed(kind .. "." .. key .. " " .. tostring(props.key or props.text or ""), value)
+      end
+    end
     return { kind = kind, props = props, children = children or {} }
   end
 end
@@ -145,11 +182,11 @@ noctalia = {
   getenv = function(name) return H.env[name] end,
   fuzzyScore = function(query, text) return text:lower():find(query:lower(), 1, true) and 10 or 1 end,
   appIconPath = function() return nil end,
-  json = json,
+  json = { encode = native(json.encode), decode = native(json.decode) },
   string = { trim = function(value) return (value:gsub("^%s+", ""):gsub("%s+$", "")) end },
   state = { set = function() end },
   readFileAsync = function(path, callback)
-    table.insert(reads, { path = path, callback = callback })
+    table.insert(reads, { path = path, callback = timed("readFileAsync " .. path, callback) })
     return true
   end,
   runAsync = function(argv, callback)
@@ -160,7 +197,7 @@ noctalia = {
     local reply = replies[command] or function() return true, "{}" end
     local ok, data = reply(request)
     if ok then files[responsePath] = data end
-    callback({ exitCode = 0, stdout = ok and '{"ok":true}' or json.encode({ ok = false, error = data }),
+    timed("runAsync " .. command, callback)({ exitCode = 0, stdout = ok and '{"ok":true}' or json.encode({ ok = false, error = data }),
                stderr = "", timedOut = false })
     return true
   end,
@@ -187,6 +224,9 @@ entry.require = makeRequire(pluginDir)
 function H.start(name, app)
   entry.APP = app
   assert(loadfile(pluginDir .. "/" .. name, "t", entry))()
+  for _, global in ipairs({ "onOpen", "onClose", "onFrameTick", "onKey", "onMenu", "onExternalChange" }) do
+    if type(rawget(entry, global)) == "function" then entry[global] = timed(global, rawget(entry, global)) end
+  end
   return entry
 end
 
@@ -245,4 +285,11 @@ H.json, H.fixtures, H.files, H.calls, H.replies, H.loaded, H.pluginDir = json, f
 H.flushReads, H.texts, H.hasText, H.find, H.clickText, H.lastCall, H.screen =
   flushReads, texts, hasText, find, clickText, lastCall, screen
 H.tree = function() return tree end
+H.timing = timing
+-- Prints the slowest callback; fails when it exceeds `limit` seconds of CPU.
+function H.checkBudget(label, limit)
+  print(string.format("%s: %d callbacks, slowest %.1f ms (%s)", label, timing.count, timing.max * 1000, timing.name))
+  assert(timing.max <= limit, string.format("%s over the %.0f ms callback budget: %.1f ms in %s",
+    label, limit * 1000, timing.max * 1000, timing.name))
+end
 return H

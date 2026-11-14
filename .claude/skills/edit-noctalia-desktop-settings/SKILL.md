@@ -7,6 +7,6 @@ description: "Use when changing user-folder paths, default applications, MIME as
 
 - Logic lives in `python/umbriel_core/xdg_dirs.py` (folder parsing, validation, `read_document`, `atomic_write`, `save`) and `python/umbriel_core/mimeapps.py` (roles, `installed_apps`, `update_text`, `save`, `extension_mime`). Both are stdlib-only (`tests/test_core.py` checks it). Run `tools/sync_plugin_core.py` after editing them.
 - The helper exposes them as `desktop`, `desktop-save` (`{userdirs: {revision, changes}, apps: {revision, changes}}`) and `extension` in `noctalia-plugin/umbriel-settings/umbriel_settings.py`; the panel side is `pages/desktop.luau` and `store.desktopChanges`/`loadDesktop`.
-- Preserve unrelated entries and comments, MIME fallback IDs, unchanged values, revision conflict detection, backups in `$XDG_DATA_HOME/umbriel-config-gui/backups/`, atomic replacement and symlink refusal. Surface invalid input and IO errors.
-- The new app uses the same `pages/desktop.luau` and helper commands (in-process); app icons come from `icon_file` in `app_window.py`. Only the legacy Qt UI still uses `python/umbriel_config_gui/desktop.py`.
+- Preserve unrelated entries and comments, MIME fallback IDs, unchanged values, revision conflict detection, backups in `$XDG_DATA_HOME/umbriel-settings/backups/`, atomic replacement and symlink refusal. Surface invalid input and IO errors.
+- The new app uses the same `pages/desktop.luau` and helper commands (in-process); app icons come from `icon_file` in `app_window.py`.XX.py`.
 - Add isolated temporary-XDG tests in `noctalia-plugin/tests/test_user_dirs.py` or `test_default_apps.py`; use `test-noctalia-plugin` and run `python tools/check.py core plugin host`.

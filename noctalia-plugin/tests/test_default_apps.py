@@ -1,11 +1,10 @@
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-
+from pathlib import Path
 
 HELPER = Path(__file__).resolve().parents[1] / "umbriel-settings" / "umbriel_settings.py"
 
@@ -16,7 +15,7 @@ class DefaultAppsPluginTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path = self.root / "config" / "mimeapps.list"
-        self.backup = self.root / "data" / "umbriel-config-gui" / "backups"
+        self.backup = self.root / "data" / "umbriel-settings" / "backups"
         self.env = {
             **os.environ,
             "XDG_CONFIG_HOME": str(self.path.parent),

@@ -125,7 +125,7 @@ local function footer(ctx)
     ui.button({ text = "Backups", glyph = "history", controlSize = "sm", variant = "outline",
                 onClick = function() ctx.go({ name = "backups" }) end }),
     ui.button({ text = "Edit file", glyph = "file-text", controlSize = "sm", variant = "outline",
-                tooltip = "Open the config in your default editor",
+                tooltip = "Open the config in your editor (set under About)",
                 onClick = function()
                   ctx.helper.call("open-config", { config = path }, function(err)
                     if err then ctx.flash(err.error, "error") end

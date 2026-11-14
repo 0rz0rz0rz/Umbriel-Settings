@@ -208,7 +208,17 @@ clickText("Backups")
 clickText("Compare")
 assert(find("markdown", function(n) return n.props.text:find("```diff", 1, true) end))
 goHome()
+replies.about = function() return true, json.encode({ editor = "kate", palette = { noctalia = true } }) end
+replies["set-editor"] = function(request) return true, json.encode({ editor = request.editor }) end
 clickText("About")
+assert(hasText("Every option of this version has a setting here.") or screen():find("not part of this version: `animation", 1, true),
+       "schema coverage: " .. screen())
+local editorInput = find("input", function(n) return tostring(n.props.key):match("^editor:") end)
+assert(editorInput.props.value == "kate", "saved editor shown")
+editorInput.props.onChange("code --new-window")
+clickText("Save")
+assert(lastCall("set-editor").request.editor == "code --new-window", "editor saved")
+assert(not hasText("Set up palette template"), "palette template is app-only")
 
 -- closing keeps a draft of unsaved edits for the next start
 entry.onClose()
@@ -218,4 +228,5 @@ assert(draft.fields["general.mod_key"] and draft.keybinds, "draft holds field an
 
 -- leftover request/response files are cleaned up
 for path in pairs(files) do assert(not path:match("%.req%.json$"), "request file left behind: " .. path) end
+H.checkBudget("panel", 0.025)
 print("panel ok")

@@ -6,13 +6,25 @@ import os
 import shutil
 
 DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/umbriel/config.toml")
+DATA_DIR_NAME = "umbriel-settings"
+LEGACY_DIR_NAME = "umbriel-config-gui"  # data, config and desktop-entry name before the rename to Umbriel Settings
 
 
 def default_gui_data_dir():
-    """Return `$XDG_DATA_HOME/umbriel-config-gui`, the data directory shared by the app and the plugin."""
-    return os.path.join(
-        os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "umbriel-config-gui"
-    )
+    """Return `$XDG_DATA_HOME/umbriel-settings`, the data directory shared by the app and the plugin.
+
+    The pre-rename `umbriel-config-gui` directory (backups, labels, locks, last config) is moved there once;
+    if that move fails the old directory keeps being used so nothing appears lost.
+    """
+    base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    path = os.path.join(base, DATA_DIR_NAME)
+    legacy = os.path.join(base, LEGACY_DIR_NAME)
+    if not os.path.lexists(path) and os.path.isdir(legacy) and not os.path.islink(legacy):
+        try:
+            os.rename(legacy, path)
+        except OSError:
+            return legacy
+    return path
 
 
 def normalize_config_path(path, default=DEFAULT_CONFIG_PATH):

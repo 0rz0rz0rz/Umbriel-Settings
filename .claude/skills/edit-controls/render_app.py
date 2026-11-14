@@ -32,7 +32,7 @@ shutil.copy(args.config, config)
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from umbriel_config_gui.app_window import AppWindow  # noqa: E402
+from umbriel_settings.app_window import AppWindow  # noqa: E402
 
 app = QApplication([])
 win = AppWindow({"initialConfig": config})

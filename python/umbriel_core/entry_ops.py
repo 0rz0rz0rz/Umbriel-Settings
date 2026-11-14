@@ -77,7 +77,16 @@ def container(doc, editor_id, create=False):
             putp(doc, path, c)
         else:
             c = ensure_table(doc, path)
-    return None if c is MISSING else c
+    if c is MISSING:
+        return None
+    # A hand-written config can use the other shape ([[output]] or a plain value); report it instead of crashing.
+    if mode == "aot" and not (isinstance(c, list) and all(isinstance(item, dict) for item in c)):
+        raise ValueError(f"{ENTRY_EDITORS[editor_id][0]}: `{'.'.join(path)}` must be written as [[{'.'.join(path)}]] "
+                         "tables; fix it in the config file.")
+    if mode == "map" and not (isinstance(c, dict) and all(isinstance(item, dict) for item in c.values())):
+        raise ValueError(f"{ENTRY_EDITORS[editor_id][0]}: `{'.'.join(path)}` must be a table of named tables, "
+                         f"like [{'.'.join(path)}.NAME]; fix it in the config file.")
+    return c
 
 
 def entries(doc, editor_id):

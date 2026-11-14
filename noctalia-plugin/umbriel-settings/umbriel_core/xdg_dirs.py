@@ -2,11 +2,10 @@
 
 import hashlib
 import os
-from pathlib import Path
 import re
 import stat
 import tempfile
-
+from pathlib import Path
 
 ENTRY = re.compile(r'^\s*XDG_([A-Z]+)_DIR\s*=\s*"(.*)"\s*$')
 KEY = re.compile(r"^[A-Z]+$")

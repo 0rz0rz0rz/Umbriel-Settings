@@ -80,4 +80,13 @@ clickText("Home")
 assert(hasText("BASICS") or hasText("Basics"), "home cards: " .. screen())
 local store = loaded[pluginDir .. "/lib/store.luau"]
 assert(store.fieldChanges["general.mod_key"], "edits survive navigation")
+-- About: the palette template can be set up from the app
+replies.about = function() return true, json.encode({ editor = "", palette = { noctalia = true } }) end
+replies["palette-template"] = function() return true, json.encode({ palette = {
+  noctalia = true, template = true, entry = true, palette = false } }) end
+clickText("About")
+clickText("Set up palette template")
+assert(lastCall("palette-template"), "template set up")
+assert(screen():find("next theme change", 1, true), "status after setup: " .. screen())
+H.checkBudget("app", 0.025)
 print("app ok")

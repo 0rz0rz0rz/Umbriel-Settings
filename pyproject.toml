@@ -1,0 +1,32 @@
+# Project metadata and tool settings. The app runs from the checkout (python/umbriel-settings.py) or the
+# AppImage; it is not installed with pip. python/requirements.txt pins the versions the AppImage bundles.
+[project]
+name = "umbriel-settings"
+dynamic = ["version"]  # __version__ in python/umbriel_settings/__init__.py
+description = "Settings app and Noctalia plugin for the Umbriel Wayland compositor"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.8",  # with QtWebEngine and QtWebChannel
+    "tomlkit>=0.12",
+    "lupa>=2.0",
+]
+
+[project.urls]
+Repository = "https://github.com/0rz0rz0rz/Umbriel-Settings"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["python", "tests", "noctalia-plugin/umbriel-settings", "noctalia-plugin/tests"]
+extend-exclude = [
+    "noctalia-plugin/umbriel-settings/umbriel_core",  # vendored copy of python/umbriel_core
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]  # field and help tables hold long literal strings
+
+[tool.ruff.lint.isort]
+known-first-party = ["umbriel_core", "umbriel_settings"]

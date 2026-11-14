@@ -1,4 +1,3 @@
-import json
 import os
 import sys
 import tempfile
@@ -49,9 +48,9 @@ def walk(node, visit):
 @unittest.skipIf(lupa is None, "lupa is required for the app UI host")
 class HostRuntimeTests(unittest.TestCase):
     def setUp(self):
-        from umbriel_config_gui.host.api import ManualScheduler, NoctaliaApi
-        from umbriel_config_gui.host.paths import shared_ui_dir
-        from umbriel_config_gui.host.runtime import LuaHost
+        from umbriel_settings.host.api import ManualScheduler, NoctaliaApi
+        from umbriel_settings.host.paths import shared_ui_dir
+        from umbriel_settings.host.runtime import LuaHost
 
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -113,12 +112,26 @@ class HostRuntimeTests(unittest.TestCase):
         self.assertIn('mod_key = "Alt" # main modifier', self.config.read_text())
         self.assertEqual(self.states.get("umbriel.pending"), 0)
 
+    def test_loading_the_helper_does_not_shadow_the_app_package(self):
+        """The helper file is umbriel_settings.py, like this package; its sys.path change must not leak."""
+        import importlib
+
+        from umbriel_settings.host.api import ManualScheduler, NoctaliaApi
+        from umbriel_settings.host.paths import shared_ui_dir
+
+        before = list(sys.path)
+        api = NoctaliaApi(self.host, ManualScheduler(), self.temp.name)
+        helper = api._helper(os.path.join(shared_ui_dir(), "umbriel_settings.py"))
+        self.assertTrue(hasattr(helper, "run"))
+        self.assertEqual(sys.path, before)
+        self.assertTrue(hasattr(importlib.import_module("umbriel_settings"), "APP_NAME"))
+
     def test_starts_without_a_config_argument(self):
-        saved = Path(os.environ["XDG_DATA_HOME"]) / "umbriel-config-gui" / "gui-config-path"
+        saved = Path(os.environ["XDG_DATA_HOME"]) / "umbriel-settings" / "gui-config-path"
         saved.parent.mkdir(parents=True, exist_ok=True)
         saved.write_text(str(self.config))
-        from umbriel_config_gui.host.api import NoctaliaApi
-        from umbriel_config_gui.host.runtime import LuaHost
+        from umbriel_settings.host.api import NoctaliaApi
+        from umbriel_settings.host.runtime import LuaHost
         host = LuaHost(self.host.ui_dir, on_error=lambda error: None)
         api = NoctaliaApi(host, self.scheduler, str(Path(self.temp.name) / "app-ui-2"))
         host.start("app.luau", {}, api.globals())
@@ -140,7 +153,7 @@ class HostRuntimeTests(unittest.TestCase):
         toggle = self.find(lambda n: n["kind"] == "button" and str(n["props"].get("key", "")).endswith(":tri:2")
                            or n["kind"] == "toggle")
         self.assertIn(toggle["kind"], ("button", "toggle"))
-        from umbriel_config_gui.host.runtime import as_callback_arg
+        from umbriel_settings.host.runtime import as_callback_arg
         self.assertEqual([as_callback_arg(v) for v in (True, False, 2.0, 0.5, None)], ["true", "false", "2", "0.5", ""])
 
 

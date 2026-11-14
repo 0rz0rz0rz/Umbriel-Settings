@@ -1,13 +1,14 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "noctalia-plugin" / "umbriel-settings"
@@ -99,7 +100,7 @@ class HelperTestCase(unittest.TestCase):
 
     def config_dir(self):
         identity = hashlib.sha256(str(self.config).encode()).hexdigest()[:20]
-        return self.root / "data" / "umbriel-config-gui" / "configs" / identity
+        return self.root / "data" / "umbriel-settings" / "configs" / identity
 
 
 class MetaAndReadTests(HelperTestCase):
@@ -127,6 +128,10 @@ class MetaAndReadTests(HelperTestCase):
         self.assertTrue(floating["initial"])
         self.assertEqual(meta["pages"]["Effects"]["editors"], ["effect_preset", "effect_pool"])
         self.assertEqual(meta["schema"]["revision"], "r1")
+        # the fake schema has three options, all covered; most GUI settings are missing from it
+        self.assertEqual(meta["schema"]["missing"], [])
+        self.assertIn("layout.gap", meta["schema"]["stale"])
+        self.assertNotIn("general.mod_key", meta["schema"]["stale"])
 
     def test_read_returns_fields_entries_maps_and_keybinds(self):
         state = self.read()
@@ -268,7 +273,7 @@ class SaveTests(HelperTestCase):
 
 class ConfigPathTests(HelperTestCase):
     def test_uses_the_path_remembered_by_the_app(self):
-        saved = self.root / "data" / "umbriel-config-gui" / "gui-config-path"
+        saved = self.root / "data" / "umbriel-settings" / "gui-config-path"
         saved.parent.mkdir(parents=True)
         saved.write_text(str(self.config) + "\n")
         self.assertEqual(self.ok("read")["path"], str(self.config))
@@ -345,6 +350,66 @@ class BackupAndDesktopTests(HelperTestCase):
         self.assertEqual(result["userdirs"]["values"]["DESKTOP"], "$HOME/Schreibtisch")
         self.assertIn("# keep", (xdg / "user-dirs.dirs").read_text())
         self.assertEqual(self.ok("extension", {"extension": "pdf"})["mime"], "application/pdf")
+
+    def test_wrongly_shaped_sections_are_reported_not_crashed(self):
+        self.config.write_text(CONFIG + '\n[[output]]\nname = "DP-1"\n')
+        reply = self.fails("read", {"config": str(self.config)})
+        self.assertIn("[output.NAME]", reply["error"])
+
+    def test_launched_programs_get_the_host_python_environment_back(self):
+        """Inside the AppImage the app runs this helper in-process; xdg-open must not see the bundled Python."""
+        record = self.root / "xdg-open.env"
+        opener = self.root / "bin" / "xdg-open"
+        opener.write_text(f'#!/bin/sh\nenv > "{record}.tmp" && mv "{record}.tmp" "{record}"\n')
+        opener.chmod(0o755)
+        env = {**self.env, "UMBRIEL_SETTINGS_APPIMAGE_ENV": "1", "PYTHONNOUSERSITE": "1",
+               "UMBRIEL_SETTINGS_HOST_PYTHONPATH": "/host/lib"}
+        reply = self.call("open-config", {"config": str(self.config)}, env)
+        self.assertTrue(reply["ok"], reply)
+        deadline = time.monotonic() + 5
+        while not record.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        lines = record.read_text().splitlines()
+        self.assertIn("PYTHONPATH=/host/lib", lines)
+        self.assertFalse([line for line in lines if line.startswith(("PYTHONNOUSERSITE=", "UMBRIEL_SETTINGS_"))])
+
+
+class EditorAndAboutTests(HelperTestCase):
+    def wait_for(self, path):
+        deadline = time.monotonic() + 5
+        while not path.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return path.read_text()
+
+    def test_open_config_uses_the_saved_editor_command(self):
+        record = self.root / "editor.args"
+        editor = self.root / "bin" / "my-editor"
+        editor.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{record}.tmp" && mv "{record}.tmp" "{record}"\n')
+        editor.chmod(0o755)
+        self.assertEqual(self.ok("about")["editor"], "")
+        self.assertEqual(self.ok("set-editor", {"editor": " my-editor --new-window "}), {"editor": "my-editor --new-window"})
+        self.assertEqual(self.ok("about")["editor"], "my-editor --new-window")
+        self.ok("open-config", {"config": str(self.config)})
+        self.assertEqual(self.wait_for(record).splitlines(), ["--new-window", str(self.config)])
+        self.assertEqual(self.ok("set-editor", {"editor": ""}), {"editor": ""})
+        self.assertEqual(self.ok("about")["editor"], "")
+
+    def test_set_editor_rejects_unknown_programs_and_bad_quoting(self):
+        self.assertEqual(self.fails("set-editor", {"editor": "no-such-editor-xyz"})["code"], "missing_editor")
+        self.assertIn("quotation", self.fails("set-editor", {"editor": "my 'editor"})["error"])
+        self.fails("set-editor", {"editor": "sh\nrm"})
+        self.assertEqual(self.ok("about")["editor"], "")
+
+    def test_about_reports_and_sets_up_the_palette_template(self):
+        self.assertFalse(self.ok("about")["palette"]["noctalia"])
+        self.assertIn("not found", self.fails("palette-template", {})["error"])
+        config = self.root / "xdg-config" / "noctalia" / "noctalia-config.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text("# mine\n[shell]\nfont_family = \"Inter\"\n")
+        palette = self.ok("palette-template", {})["palette"]
+        self.assertEqual((palette["template"], palette["entry"], palette["palette"]), (True, True, False))
+        self.assertTrue(config.read_text().startswith("# mine\n"))
+        self.assertTrue((self.root / "data" / "umbriel-settings" / "noctalia-backups" / "noctalia-config.toml.bak").exists())
 
 
 if __name__ == "__main__":

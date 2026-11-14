@@ -69,7 +69,7 @@ Keys: Ctrl+F search, Ctrl+S review, Alt+Left back, Esc close.
 - **Files written**, only when you save, restore or delete backups: the Umbriel config (validated first,
   written atomically, symlinks refused), `$XDG_CONFIG_HOME/user-dirs.dirs` and
   `$XDG_CONFIG_HOME/mimeapps.list` (other entries and MIME fallbacks are kept). A timestamped backup is
-  made before every write, under `$XDG_DATA_HOME/umbriel-config-gui/`, which also stores the chosen config
+  made before every write, under `$XDG_DATA_HOME/umbriel-settings/`, which also stores the chosen config
   path, rule names and keybind locks. Panel drafts and cache live in Noctalia's plugin data directory.
 - **Processes**: `python3 -B umbriel_settings.py <command>` with JSON request and response files in the
   plugin data directory; `umbriel config validate` (on a temporary `.umbriel-settings-*.toml` copy next to

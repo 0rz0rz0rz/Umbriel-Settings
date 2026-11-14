@@ -110,7 +110,7 @@ def build_meta(schema_options, schema_info=None, plugin_version=""):
         info["help"] = CATEGORY_HELP.get(page, "")
         info["glyph"] = PAGE_GLYPHS.get(page, "settings")
     return {
-        "version": f"{CORE_VERSION}-{plugin_version}",
+        "version": plugin_version, "core_version": CORE_VERSION,
         "schema": schema_info or {"available": False},
         "nav": [
             {"title": title, "pages": names, "help": CATEGORY_HELP.get(title, "")}

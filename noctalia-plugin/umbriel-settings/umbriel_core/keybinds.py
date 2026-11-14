@@ -199,7 +199,7 @@ def reorder_table(table, order):
     if not positions or ordered_keys == [key.key for key, _ in body if key is not None]:
         return
     values = {key: dict.__getitem__(container, key) for key in ordered_keys}
-    for position, key_name in zip(positions, ordered_keys):
+    for position, key_name in zip(positions, ordered_keys, strict=False):
         body[position] = entries[key_name]
     container._map.clear()
     for index, (key, _) in enumerate(body):

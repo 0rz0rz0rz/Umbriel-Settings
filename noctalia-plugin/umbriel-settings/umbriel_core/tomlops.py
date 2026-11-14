@@ -51,7 +51,7 @@ def normalize_optional_includes(files):
         (files[index] for index in pinned_indexes),
         key=PINNED_OPTIONAL_INCLUDES.index,
     )
-    for index, name in zip(pinned_indexes, pinned_files):
+    for index, name in zip(pinned_indexes, pinned_files, strict=True):
         files[index] = name
     return files
 

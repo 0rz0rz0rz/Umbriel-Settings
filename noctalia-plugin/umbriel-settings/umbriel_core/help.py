@@ -2,7 +2,6 @@
 
 import textwrap
 
-
 FIELD_HELP = {
     "Enabled": "Turn this feature on or off.",
     "Duration (ms)": "Set how long this animation takes, in milliseconds.",
@@ -100,7 +99,6 @@ FIELD_HELP = {
     "Open maximized to edges": "Start matching windows maximized to the available output edges.",
     "Open pinned": "Keep matching windows visible across workspaces.",
     "Takes focus": "Give matching windows keyboard focus when they open.",
-    "Radius": "Set the blur radius in pixels.",
     "Floating size px": "Set a floating window's width (W) and height (H) in pixels.",
     "Floating size fraction": "Set a floating window's width (W) and height (H) as fractions of the output, from 0.1 to 1.",
     "Floating position": "Place matching floating windows at an X/Y offset from the chosen anchor of the output.",

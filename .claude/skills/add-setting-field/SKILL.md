@@ -13,4 +13,4 @@ description: "Use when adding, renaming, or removing a single GUI setting (an F(
 6. For entry editors (window/layer rules, outputs), check the group predicates (`LOOK_KEYS`, `OUTPUT_GROUPS`, ...) at the bottom of `umbriel_core/fields.py`; unmatched keys fall into the last catch-all group.
 7. Run `python tools/sync_plugin_core.py` (the plugin carries a copy of the core and picks the field up automatically), then `python tools/check.py core plugin host schema` (schema must report 0 unsupported and 0 stale). The field then appears in the plugin and the app without UI changes.
 
-Do not edit the Luau files, `window.py` or `common.py` for a plain field; they need no change. Read `fields.py`/`help.py` by grep hits only.
+Do not edit the Luau files or the app host for a plain field; they need no change. Read `fields.py`/`help.py` by grep hits only.

@@ -7,7 +7,7 @@ import unittest
 
 import tomlkit
 
-from umbriel_core import entries, kde, keybinds, paths, schema
+from umbriel_core import entries, entry_ops, kde, keybinds, paths, schema
 from umbriel_core.tomlops import MISSING, getp
 
 PYTHON_DIR = os.path.dirname(os.path.dirname(os.path.abspath(entries.__file__)))
@@ -17,8 +17,8 @@ CORE_MODULES = sorted(
     if name.endswith(".py") and name != "__init__.py"
 )
 # Modules the desktop-only plugin helpers import; they must work without tomlkit.
-TOMLKIT_FREE = {"actions", "backups", "cursor_themes", "fields", "help", "kde", "mimeapps", "paths", "schema",
-                "xdg_dirs"}
+TOMLKIT_FREE = {"actions", "backups", "cursor_themes", "fields", "help", "kde", "launch", "mimeapps", "paths",
+                "schema", "xdg_dirs"}
 
 
 def import_blocked(modules, blocked):
@@ -52,6 +52,18 @@ class CoreIsolationTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr + "\nRun tools/sync_plugin_core.py.")
 
+    def test_app_and_plugin_share_one_version(self):
+        """App `<Umbriel version>-<NNN>`; plugin `<major>.<minor>.<NNN>` (Noctalia needs plain semver)."""
+        import re
+        import tomllib
+        with open(os.path.join(PYTHON_DIR, "umbriel_settings", "__init__.py"), encoding="utf-8") as handle:
+            app_version = re.search(r'^__version__ = "([^"]+)"', handle.read(), re.M).group(1)
+        with open(os.path.join(ROOT, "noctalia-plugin", "umbriel-settings", "plugin.toml"), "rb") as handle:
+            plugin_version = tomllib.load(handle)["version"]
+        match = re.fullmatch(r"(\d+)\.(\d+)\.\d+-(\d{3})", app_version)
+        self.assertTrue(match, app_version)
+        self.assertEqual(plugin_version, f"{match[1]}.{match[2]}.{int(match[3])}")
+
 
 class CoreEntryTests(unittest.TestCase):
     def test_entry_names_prefer_custom_then_name_then_match(self):
@@ -70,6 +82,17 @@ class CoreEntryTests(unittest.TestCase):
         self.assertEqual(entries.entry_label_info(second, 1)[:3:2], ("2. Chat", False))
         self.assertEqual(entries.entry_label_info(doc["workspace"][0], 0)[0], "1. Workspace 3")
         self.assertEqual(entries.entry_label_info(tomlkit.table(), 4)[0], "5. (matches everything)")
+
+
+    def test_wrongly_shaped_entry_sections_raise_readable_errors(self):
+        doc = tomlkit.parse('window_rule = { opacity = 1 }\n[[output]]\nname = "DP-1"\n')
+        with self.assertRaisesRegex(ValueError, r"Window rules: .*\[\[window_rule\]\]"):
+            entry_ops.entries(doc, "window_rule")
+        with self.assertRaisesRegex(ValueError, r"Outputs: .*\[output.NAME\]"):
+            entry_ops.entries(doc, "output")
+        valid = tomlkit.parse('window_rule = [{ opacity = 1 }]\n[output.DP-1]\nscale = 1.0\n')
+        self.assertEqual(len(entry_ops.entries(valid, "window_rule")), 1)
+        self.assertEqual(entry_ops.entries(valid, "output")[0][0], "DP-1")
 
 
 class CoreKeybindTests(unittest.TestCase):

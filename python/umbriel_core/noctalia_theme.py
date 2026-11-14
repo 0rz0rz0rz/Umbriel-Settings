@@ -8,7 +8,13 @@ Sources, first available wins:
 
 import configparser
 import os
+import re
+import stat
 import tomllib
+from pathlib import Path
+
+from .paths import DATA_DIR_NAME, LEGACY_DIR_NAME
+from .xdg_dirs import atomic_write
 
 ROLES = (
     "primary", "on_primary", "primary_container", "on_primary_container", "secondary", "on_secondary",
@@ -26,12 +32,18 @@ PALETTE_TEMPLATE = """\
 """
 
 
+ROLE_NAME = re.compile(r"[a-z][a-z0-9_]*")  # role names become CSS custom properties
+
+
 def config_home():
     return os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
 
 
 def palette_file():
-    return os.path.join(config_home(), "umbriel-config-gui", "noctalia-palette.conf")
+    """Where Noctalia writes the palette; templates set up before the rename still write to the old directory."""
+    path = os.path.join(config_home(), DATA_DIR_NAME, "noctalia-palette.conf")
+    legacy = os.path.join(config_home(), LEGACY_DIR_NAME, "noctalia-palette.conf")
+    return legacy if not os.path.exists(path) and os.path.exists(legacy) else path
 
 
 def template_file():
@@ -61,9 +73,9 @@ def parse_palette(text):
         if not line or line.startswith("#") or "=" not in line:
             continue
         name, _, value = line.partition("=")
-        color = _hex(value)
-        if color:
-            roles[name.strip()] = color
+        name, color = name.strip(), _hex(value)
+        if color and ROLE_NAME.fullmatch(name):
+            roles[name] = color
     return roles
 
 
@@ -71,7 +83,7 @@ def _rgb(text):
     parts = [part.strip() for part in text.split(",")[:3]]
     if len(parts) != 3 or not all(part.isdigit() for part in parts):
         return None
-    return "#%02x%02x%02x" % tuple(min(255, int(part)) for part in parts)
+    return "#" + "".join(f"{min(255, int(part)):02x}" for part in parts)
 
 
 # KDE scheme (section, key) → role. Missing roles are derived later by fill_roles.
@@ -126,7 +138,7 @@ def mix(a, b, amount):
     """Blend two #rrggbb colors; amount 0 keeps a, 1 gives b."""
     ca = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
     cb = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
-    return "#%02x%02x%02x" % tuple(round(x + (y - x) * amount) for x, y in zip(ca, cb))
+    return "#" + "".join(f"{round(x + (y - x) * amount):02x}" for x, y in zip(ca, cb, strict=True))
 
 
 def fill_roles(roles):
@@ -189,20 +201,77 @@ def shell_style(path=None):
     return {"font_family": family, "radius_scale": scale}
 
 
+def _css_string(text):
+    """Quote text as a CSS string; control characters are dropped."""
+    text = "".join(char for char in text if char.isprintable())
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def css_variables(roles, style):
     """CSS custom properties for the web renderer: --<role>, --font, --radius-scale."""
-    lines = [f"--{name}: {color};" for name, color in sorted(roles.items())]
+    lines = [f"--{name}: {color};" for name, color in sorted(roles.items()) if ROLE_NAME.fullmatch(name)]
     family = style.get("font_family")
-    fonts = (f'"{family}", ' if family else "") + "system-ui, sans-serif"
+    fonts = (f"{_css_string(family)}, " if family else "") + "system-ui, sans-serif"
     lines.append(f"--font: {fonts};")
     lines.append(f"--radius-scale: {style.get('radius_scale', 1.0)};")
     return ":root {\n  " + "\n  ".join(lines) + "\n}\n"
 
 
-def template_entry():
-    """The noctalia-config.toml snippet that enables the palette template."""
-    return (
-        "[theme.templates.user.umbriel_settings]\n"
-        'input_path = "$XDG_CONFIG_HOME/noctalia/templates/umbriel-settings-palette.conf"\n'
-        'output_path = "$XDG_CONFIG_HOME/umbriel-config-gui/noctalia-palette.conf"\n'
-    )
+TEMPLATE_KEY = "umbriel_settings"  # [theme.templates.user.<key>] in noctalia-config.toml
+TEMPLATE_ENTRY = {
+    "input_path": "$XDG_CONFIG_HOME/noctalia/templates/umbriel-settings-palette.conf",
+    "output_path": f"$XDG_CONFIG_HOME/{DATA_DIR_NAME}/noctalia-palette.conf",
+}
+
+
+def template_status(config=None):
+    """Whether Noctalia is set up to write the palette the app follows."""
+    config = config or noctalia_config_file()
+    entry = False
+    try:
+        with open(config, "rb") as handle:
+            user = tomllib.load(handle).get("theme", {}).get("templates", {}).get("user", {})
+        entry = isinstance(user, dict) and isinstance(user.get(TEMPLATE_KEY), dict)
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        pass
+    return {
+        "noctalia": os.path.isfile(config),
+        "template": os.path.isfile(template_file()),
+        "entry": entry,
+        "palette": load_roles()[1] == "noctalia",
+    }
+
+
+def install_template(backup_dir, config=None):
+    """Write the palette template and add its user-template entry to Noctalia's config (backed up first)."""
+    import tomlkit
+
+    config = config or noctalia_config_file()
+    template = template_file()
+    for path in (config, template):
+        if os.path.islink(path):
+            raise ValueError(f"{path} is a symlink; edit its target directly.")
+    if not os.path.isfile(config):
+        raise ValueError(f"Noctalia's config was not found: {config}")
+    with open(config, encoding="utf-8") as handle:
+        text = handle.read()
+    document = tomlkit.parse(text)
+    node = document
+    for key in ("theme", "templates", "user"):
+        if key not in node:
+            node[key] = tomlkit.table(is_super_table=True)
+        node = node[key]
+        if not isinstance(node, dict):
+            raise ValueError(f"Noctalia's config: [{key}] is not a table.")
+    atomic_write(Path(template), PALETTE_TEMPLATE.encode("utf-8"), 0o644)
+    os.makedirs(os.path.join(config_home(), DATA_DIR_NAME), exist_ok=True)
+    if TEMPLATE_KEY not in node:
+        entry = tomlkit.table()
+        entry.update(TEMPLATE_ENTRY)
+        node[TEMPLATE_KEY] = entry
+        updated = tomlkit.dumps(document)
+        tomllib.loads(updated)
+        os.makedirs(backup_dir, exist_ok=True)
+        atomic_write(Path(backup_dir) / "noctalia-config.toml.bak", text.encode("utf-8"))
+        atomic_write(Path(config), updated.encode("utf-8"), stat.S_IMODE(os.stat(config).st_mode))
+    return template_status(config)

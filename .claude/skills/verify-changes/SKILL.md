@@ -9,20 +9,20 @@ From the repository root:
 
 ```sh
 python tools/check.py            # picks checks from `git status`, prints one line per check
-python tools/check.py host       # or name them: core plugin host app schema all
+python tools/check.py host       # or name them: core plugin host schema lint all
 python tools/check.py test_core  # or single test files
 ```
 
 | Changed | Checks |
 | --- | --- |
-| `python/umbriel_core/` | `core plugin host` (+ `app` while the legacy UI exists); `check.py` runs the sync drift check, so run `tools/sync_plugin_core.py` first |
+| `python/umbriel_core/` | `core plugin host`; `check.py` runs the sync drift check, so run `tools/sync_plugin_core.py` first |
 | Shared Luau UI or `umbriel_settings.py` | `plugin host` |
-| App host (`app.py`, `app_window.py`, `host/`) | `host` |
+| App host (`app.py`, `app_window.py`, `appicon.py`, `host/`, `web/`) | `host` (includes the web render test) |
 | Fields or keybind actions | add `schema` (must report 0 unsupported, 0 stale) |
-| Legacy Qt modules | the matching legacy test file, e.g. `test_sidebar` (see `add-test`) |
+| Any Python file, `pyproject.toml` | `lint` (`ruff check`; skipped when ruff is missing) |
 
 - Failing checks print only their failure blocks. Rerun just that file, with `-v` if the trimmed output isn't enough.
-- Visual change: render offscreen and Read the PNGs (`edit-controls`: `render_app.py` for the new app, `render_page.py` for the legacy UI).
-- The `app` suite takes 2–3 minutes; run it only when legacy modules or the core changed.
+- Visual change: render offscreen and Read the PNGs (`edit-controls`: `render_app.py`).
+- `plugin` includes the CPU budget check (`budget_test.lua`: every page on a large config, each callback ≤ 25 ms under plain Lua, mock JSON excluded).
 - Add a test for behavior changes and check that it fails without the fix.
 - Never build the AppImage or launch the app to verify; report skipped checks (no `lua`, `luac`, `noctalia`, `umbriel`).

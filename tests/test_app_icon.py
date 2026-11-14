@@ -8,7 +8,8 @@ from unittest.mock import patch
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication
 
-from umbriel_config_gui import common, state, window
+# Import app_window before any test patches PySide6.QtWidgets.QApplication; it binds the name at import.
+from umbriel_settings import __version__, app, app_window, appicon  # noqa: F401
 
 
 class AppIconTests(unittest.TestCase):
@@ -20,7 +21,7 @@ class AppIconTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.icon_path = os.path.join(self.tempdir.name, "icon.jpg")
-        icon_patch = patch.object(common, "APP_ICON_PATH", self.icon_path)
+        icon_patch = patch.object(appicon, "APP_ICON_PATH", self.icon_path)
         icon_patch.start()
         self.addCleanup(icon_patch.stop)
 
@@ -29,35 +30,57 @@ class AppIconTests(unittest.TestCase):
         image.fill(QColor(color))
         self.assertTrue(image.save(self.icon_path, "JPEG"))
 
+    def install(self, icon, **environ):
+        with patch.object(appicon.sys, "platform", "linux"), patch.dict(
+            os.environ, {"XDG_DATA_HOME": self.tempdir.name, **environ}
+        ):
+            if "APPIMAGE" not in environ:
+                os.environ.pop("APPIMAGE", None)
+            appicon.install_desktop_icon(icon)
+        with open(os.path.join(self.tempdir.name, "applications", "umbriel-settings.desktop"),
+                  encoding="utf-8") as desktop_file:
+            return desktop_file.read()
+
     def test_custom_jpeg_is_used_for_window_and_desktop_icon(self):
         self.write_icon("red")
-        icon = common.create_app_icon()
+        icon = appicon.create_app_icon()
         pixel = icon.pixmap(32, 32).toImage().pixelColor(16, 16)
         self.assertGreater(pixel.red(), 240)
         self.assertLess(pixel.green(), 15)
         self.assertLess(pixel.blue(), 15)
 
-        with patch.object(common.sys, "platform", "linux"), patch.dict(
-            os.environ, {"XDG_DATA_HOME": self.tempdir.name}
-        ):
-            common.install_desktop_icon(icon)
+        entry = self.install(icon)
         desktop_icon = QImage(os.path.join(
-            self.tempdir.name, "icons", "hicolor", "128x128", "apps", "umbriel-config-gui.png"
+            self.tempdir.name, "icons", "hicolor", "128x128", "apps", "umbriel-settings.png"
         ))
         self.assertFalse(desktop_icon.isNull())
         self.assertEqual((desktop_icon.width(), desktop_icon.height()), (128, 128))
         self.assertGreater(desktop_icon.pixelColor(64, 64).red(), 240)
-        desktop_path = os.path.join(
-            self.tempdir.name, "applications", "umbriel-config-gui.desktop"
-        )
-        with open(desktop_path, encoding="utf-8") as desktop_file:
-            self.assertIn("Name=Umbriel Settings\n", desktop_file.read())
+        self.assertIn("Name=Umbriel Settings\n", entry)
+        self.assertIn(appicon.desktop_entry_quote(appicon.LAUNCHER_PATH), entry)
+
+    def test_entry_and_icon_from_before_the_rename_are_removed(self):
+        applications = os.path.join(self.tempdir.name, "applications")
+        icons = os.path.join(self.tempdir.name, "icons", "hicolor", "128x128", "apps")
+        os.makedirs(applications)
+        os.makedirs(icons)
+        for path in (os.path.join(applications, "umbriel-config-gui.desktop"),
+                     os.path.join(icons, "umbriel-config-gui.png")):
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("old")
+        self.assertIn("StartupWMClass=umbriel-settings\n", self.install(appicon.create_app_icon()))
+        self.assertEqual(sorted(os.listdir(applications)), ["umbriel-settings.desktop"])
+        self.assertEqual(sorted(os.listdir(icons)), ["umbriel-settings.png"])
+
+    def test_appimage_desktop_entry_runs_the_appimage_with_quoting(self):
+        entry = self.install(appicon.create_app_icon(), APPIMAGE='/opt/My "Apps"/100%.AppImage')
+        self.assertIn('Exec="/opt/My \\"Apps\\"/100%%.AppImage"\n', entry)
 
     def test_missing_custom_icon_uses_embedded_icon(self):
-        icon = common.create_app_icon()
+        icon = appicon.create_app_icon()
         self.assertFalse(icon.isNull())
         self.assertEqual(
-            hashlib.sha256(base64.b64decode(common._APP_ICON_DATA)).hexdigest(),
+            hashlib.sha256(base64.b64decode(appicon._APP_ICON_DATA)).hexdigest(),
             "52b5fea94dfc8ee8e39709aefc7353527a4a2ed7f5b88ea64646b7b1287778ae",
         )
 
@@ -65,23 +88,30 @@ class AppIconTests(unittest.TestCase):
         with open(self.icon_path, "wb") as icon:
             icon.write(b"not an image")
         with self.assertWarnsRegex(RuntimeWarning, "Could not load.*icon.jpg"):
-            self.assertFalse(common.create_app_icon().isNull())
+            self.assertFalse(appicon.create_app_icon().isNull())
 
-    def test_application_uses_new_display_name_and_existing_desktop_id(self):
+
+class AppStartupTests(unittest.TestCase):
+    def test_application_uses_display_name_and_existing_desktop_id(self):
         with (
-            patch.object(state, "PATH", state.PATH),
-            patch.object(state, "_CLI_ARGS", state._CLI_ARGS),
-            patch.object(window, "QApplication") as app_class,
-            patch.object(window, "Window"),
-            patch.object(window, "create_app_icon"),
-            patch.object(window, "apply_interaction_styles"),
-            patch.object(window, "install_desktop_icon"),
+            patch("PySide6.QtWidgets.QApplication") as app_class,
+            patch("umbriel_settings.app_window.AppWindow") as window_class,
+            patch("umbriel_settings.appicon.create_app_icon"),
+            patch("umbriel_settings.appicon.install_desktop_icon"),
+            patch("umbriel_settings.qt6ct_theme.Qt6ctThemeFollower"),
         ):
-            window.main([])
-            app = app_class.return_value
-            app.setApplicationName.assert_called_once_with("Umbriel Settings")
-            app.setApplicationDisplayName.assert_called_once_with("Umbriel Settings")
-            app.setDesktopFileName.assert_called_once_with("umbriel-config-gui")
+            app.main(["--no-validate", "/tmp/example.toml"])
+        qt_app = app_class.return_value
+        qt_app.setApplicationName.assert_called_once_with("Umbriel Settings")
+        qt_app.setApplicationDisplayName.assert_called_once_with("Umbriel Settings")
+        qt_app.setDesktopFileName.assert_called_once_with("umbriel-settings")
+        window_class.assert_called_once_with({"appVersion": __version__, "initialConfig": "/tmp/example.toml",
+                                              "validateDefault": False})
+        qt_app.exec.assert_called_once_with()
+
+    def test_legacy_flag_is_gone(self):
+        with self.assertRaises(SystemExit), patch("sys.stderr"):
+            app.parse_args(["--legacy-ui"])
 
 
 if __name__ == "__main__":

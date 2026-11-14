@@ -1,11 +1,11 @@
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 from test_umbriel_settings import CONFIG, FAKE_UMBRIEL
 
@@ -42,24 +42,47 @@ class PanelHarnessTests(unittest.TestCase):
         self.assertTrue(reply["ok"], reply)
         return reply["result"]
 
-    def test_panel_and_app_flows(self):
+    def fixtures(self, config_text, saved=True):
+        """Write the helper replies the Lua harness serves: meta, search index, state, desktop, save result."""
+        self.config.write_text(config_text)
         fixtures = self.root / "fixtures"
-        fixtures.mkdir()
+        fixtures.mkdir(exist_ok=True)
         meta = self.helper("meta", {})
         (fixtures / "meta.json").write_text(json.dumps(meta["meta"]))
         (fixtures / "search.json").write_text(json.dumps(meta["search"]))
         state = self.helper("read", {"config": str(self.config)})
         (fixtures / "state.json").write_text(json.dumps(state))
         (fixtures / "desktop.json").write_text(json.dumps(self.helper("desktop", {})))
-        saved = self.helper("save", {"config": str(self.config), "changes": {
-            "revision": state["revision"], "fields": {"general.mod_key": {"value": "Alt"}}}})
-        (fixtures / "saved.json").write_text(json.dumps(saved))
+        if saved:
+            saved = self.helper("save", {"config": str(self.config), "changes": {
+                "revision": state["revision"], "fields": {"general.mod_key": {"value": "Alt"}}}})
+        (fixtures / "saved.json").write_text(json.dumps(saved or state))
+        return fixtures
+
+    def run_lua(self, script, fixtures, marker):
+        result = subprocess.run(["lua", str(ROOT / "tests" / script), str(PLUGIN), str(fixtures)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(marker, result.stdout)
+        return result.stdout
+
+    def test_panel_and_app_flows(self):
+        fixtures = self.fixtures(CONFIG)
         for script, marker in (("panel_test.lua", "panel ok"), ("app_test.lua", "app ok")):
             with self.subTest(script=script):
-                result = subprocess.run(["lua", str(ROOT / "tests" / script), str(PLUGIN), str(fixtures)],
-                                        capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn(marker, result.stdout)
+                self.run_lua(script, fixtures, marker)
+
+    def test_callbacks_stay_within_cpu_budget_on_a_large_config(self):
+        lines = [f'BUDGET_VAR_{i} = "value {i}"' for i in range(100)]
+        text = CONFIG.replace('[environment]\n', '[environment]\n' + "\n".join(lines) + "\n")
+        text = text.replace('[keybinds]\n', '[keybinds]\n' + "".join(
+            f'"super+shift+alt+k{i}" = "spawn budget-command-{i}"\n' for i in range(400)))
+        text += "".join(f'\n[[window_rule]]\nmatch = {{ app_id = "^budget-entry-{i}$" }}\nopacity = 0.9\n'
+                        for i in range(300))
+        text += "".join(f'\n[[workspace]]\nindex = {i + 1}\n' for i in range(60))
+        text += "".join(f'\n[output.BUDGET-{i}]\nscale = 1.0\n' for i in range(50))
+        output = self.run_lua("budget_test.lua", self.fixtures(text, saved=False), "budget ok")
+        self.assertRegex(output, r"budget: \d+ callbacks, slowest")
 
     def test_bar_shows_unsaved_count_and_toggles_panel(self):
         manifest = (PLUGIN / "plugin.toml").read_text()

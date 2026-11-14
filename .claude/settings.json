@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python tools/check.py:*)",
+      "Bash(python tools/sync_plugin_core.py:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(umbriel config schema:*)",
+      "Bash(umbriel --version)"
+    ]
+  }
+}

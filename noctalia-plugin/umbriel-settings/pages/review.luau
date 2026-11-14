@@ -1,4 +1,4 @@
--- Review & save (readable changes, diff, validation), backups, and about.
+-- Review & save (readable changes, diff, validation) and backups.
 local kit = require("../ui/kit.luau")
 local search = require("../lib/search.luau")
 local fields = require("../ui/fields.luau")
@@ -304,28 +304,8 @@ local function backupsPage(ctx, route)
   return { header = header, content = content }
 end
 
-local function aboutPage(ctx)
-  local meta = ctx.store.meta
-  local schema = meta.schema or {}
-  local lines = {
-    "**Umbriel Settings** for Noctalia — version " .. tostring(meta.version),
-    "",
-    schema.available and ("Using the option list of Umbriel " .. tostring(schema.version) .. " (" .. tostring(schema.revision) .. ").")
-      or ("Umbriel's option list is unavailable: " .. tostring(schema.reason or "unknown reason") .. ". Built-in defaults are shown."),
-    "",
-    "**Keys:** Ctrl+F search · Ctrl+S review and save · Alt+Left back · Esc close (edits are kept).",
-    "",
-    "Edits stay unsaved until you review them. Before writing, the new file is checked with "
-      .. "`umbriel config validate`; a copy of the old file is kept under Backups. Comments and formatting are preserved.",
-    "",
-    "Needs Python 3 with **tomlkit** (Arch: `python-tomlkit`). Folder browsing uses zenity or kdialog.",
-  }
-  return { header = { kit.header(ctx, "About") }, content = { ui.markdown({ key = "about", text = table.concat(lines, "\n") }) } }
-end
-
 function M.render(ctx, route)
   if route.name == "backups" then return backupsPage(ctx, route) end
-  if route.name == "about" then return aboutPage(ctx) end
   return reviewPage(ctx, route)
 end
 

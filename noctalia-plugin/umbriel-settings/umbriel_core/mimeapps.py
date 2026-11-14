@@ -4,13 +4,12 @@ import configparser
 import hashlib
 import mimetypes
 import os
-from pathlib import Path
 import re
 import shutil
 import stat
+from pathlib import Path
 
 from .xdg_dirs import atomic_write, read_document
-
 
 ROLES = {
     "Web browser": ["text/html", "application/xhtml+xml", "x-scheme-handler/http", "x-scheme-handler/https"],
