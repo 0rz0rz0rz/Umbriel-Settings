@@ -21,18 +21,27 @@ local function loading(ctx, title)
   return { header = { kit.header(ctx, title) }, content = content }
 end
 
--- Icon theme lookups are slow in Noctalia (25 ms per callback): cache them and resolve a few per render,
--- asking for another frame while some are still missing.
+-- Icon theme lookups are slow in Noctalia (25 ms per callback; a miss can take several ms): cache them and
+-- resolve a few per render within a time budget, asking for another frame while some are still missing.
 local ICON_LOOKUPS_PER_RENDER = 6
+local ICON_BUDGET_MS = 6
 local iconCache = {}
 
+local function clock()
+  return noctalia.nowMs and noctalia.nowMs() or nil
+end
+
 local function iconLookup()
-  local lookup = { left = ICON_LOOKUPS_PER_RENDER, pending = false }
+  local lookup = { left = ICON_LOOKUPS_PER_RENDER, pending = false, start = clock() }
   function lookup.icon(id)
     if not noctalia.appIconPath or not id or id == "" or id == "<multiple>" then return nil end
     local cached = iconCache[id]
     if cached ~= nil then return cached or nil end
-    if lookup.left <= 0 then lookup.pending = true; return nil end
+    local now = lookup.left < ICON_LOOKUPS_PER_RENDER and lookup.start and clock()
+    if lookup.left <= 0 or (now and now - lookup.start >= ICON_BUDGET_MS) then
+      lookup.pending = true
+      return nil
+    end
     lookup.left = lookup.left - 1
     local path = noctalia.appIconPath((string.gsub(id, "%.desktop$", "")), 32)
     iconCache[id] = path or false
@@ -171,17 +180,23 @@ local function appsPage(ctx)
   local names = {}
   for mime in pairs(apps.mimes) do table.insert(names, mime) end
   table.sort(names)
+  local appNames = {}
+  for _, app in ipairs(apps.apps) do appNames[app.id] = app.name end
+  local extensions = apps.extensions or {}
   local listStart = #content + 1
   local shown = 0
   for _, mime in ipairs(names) do
     local value = apps.mimes[mime]
-    if shown < 50 and (filter == "" or string.find(string.lower(mime .. " " .. value), filter, 1, true)) then
+    local name = value ~= "" and (appNames[value] or value) or nil
+    local exts = extensions[mime] or ""
+    local haystack = filter ~= "" and string.lower(table.concat({ mime, exts, value, name or "" }, " "))
+    if shown < 50 and (filter == "" or string.find(haystack, filter, 1, true)) then
       shown = shown + 1
       table.insert(content, ui.row({ key = "mime-" .. mime, gap = 6, align = "center", paddingH = 12, paddingV = 6,
                                      radius = 10, fill = "surface_container" }, {
         ui.column({ gap = 2, flexGrow = 1 }, {
-          ui.label({ text = mime, fontSize = 13 }),
-          kit.muted(value ~= "" and (appName(apps.apps, value) .. "  ·  " .. value) or "Removed when you save"),
+          ui.label({ text = exts ~= "" and (mime .. "  ·  " .. exts) or mime, fontSize = 13 }),
+          kit.muted(name and (name .. "  ·  " .. value) or "Removed when you save"),
         }),
         ui.button({ text = "Change", controlSize = "sm", variant = "outline",
                     onClick = function() ctx.go({ name = "appPicker", kind = "mime", target = mime }) end }),

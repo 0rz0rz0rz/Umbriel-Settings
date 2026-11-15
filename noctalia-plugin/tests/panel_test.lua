@@ -253,7 +253,17 @@ local afterFrames = iconCalls
 assert(afterFrames >= 20, "remaining icons resolved on later frames: " .. afterFrames)
 flushReads()
 assert(iconCalls == afterFrames, "icons are cached")
+-- slow lookups stop once the render's icon time budget is spent (always at least one per render)
+local fakeNow = 0
+noctalia.nowMs = function() return fakeNow end
+noctalia.appIconPath = function() iconCalls = iconCalls + 1; fakeNow = fakeNow + 10; return nil end
+for i = 1, 10 do table.insert(store.desktop.apps.apps, { id = "slow" .. i .. ".desktop", name = "Fake app slow " .. i }) end
+iconCalls = 0
+find("input", function(n) return n.props.key == "app-search" end).props.onChange("slow")
+assert(iconCalls == 1, "slow icon lookups in one callback: " .. iconCalls)
+noctalia.nowMs = nil
 noctalia.appIconPath = appIconPath
+find("input", function(n) return n.props.key == "app-search" end).props.onChange("")
 find("input", function(n) return n.props.key == "app-id" end).props.onChange("firefox.desktop")
 clickText("Use")
 assert(store.desktop.apps.roles["Web browser"] == "firefox.desktop")

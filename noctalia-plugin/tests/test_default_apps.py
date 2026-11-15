@@ -70,6 +70,13 @@ class DefaultAppsPluginTests(unittest.TestCase):
         self.assertEqual([path.read_text() for path in backups], [original])
         self.assertEqual(saved["roles"]["Web browser"], "new.desktop")
 
+    def test_file_types_list_their_extensions(self):
+        self.path.parent.mkdir()
+        self.path.write_text("[Default Applications]\napplication/json=viewer.desktop;\nx-scheme-handler/x=a.desktop;\n")
+        extensions = self.helper("read")["extensions"]
+        self.assertIn(".json", extensions["application/json"].split())
+        self.assertEqual(extensions["x-scheme-handler/x"], "")
+
     def test_external_changes_and_invalid_updates_are_rejected(self):
         loaded = self.helper("read")
         self.path.parent.mkdir()

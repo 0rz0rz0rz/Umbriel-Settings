@@ -117,7 +117,13 @@ def snapshot(text, revision, apps):
         roles[role] = values[0] if all(value == values[0] for value in values) else "<multiple>"
     others = {mime: values[0] if values else "" for mime, values in current.items() if mime not in ROLE_MIMES}
     return {"revision": revision, "roles": roles, "mimes": others, "apps": apps,
+            "extensions": {mime: mime_extensions(mime) for mime in others},
             "role_mimes": sorted(ROLE_MIMES)}
+
+
+def mime_extensions(mime):
+    """Known extensions of a MIME type as one string ('.docx .dotx'), so file types can be found by extension."""
+    return " ".join(sorted(set(mimetypes.guess_all_extensions(mime, strict=False))))
 
 
 def validate_changes(changes):

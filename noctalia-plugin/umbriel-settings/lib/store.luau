@@ -360,7 +360,7 @@ function M.loadDesktop(data)
                  revision = data.userdirs.revision },
     apps = { roles = deepCopy(apps.roles), originalRoles = deepCopy(apps.roles), mimes = deepCopy(apps.mimes),
              originalMimes = deepCopy(apps.mimes), revision = apps.revision, apps = apps.apps,
-             roleMimes = apps.role_mimes },
+             roleMimes = apps.role_mimes, extensions = apps.extensions or {} },
   }
   local draft = M.desktopDraft
   M.desktopDraft = nil
