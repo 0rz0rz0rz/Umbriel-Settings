@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Build the Umbriel Settings AppImage into ./dist (run from anywhere).
 #
-#   appimage/build-appimage.sh [python-version]     default python-version: 3.12
+#   appimage/build-appimage.sh
 #
-# Needs network access (downloads the python-appimage base image and the pinned
-# wheels from python/requirements.txt) and FUSE, or APPIMAGE_EXTRACT_AND_RUN=1.
+# Needs network access. Every download (python-appimage, the Python base image, appimagetool and the wheels
+# from python/requirements.txt with their dependencies) is checked against appimage/pins.sh and the *.lock
+# files first (fetch-pinned.sh); the AppImage's pip then installs only from those verified wheels.
+# Python version, tool versions and checksums: tools/update_appimage_pins.py.
 set -euo pipefail
-
-PYTHON_VERSION="${1:-3.12}"
-PYTHON_APPIMAGE_VERSION="1.4.7"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(dirname "$here")"
@@ -20,8 +19,7 @@ version="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$root/python/umbriel_setting
 arch="$(uname -m)"
 [ -n "$version" ] || { echo "Could not read __version__" >&2; exit 1; }
 
-python3 -m venv "$work/venv"
-"$work/venv/bin/pip" install --quiet "python-appimage==$PYTHON_APPIMAGE_VERSION"
+"$here/fetch-pinned.sh" "$work" "$arch"
 
 # Stage a clean copy: recipe metadata, pinned requirements, and the package without caches.
 mkdir -p "$work/recipe" "$work/extra"
@@ -37,10 +35,12 @@ find "$work/extra" -name __pycache__ -type d -prune -exec rm -rf {} +
 
 # --no-packaging leaves an AppDir; appimagetool is run here because python-appimage
 # mishandles output names derived from a desktop entry name containing spaces.
+# PIP_NO_INDEX: the base image's pip installs the requirements from the verified wheels only, never PyPI.
 (
     cd "$work"
-    "$work/venv/bin/python-appimage" build app --no-packaging \
-        -p "$PYTHON_VERSION" -n umbriel-settings \
+    PIP_NO_INDEX=1 PIP_FIND_LINKS="$work/wheels" PIP_DISABLE_PIP_VERSION_CHECK=1 \
+        "$work/venv/bin/python-appimage" build app --no-packaging \
+        -b "$(echo "$work"/base/python*.AppImage)" -n umbriel-settings \
         "$work/recipe" \
         -x "$work/extra/umbriel_settings" "$work/extra/umbriel_core"
 )
@@ -117,7 +117,9 @@ missing="$(find "$pyside" -type f \( -name '*.so' -o -name '*.so.*' -o -name QtW
 [ -z "$missing" ] || { echo "Pruned Qt libraries are still required:" >&2; echo "$missing" >&2; exit 1; }
 
 chmod -R a+rX "$appdir"
-appimagetool="$("$work/venv/bin/python" -c 'from python_appimage.utils.deps import ensure_appimagetool as e; print(e())')"
+# The verified appimagetool, extracted so packaging needs no FUSE.
+(cd "$work" && ./appimagetool.AppImage --appimage-extract >/dev/null && mv squashfs-root appimagetool)
+appimagetool="$work/appimagetool/AppRun"
 
 mkdir -p "$dist"
 output="$dist/Umbriel-Settings-$version-$arch.AppImage"

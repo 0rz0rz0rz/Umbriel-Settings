@@ -1,8 +1,9 @@
--- Visits every page and group of the Noctalia panel on a large config and fails when one callback
--- uses more than Noctalia's 25 ms CPU budget (three overruns disable the plugin).
--- Usage: lua budget_test.lua PLUGIN_DIR FIXTURE_DIR   (fixtures from test_panel.py's large config)
+-- Visits every page and group of the Noctalia panel (or the app layout) on a large config and fails when one
+-- callback uses more than Noctalia's 25 ms CPU budget (three overruns disable the plugin).
+-- Usage: lua budget_test.lua PLUGIN_DIR FIXTURE_DIR [panel|app]   (fixtures from test_panel.py's large config)
 local H = dofile((arg[0]:match("^(.*)/") or ".") .. "/harness.lua")
-local entry = H.start("panel.luau")
+local layout = arg[3] or "panel"
+local entry = H.start(layout .. ".luau", layout == "app" and {} or nil)
 local meta = H.json.decode(H.fixtures.meta)
 local flushReads, find, texts = H.flushReads, H.find, H.texts
 
@@ -46,5 +47,5 @@ for _, section in ipairs(meta.nav) do
   end
 end
 assert(visited >= 20, "visited " .. visited .. " pages")
-H.checkBudget("budget", 0.025)
+H.checkBudget("budget " .. layout, 0.025)
 print("budget ok")

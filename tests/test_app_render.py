@@ -44,6 +44,7 @@ class AppRenderTests(unittest.TestCase):
         (bin_dir / "umbriel").write_text(f"#!{sys.executable}\n" + FAKE_UMBRIEL)
         (bin_dir / "umbriel").chmod(0o755)
         env = patch.dict(os.environ, {"XDG_DATA_HOME": str(root / "data"), "XDG_CONFIG_HOME": str(root / "xdg"),
+                                      "XDG_DATA_DIRS": str(root / "share"),
                                       "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]})
         env.start()
         self.addCleanup(env.stop)
@@ -140,6 +141,44 @@ class AppRenderTests(unittest.TestCase):
         self.assertEqual(load_window_state(self.win.data_dir), {"width": 1000, "height": 700, "maximized": False})
         save_window_state(self.win.data_dir, {"width": 5, "height": 5})  # unusable: falls back to the default
         self.assertEqual(load_window_state(self.win.data_dir), {})
+
+    def test_a_config_that_is_deleted_and_written_again_is_watched_again(self):
+        self.wait_for_text("Home", "Appearance")
+        config = Path(self.win.config_path)
+        self.assertIn(str(config), self.win.watcher.files())
+        config.unlink()
+        self.pause(700)
+        self.assertNotIn(str(config), self.win.watcher.files())
+        config.write_text(CONFIG)
+        deadline = time.monotonic() + 5
+        while str(config) not in self.win.watcher.files() and time.monotonic() < deadline:
+            self.pause(50)
+        self.assertIn(str(config), self.win.watcher.files())
+
+    def test_sigterm_closes_like_the_close_button_without_asking(self):
+        import signal
+
+        from umbriel_settings.app_window import quit_on_signals
+
+        previous = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
+
+        def restore():
+            signal.set_wakeup_fd(-1)
+            for number, handler in previous.items():
+                signal.signal(number, handler)
+        self.addCleanup(restore)
+        self.win.pending = 3  # the close button would ask; a signal must not
+        called = []
+        with patch.object(self.win.host, "call", side_effect=lambda name, *args: called.append(name)), \
+                patch.object(self.app, "quit") as quit_app:
+            quit_on_signals(self.app, self.win)
+            os.kill(os.getpid(), signal.SIGTERM)
+            deadline = time.monotonic() + 5
+            while not quit_app.called and time.monotonic() < deadline:
+                self.pause(20)
+        self.assertIn("onClose", called, "the draft is written")
+        self.assertFalse(self.win.isVisible())
+        quit_app.assert_called_once_with()
 
     def test_page_cannot_navigate_away_or_load_remote_content(self):
         self.wait_for_text("Home", "Appearance")

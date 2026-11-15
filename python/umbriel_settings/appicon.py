@@ -373,7 +373,13 @@ def install_desktop_icon(icon):
         "StartupNotify=true\n"
         "StartupWMClass=umbriel-settings\n"
     )
-    write_text_file(desktop_path, desktop_entry)
+    try:
+        with open(desktop_path, encoding="utf-8") as handle:
+            current = handle.read()
+    except (OSError, UnicodeError):
+        current = None
+    if current != desktop_entry:  # an unchanged entry is left alone, so menus don't rescan on every start
+        write_text_file(desktop_path, desktop_entry)
     # The entry and icon from before the rename point at a launcher that no longer exists.
     for legacy in (os.path.join(application_directory, LEGACY_DIR_NAME + ".desktop"),
                    os.path.join(icon_directory, LEGACY_DIR_NAME + ".png")):

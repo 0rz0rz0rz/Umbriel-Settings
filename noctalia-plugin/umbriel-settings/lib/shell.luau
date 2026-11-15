@@ -25,6 +25,21 @@ function M.create(layout, options)
   local firstLoad = true
   local ctx = { view = view, store = store, helper = helper, loading = loading, options = options,
                 isApp = options.isApp == true, menuHandlers = {} }
+  local epoch = 0
+
+  -- Input keys carry view.gen[key]. Keys that were never bumped read the epoch, so raising it replaces the
+  -- text of every input, also of those still at their first generation.
+  function ctx.resetInputs()
+    epoch = epoch + 1
+    local base = epoch * 1000000
+    view.gen = setmetatable({}, { __index = function() return base end })
+  end
+
+  function ctx.discardAll()
+    store.discardAll()
+    ctx.diagnostics = nil
+    ctx.resetInputs()
+  end
   if options.rebuildDefault == false then store.rebuild = false end
 
   local loadMeta  -- defined under "loading"; the error screen retries it
@@ -78,8 +93,7 @@ function M.create(layout, options)
         ui.glyph({ name = "pencil", size = 16, color = "primary" }),
         ui.label({ text = kit.plural(pending, "unsaved change"), fontSize = 13, flexGrow = 1 }),
         ui.button({ text = "Discard", variant = "ghost", controlSize = "sm", onClick = function()
-          store.discardAll()
-          view.gen = {}
+          ctx.discardAll()
           ctx.flash("All unsaved changes were discarded.", "info")
         end }),
         ui.button({ text = "Review & save", glyph = "device-floppy", variant = "primary", controlSize = "sm",
@@ -192,7 +206,7 @@ function M.create(layout, options)
 
   function ctx.switchConfig()
     local path = noctalia.string.trim(view.pathDraft or "")
-    if path == "" or (store.state and path == store.state.path) then return end
+    if loading.config or path == "" or (store.state and path == store.state.path) then return end
     if store.hasConfigChanges() then
       ctx.flash("Save or discard your changes before opening another config.", "warning")
       return
@@ -267,6 +281,12 @@ function M.create(layout, options)
   function handlers.onOpen()
     helper.generation = helper.generation + 1
     loading.meta, loading.config, loading.desktop, loading.search = false, false, false, false
+    -- Answers to requests from before the panel closed are dropped, so their busy flags would stay set.
+    view.browsing, view.outputsLoading, view.titlebarLoading = false, false, false
+    view.titlebarBusy, view.titlebarQueued = {}, {}
+    for _, entry in ipairs(stack) do
+      if entry.state then entry.state.loading, entry.state.saving = false, false end
+    end
     notices = {}
     if not store.meta then
       loadMeta()

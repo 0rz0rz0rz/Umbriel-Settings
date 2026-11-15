@@ -11,7 +11,7 @@ local function fieldSpec(ctx, eid, index, fid)
   local item = store.entryItems(eid)[index]
   local value = item.values[fpath]
   return {
-    key = "e:" .. eid .. ":" .. fid, field = field, value = value, set = value ~= nil, changed = false,
+    key = "e:" .. eid .. ":" .. index .. ":" .. fid, field = field, value = value, set = value ~= nil, changed = false,
     onSet = function(v) store.entryOp(eid, { op = "set", index = index - 1, field = fpath, value = v }) end,
     onUnset = field.opt and function() store.entryOp(eid, { op = "unset", index = index - 1, field = fpath }) end or nil,
   }
@@ -98,7 +98,10 @@ local function listPage(ctx, route)
   if route.page == "Outputs" then
     table.insert(content, ui.row({ key = "inspect", gap = 6 }, {
       ui.button({ text = "Inspect connected outputs", glyph = "device-desktop", controlSize = "sm", variant = "outline",
-                  onClick = function() ctx.go({ name = "outputs" }) end }),
+                  onClick = function()
+                    view.outputs = nil  -- ask again: monitors may have been plugged in since
+                    ctx.go({ name = "outputs" })
+                  end }),
     }))
   end
   local filter = string.lower(noctalia.string.trim(view[filterKey] or ""))
@@ -186,12 +189,23 @@ local function outputsPage(ctx)
     view.outputsLoading = true
     ctx.helper.call("outputs", {}, function(err, data)
       view.outputsLoading = false
-      if err then view.outputs = false; ctx.flash(err.error, "error") else view.outputs = data.outputs end
+      view.outputs, view.outputsError = (not err) and data.outputs or false, err and err.error or nil
       ctx.render()
     end)
   end
   if view.outputsLoading or view.outputs == nil then
     return { header = header, content = { kit.empty("Asking Umbriel for outputs…", "loader") } }
+  end
+  if view.outputs == false then
+    return { header = header, content = {
+      kit.notice(view.outputsError or "Umbriel did not answer.", "error", nil, "outputs-error"),
+      ui.row({ key = "outputs-retry" }, {
+        ui.button({ text = "Try again", glyph = "refresh", variant = "primary", onClick = function()
+          view.outputs = nil
+          ctx.render()
+        end }),
+      }),
+    } }
   end
   local content = {}
   for index, output in ipairs(view.outputs or {}) do

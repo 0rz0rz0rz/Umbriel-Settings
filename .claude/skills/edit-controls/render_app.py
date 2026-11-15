@@ -29,7 +29,7 @@ os.environ["XDG_DATA_HOME"] = os.path.join(tmp, "data")
 config = os.path.join(tmp, "config.toml")
 shutil.copy(args.config, config)
 
-from PySide6.QtCore import QTimer  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from umbriel_settings.app_window import AppWindow  # noqa: E402
@@ -67,6 +67,11 @@ def step():
     if i >= len(steps):
         if win.host.errors:
             print("Lua errors:", *win.host.errors, sep="\n  ", file=sys.stderr)
+        # Close and delete the page before Qt shuts down, or QtWebEngine can crash at exit.
+        win.closing_confirmed = True
+        win.close()
+        win.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         shutil.rmtree(tmp, ignore_errors=True)
         app.quit()
         return

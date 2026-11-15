@@ -61,7 +61,9 @@ class HostRuntimeTests(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "umbriel").write_text(f"#!{sys.executable}\n" + FAKE_UMBRIEL)
         (bin_dir / "umbriel").chmod(0o755)
+        # XDG_DATA_DIRS: the desktop page lists installed apps; the machine's own must not decide the result.
         env = patch.dict(os.environ, {"XDG_DATA_HOME": str(root / "data"), "XDG_CONFIG_HOME": str(root / "xdg"),
+                                      "XDG_DATA_DIRS": str(root / "share"),
                                       "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]})
         env.start()
         self.addCleanup(env.stop)
@@ -193,11 +195,47 @@ class HostRuntimeTests(unittest.TestCase):
         self.assertIn("$callback", toggle_page["props"]["onClick"])
         self.host.invoke(toggle_page["props"]["onClick"])
         self.settle()
-        toggle = self.find(lambda n: n["kind"] == "button" and str(n["props"].get("key", "")).endswith(":tri:2")
-                           or n["kind"] == "toggle")
-        self.assertIn(toggle["kind"], ("button", "toggle"))
+        self.assertIn("Session", self.screen(), "the callback opened the General page")
         from umbriel_settings.host.runtime import as_callback_arg
         self.assertEqual([as_callback_arg(v) for v in (True, False, 2.0, 0.5, None)], ["true", "false", "2", "0.5", ""])
+
+    def test_a_click_from_an_older_tree_runs_what_was_clicked(self):
+        """The page can send a click while a newer tree is on its way; ids must not be reused across renders."""
+        appearance = self.find(lambda n: n["props"].get("key") == "nav-Appearance")["props"]["onClick"]
+        self.host.invoke(self.find(lambda n: n["props"].get("key") == "nav-General")["props"]["onClick"])
+        self.settle()
+        self.assertNotIn(appearance["$callback"], self.host.callbacks, "ids are unique per render")
+        self.host.invoke(appearance)  # still names Appearance, not whatever sits at that position now
+        self.settle()
+        self.assertIn("Tab bar", self.screen())
+        from umbriel_settings.host.runtime import CALLBACK_GENERATIONS
+        for _ in range(CALLBACK_GENERATIONS):
+            self.host.call("onFrameTick", 16)
+        general = self.find(lambda n: n["props"].get("key") == "nav-General")["props"]["onClick"]
+        self.host.invoke(appearance)
+        self.host.invoke({"$callback": "cb1"})
+        self.host.invoke({"$callback": general["$callback"].replace("cb", "cb9999")})
+        self.settle()
+        self.assertIn("Tab bar", self.screen(), "ids that are too old or unknown do nothing")
+
+    def test_the_ui_cannot_reach_files_processes_or_python(self):
+        lua = self.host.lua
+        for name in ("io", "python", "package", "debug", "dofile", "loadfile", "load", "require"):
+            self.assertIsNone(lua.eval(name), name)
+        self.assertEqual(lua.eval("type(os.clock) .. type(os.time) .. type(os.date)"), "functionfunctionfunction")
+        for name in ("execute", "remove", "rename", "exit", "getenv", "tmpname"):
+            self.assertIsNone(lua.eval("os." + name), name)
+        lua.globals().probe = self
+        with self.assertRaises(AttributeError):
+            lua.eval("probe.temp")
+        # The page may only name handlers of the entry script, never a Lua global that the entry can see.
+        ran = []
+        lua.globals().onProbe = lambda *args: ran.append("global")
+        lua.globals().print = lambda *args: ran.append("print")
+        for name in ("onProbe", "print", "require", "APP", "tostring"):
+            self.assertIsNone(self.host.invoke(name, "x"))
+        self.assertEqual(ran, [])
+        self.assertIsNotNone(self.host.entry_handler("onOpen"))
 
 
 if __name__ == "__main__":

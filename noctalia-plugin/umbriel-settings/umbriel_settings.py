@@ -406,7 +406,8 @@ def cmd_titlebar_follow(request):
     field = request.get("field")
     if not isinstance(field, str):
         raise HelperError("Choose a title bar field.")
-    return titlebar_theme.follow(config_path(request), field, source, round(opacity * 255),
+    # Rounded half up like the panel's preview (round() would round 0.3 * 255 = 76.5 down to 76).
+    return titlebar_theme.follow(config_path(request), field, source, int(opacity * 255 + 0.5),
                                  os.path.join(data_dir(), "noctalia-backups"))
 
 

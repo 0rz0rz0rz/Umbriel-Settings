@@ -27,7 +27,7 @@ Also: `add-setting-field`, `sync-umbriel-schema`, `verify-changes`, `verify-noct
 
 ## Commands
 
-Deps: Python 3.11+, PySide6 + QtWebEngine, tomlkit, lupa (`pyproject.toml` ranges; `python/requirements.txt` = AppImage pins). Plugin: tomlkit. Optional (else `skip`): `umbriel`, `lua`/`luac`, `luau-compile`, `noctalia`, `ruff`, `shellcheck`.
+Deps: Python 3.11+, PySide6 + QtWebEngine, tomlkit, lupa (`pyproject.toml` ranges; `python/requirements.txt` = AppImage pins; after changing it run `tools/update_appimage_pins.py`). Plugin: tomlkit. Optional (else `skip`): `umbriel`, `lua`/`luac`, `luau-compile`, `noctalia`, `ruff`, `shellcheck`.
 
 ```sh
 python tools/check.py                # checks picked from git status; failures only

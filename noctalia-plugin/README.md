@@ -43,5 +43,6 @@ Noctalia's 25 ms per-callback CPU budget, and use only the API the app host impl
 python tools/check.py plugin host   # plugin tests, Lua/Luau parse, plugin lint, then the app host tests
 ```
 
-`test_panel.py` drives `panel.luau` and `app.luau` under plain `lua` with a mocked Noctalia API
-(`tests/harness.lua`) and real helper output; live rendering and the real CPU budget need a running Noctalia.
+`test_panel.py` drives `panel.luau`, `app.luau` and `bar.luau` under plain `lua` with a mocked Noctalia API
+(`tests/harness.lua`) and real helper output (`panel_test.lua`, `state_test.lua`, `app_test.lua`, `bar_test.lua`,
+`budget_test.lua`); live rendering and the real CPU budget need a running Noctalia.

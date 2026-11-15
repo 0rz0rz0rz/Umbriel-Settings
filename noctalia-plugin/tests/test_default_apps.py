@@ -69,6 +69,7 @@ class DefaultAppsPluginTests(unittest.TestCase):
         backups = sorted(self.backup.glob("mimeapps.list.*.bak"))
         self.assertEqual([path.read_text() for path in backups], [original])
         self.assertEqual(saved["roles"]["Web browser"], "new.desktop")
+        self.assertEqual(saved["apps"], [], "a save does not rescan the installed apps")
 
     def test_file_types_list_their_extensions(self):
         self.path.parent.mkdir()

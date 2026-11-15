@@ -24,6 +24,7 @@ PLUGIN = ROOT / "noctalia-plugin" / "umbriel-settings"
 CORE_TESTS = sorted(p.stem for p in TESTS.glob("test_core*.py"))
 HOST_TESTS = sorted(p.stem for p in TESTS.glob("test_*.py") if p.stem not in CORE_TESTS)
 ORDER = ["core", "plugin", "host", "schema", "lint"]
+TIMEOUT = 900  # seconds per step
 
 
 def env():
@@ -35,7 +36,12 @@ def env():
 
 def run(argv, cwd=ROOT):
     started = time.monotonic()
-    result = subprocess.run(argv, cwd=cwd, env=env(), capture_output=True, text=True)
+    try:
+        result = subprocess.run(argv, cwd=cwd, env=env(), capture_output=True, text=True, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired as error:  # e.g. a web view test waiting forever
+        output = "".join(part.decode(errors="replace") if isinstance(part, bytes) else part or ""
+                         for part in (error.stdout, error.stderr))
+        return 124, output + f"\nERROR: timed out after {TIMEOUT} s", time.monotonic() - started
     return result.returncode, result.stdout + result.stderr, time.monotonic() - started
 
 
@@ -74,7 +80,8 @@ CHECKS = {
     "schema": [("coverage", [sys.executable, "umbriel-settings.py", "--check-schema"], None)],
     "lint": [
         ("ruff", ["ruff", "check", "--quiet", "."], None),
-        ("shellcheck", ["shellcheck", "appimage/build-appimage.sh", "appimage/recipe/entrypoint.sh"], None),
+        ("shellcheck", ["shellcheck", "-x", "appimage/build-appimage.sh", "appimage/fetch-pinned.sh",
+                        "appimage/recipe/entrypoint.sh"], None),
     ],
 }
 
@@ -93,7 +100,8 @@ def checks_for_paths(paths):
                 wanted.add("schema")
         elif path.startswith("noctalia-plugin/"):
             wanted |= {"plugin", "host"}
-        elif path.startswith("python/umbriel_settings/") or Path(path).stem in HOST_TESTS:
+        elif path.startswith(("python/umbriel_settings/", ".github/")) or Path(path).stem in HOST_TESTS \
+                or path in ("python/umbriel-settings.py", "python/requirements.txt"):
             wanted.add("host")
         elif path.startswith("tests/") and path.endswith(".py"):
             stem = Path(path).stem
@@ -101,19 +109,28 @@ def checks_for_paths(paths):
                 wanted.add("core")
             elif stem.startswith("test_") and (ROOT / path).exists():  # deleted tests show up in git status
                 files.add(stem)
-        elif path == "tools/sync_plugin_core.py":
+        elif path in ("tools/sync_plugin_core.py", "appimage/requirements.lock"):
             wanted.add("core")
     return [name for name in ORDER if name in wanted], sorted(files)
 
 
 def changed_paths():
-    out = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=ROOT,
-                         capture_output=True, text=True).stdout
-    paths = []
-    for line in out.splitlines():
-        entry = line[3:]
-        paths.extend(part.strip().strip('"') for part in entry.split(" -> "))
-    return paths
+    """Changed and untracked paths, or None when git can't tell."""
+    try:  # -z: paths as they are (no quoting), NUL-separated; a rename is followed by its old path
+        result = subprocess.run(["git", "status", "--porcelain", "-z", "--untracked-files=all"], cwd=ROOT,
+                                capture_output=True, text=True)
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    paths, entries = [], iter(result.stdout.split("\0"))
+    for entry in entries:
+        if len(entry) < 4:
+            continue
+        paths.append(entry[3:])
+        if entry[0] in "RC" or entry[1] in "RC":
+            paths.append(next(entries, ""))
+    return [path for path in paths if path]
 
 
 def run_step(name, step, argv, kind, verbose, limit):
@@ -128,6 +145,8 @@ def run_step(name, step, argv, kind, verbose, limit):
         return (f"ok   {name}:{step}" if not failures else f"FAIL {name}:{step}\n" + "\n".join(failures)), not failures
     if not shutil.which(argv[0]) and not os.path.isabs(argv[0]):
         return f"skip {name}:{step} (no {argv[0]})", True
+    if name == "schema" and not shutil.which("umbriel"):  # the coverage check asks the installed Umbriel
+        return f"skip {name}:{step} (no umbriel)", True
     cwd = PYTHON if name in ("host", "core", "schema") else ROOT
     code, output, seconds = run(argv, cwd=cwd)
     detail = unittest_summary(output) if kind == "unittest" else (output.strip().splitlines() or [""])[-1][:100]
@@ -155,7 +174,11 @@ def main():
         else:
             files.append(Path(item).stem)
     if not args.checks:
-        names, files = checks_for_paths(changed_paths())
+        paths = changed_paths()
+        if paths is None:
+            print("FAIL git status did not work here; name the checks to run (e.g. `check.py all`)")
+            return 1
+        names, files = checks_for_paths(paths)
         print("checks from git status:", " ".join(names + files) or "none")
 
     ok = True

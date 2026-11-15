@@ -306,7 +306,8 @@ function apply(el, node) {
   } else if (kind === "markdown") {
     if (p.text !== old.text) el.innerHTML = markdown(p.text || "");
   } else if (kind === "image") {
-    const src = p.path ? (p.path.startsWith("/") ? `file://${p.path}` : p.path) : "";
+    // each path segment is encoded: a "#", "?" or "%" in a folder name would otherwise cut the URL short
+    const src = p.path ? (p.path.startsWith("/") ? `file://${p.path.split("/").map(encodeURIComponent).join("/")}` : p.path) : "";
     if (el.getAttribute("src") !== src) el.src = src;
     el.alt = p.tooltip || "";
     el.style.objectFit = p.fit || "contain";

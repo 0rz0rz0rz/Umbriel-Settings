@@ -58,6 +58,8 @@ class BridgeTests(unittest.TestCase):
         bridge.invoke(json.dumps({"$callback": "cb3"}), json.dumps(["text", 2]))
         bridge.invoke(json.dumps("onMenuDelete"), "[]")
         bridge.key("ctrl+s")
+        for callback, args in (("{not json", "[]"), ('"onKey"', "nope"), ('"onKey"', '{"a": 1}'), ('"onKey"', '"x"')):
+            bridge.invoke(callback, args)  # malformed page messages are dropped, not raised into Qt
         self.assertEqual(calls["invoke"], [({"$callback": "cb3"}, ["text", 2]), ("onMenuDelete", [])])
         self.assertEqual(calls["key"], ["ctrl+s"])
 

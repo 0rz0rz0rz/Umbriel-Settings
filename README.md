@@ -40,7 +40,8 @@ Nothing is written until you press **Review & save** (Ctrl+S):
   on by default only for files that already have banners; `--no-rebuild` turns it off.
 - Every save or restore makes a timestamped backup (newest 10 kept). **Backups** on the home page compares,
   restores and deletes them. User folders, default apps and Noctalia's config get their own backups.
-- Unsaved edits are kept as a draft when you close and restored next time, unless the file changed meanwhile.
+- Unsaved edits are kept as a draft when you close (also on Ctrl+C or logout) and restored next time, unless the
+  file changed meanwhile.
 - The window size (and maximized state) is remembered between runs.
 - If the config changes on disk, it is reloaded: setting edits are kept, rule and keybind edits are dropped
   with a note.
@@ -112,13 +113,15 @@ Alt+Left back.
 # From a checkout (with a virtual environment, use .venv/bin/python instead of /usr/bin/python3)
 "Mod+Shift+C" = "spawn /usr/bin/python3 /home/you/Applications/Umbriel-Settings/python/umbriel-settings.py"
 # From the AppImage
-"Mod+Shift+C" = "spawn /home/you/Applications/Umbriel-Settings-0.1.0-005-x86_64.AppImage"
+"Mod+Shift+C" = "spawn /home/you/Applications/Umbriel-Settings-0.1.0-006-x86_64.AppImage"
 # Works for any install: the desktop entry the app creates on first start
 "Mod+Shift+C" = "spawn gio launch /home/you/.local/share/applications/umbriel-settings.desktop"
 ```
 
 **AppImage build**: `appimage/build-appimage.sh` writes `dist/Umbriel-Settings-<version>-<arch>.AppImage`
-(needs network, `python3` with `venv`, `readelf` from binutils, and FUSE or `APPIMAGE_EXTRACT_AND_RUN=1`). The desktop entry points
+(needs network, `python3` with `venv`, `curl`, `readelf` from binutils, and FUSE or `APPIMAGE_EXTRACT_AND_RUN=1`). Every
+download is checked against the SHA-256 checksums in `appimage/` (`*.lock`, `pins.sh`) before use; after changing
+`python/requirements.txt`, regenerate them with `python tools/update_appimage_pins.py`. The desktop entry points
 at the AppImage, so keep it at a stable path.
 
 **Upgrading from `umbriel-config-gui`** (the old name): data moves to `$XDG_DATA_HOME/umbriel-settings`
@@ -195,7 +198,7 @@ unsaved, and shares backups, rule names and keybind locks with the app. Setup:
 | Path | Contents |
 | --- | --- |
 | Your Umbriel config | Saved changes; custom keybind groups are TOML comments |
-| `$XDG_DATA_HOME/umbriel-settings/` | `gui-config-path` (last config), `configs/<id>/` (backups, rule names, keybind locks), `backups/` (user folders, default apps), `noctalia-backups/`, `app-ui/` (drafts, cache, icons), `editor-command`, `window.json` (app window size) |
+| `$XDG_DATA_HOME/umbriel-settings/` | `gui-config-path` (last config), `configs/<id>/` (backups, rule names, keybind locks), `backups/` (user folders, default apps), `noctalia-backups/`, `app-ui/` (drafts, cache, icons, `window.json` with the app window size), `editor-command` |
 | `$XDG_CONFIG_HOME/umbriel-settings/` | `noctalia-palette.conf` (from Noctalia), `titlebar-colors.toml`, `titlebar_apply.py`, `*.titlebar.bak` (config before the script's last change) |
 | `$XDG_CONFIG_HOME/noctalia/templates/` | `umbriel-settings-palette.conf`, `umbriel-titlebar.toml` (entries in `noctalia-config.toml`) |
 | `$XDG_DATA_HOME/applications/umbriel-settings.desktop`, `…/icons/hicolor/128x128/apps/umbriel-settings.png` | Desktop entry and icon |
@@ -208,12 +211,12 @@ icon is used if none exists or the file is invalid.
 
 | Item | Version |
 | --- | --- |
-| App (`python/umbriel_settings/__init__.py`) | `0.1.0-005` |
-| AppImage (latest release) | `0.1.0-005` |
-| Noctalia plugin (`plugin.toml`) | `0.1.5` |
+| App (`python/umbriel_settings/__init__.py`) | `0.1.0-006` |
+| AppImage (latest release) | `0.1.0-006` |
+| Noctalia plugin (`plugin.toml`) | `0.1.6` |
 
 The app version is `<Umbriel version>-<revision>`; each build raises the revision, which restarts at `001`
-when Umbriel's version changes. The plugin uses plain `MAJOR.MINOR.PATCH` (`0.1.0-005` → `0.1.5`).
+when Umbriel's version changes. The plugin uses plain `MAJOR.MINOR.PATCH` (`0.1.0-006` → `0.1.6`).
 
 ## Development
 
@@ -231,8 +234,9 @@ python tools/check.py all        # core, plugin (CPU budget, Lua/Luau parse), ap
 python tools/sync_plugin_core.py # after editing python/umbriel_core (the plugin bundles a copy)
 ```
 
-CI runs the same checks (except the schema check) on Python 3.11, 3.12 and 3.13. Dependency ranges and lint
-settings: `pyproject.toml`; AppImage pins: `python/requirements.txt`. Icons: [Tabler Icons](https://tabler.io/icons)
+CI runs the same checks on Python 3.11, 3.12 and 3.13, except the two that need Umbriel or Noctalia installed
+(schema coverage and the plugin lint; `check.py` reports those as skipped). Dependency ranges and lint
+settings: `pyproject.toml`; AppImage pins: `python/requirements.txt` (checksums: `appimage/requirements.lock`). Icons: [Tabler Icons](https://tabler.io/icons)
 (MIT, license in `host/web/fonts/`).
 
 ## License

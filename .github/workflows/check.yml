@@ -12,6 +12,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30  # a hung web view test must not run into the 6 hour limit
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +37,17 @@ jobs:
             libnss3 libasound2t64 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libxshmfence1 libxkbfile1
           sudo ln -sf /usr/bin/lua5.4 /usr/local/bin/lua
           sudo ln -sf /usr/bin/luac5.4 /usr/local/bin/luac
+
+      # Noctalia runs the shared UI as Luau; luau-compile catches syntax that only plain Lua accepts.
+      - name: Luau compiler (pinned release, checksum verified)
+        env:
+          LUAU_VERSION: "0.747"
+          LUAU_SHA256: 6a740240248e872815865a2cb03b0c327f24939478f1d0081a0540cdfd77fdaa
+        run: |
+          curl -fsSL -o /tmp/luau.zip "https://github.com/luau-lang/luau/releases/download/${LUAU_VERSION}/luau-ubuntu.zip"
+          echo "${LUAU_SHA256}  /tmp/luau.zip" | sha256sum -c -
+          sudo unzip -o /tmp/luau.zip luau-compile -d /usr/local/bin
+          sudo chmod +x /usr/local/bin/luau-compile
 
       - name: Python packages
         run: python -m pip install -r python/requirements.txt ruff

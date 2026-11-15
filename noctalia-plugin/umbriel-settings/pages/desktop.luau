@@ -219,7 +219,7 @@ local function pickerPage(ctx, route)
                onChange = function(text) view.appQuery = text; ctx.render() end }) }
   local function choose(id)
     if route.kind == "role" then apps.roles[route.target] = id else apps.mimes[route.target] = id end
-    view.appQuery = ""
+    view.appQuery, view.appManual = "", nil
     ctx.back()
   end
   local query = string.lower(noctalia.string.trim(view.appQuery or ""))
@@ -240,11 +240,15 @@ local function pickerPage(ctx, route)
   if shown == 0 then table.insert(content, kit.empty("No installed app matches.", "apps")) end
   table.insert(content, kit.section("Or enter a desktop file ID"))
   table.insert(content, ui.row({ key = "app-manual", gap = 6 }, {
-    ui.input({ key = "app-id", value = current ~= "<multiple>" and current or "", flexGrow = 1, controlSize = "sm",
-               placeholder = "e.g. org.gnome.Nautilus.desktop", onChange = function(text) view.appManual = text end,
+    ui.input({ key = "app-id-" .. route.kind .. "-" .. route.target, value = current ~= "<multiple>" and current or "",
+               flexGrow = 1, controlSize = "sm", placeholder = "e.g. org.gnome.Nautilus.desktop",
+               onChange = function(text) view.appManual = { target = route.target, text = text } end,
                onSubmit = function(text) choose(noctalia.string.trim(text)) end }),
     ui.button({ text = "Use", controlSize = "sm", variant = "outline",
-                onClick = function() choose(noctalia.string.trim(view.appManual or current or "")) end }),
+                onClick = function()
+                  local typed = view.appManual and view.appManual.target == route.target and view.appManual.text
+                  choose(noctalia.string.trim(typed or current or ""))
+                end }),
   }))
   return { header = header, content = content }
 end

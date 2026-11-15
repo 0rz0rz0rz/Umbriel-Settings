@@ -21,7 +21,7 @@ Thin host: implements the Noctalia API subset, runs `app.luau` with lupa (Lua 5.
 | `appicon.py` | `create_app_icon` (assets/icon.png → .jpg → .jpeg, embedded 128 px PNG fallback), `install_desktop_icon` (per-user `.desktop`, `$APPIMAGE` aware) |
 | `qt6ct_theme.py` | `Qt6ctThemeFollower`: Qt palette from the qt6ct KDE scheme (`kde.read_scheme`) |
 | `host/runtime.py` | `LuaHost` (`start call guard render invoke to_py/to_lua`), `BOOTSTRAP` (ui constructors, lexical `require`, private module env), `as_callback_arg`; sets `LC_NUMERIC=C` |
-| `host/api.py` | `NoctaliaApi.globals()`; `runAsync`: helper in-process (`_helper`, `run(argv)`; exceptions → `exitCode 1` + traceback, callback always runs), other commands as subprocesses with `launch.child_env()`; `json_encode` (empty table → `[]`); `ManualScheduler` (tests), `ThreadedScheduler`, `fuzzy_score` |
+| `host/api.py` | `NoctaliaApi.globals()`; `runAsync`: helper in-process (`_helper`, `run(argv)`; exceptions → `exitCode 1` + traceback, callback always runs), other commands as subprocesses with `launch.child_env()`; `json_encode` (empty table → `[]`); `ManualScheduler` (tests), `fuzzy_score`; `writeFile` is atomic |
 | `host/bridge.py` | `Bridge` (signals `renderTree themeCss glyphMap`; slots `ready invoke key`), `QtScheduler` (results on the GUI thread) |
 | `host/paths.py` | `shared_ui_dir()`: `$UMBRIEL_SETTINGS_UI_DIR` → bundled `ui_shared/` → checkout; `app_data_dir()` |
 | `host/theme.py`, `umbriel_core/noctalia_theme.py` | Roles: Noctalia palette template → qt6ct KDE scheme → Qt palette; `shell_style()` (`font_family`, `corner_radius_scale`); `css_variables`; files watched |
@@ -29,7 +29,7 @@ Thin host: implements the Noctalia API subset, runs `app.luau` with lupa (Lua 5.
 
 Rules:
 
-- Lua functions in props → `{"$callback": "cbN"}` (rebuilt each render); strings name entry globals. Callback args reach Lua as strings (`"true"`, `"2"`).
+- Lua functions in props → `{"$callback": "g<render>:cbN"}` (ids of the last 16 renders stay valid); strings name `on*` handlers the entry script defines. The Lua state has no `io`/`package`/`debug`/`require`/`load*`, like Luau. Callback args reach Lua as strings (`"true"`, `"2"`).
 - `NoctaliaApi` signatures = Noctalia's; a new API also goes into `noctalia-plugin/tests/harness.lua`.
 - Everything the app launches gets `child_env()` (restores host Python vars inside the AppImage).
 - Tests: `test_host_runtime.py` (lupa + real core + fake `umbriel`), `test_host_bridge.py`, `test_app_render.py` (real web view), `test_app_icon.py` → `check.py host`. Visuals: `render_app.py`.

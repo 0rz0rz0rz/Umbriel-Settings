@@ -176,6 +176,13 @@ class KdeSchemeTests(TempDirTestCase):
                                   ("colors", "title_bar", "background_unfocused"): (4, 5, 6)})
         self.assertEqual((backgrounds, errors), ({}, {}))
 
+    def test_repeated_keys_are_read_and_broken_files_are_value_errors(self):
+        scheme = self.write("twice.colors", text="[WM]\nactiveBackground=1,2,3\nactiveBackground=7,8,9\n")
+        colors, _, _ = kde.read_title_bar_rgb(scheme)
+        self.assertEqual(colors[("colors", "title_bar", "background")], (7, 8, 9))
+        with self.assertRaises(ValueError):
+            kde.read_title_bar_rgb(self.write("broken.colors", text="activeBackground=1,2,3\n"))
+
     def test_invalid_colors_are_reported_per_key(self):
         scheme = self.write("bad.colors", text="[WM]\nactiveBackground=999,0,0\nactiveForeground=1,2\n"
                                                "[Colors:Header]\nBackgroundNormal=1,2,3\n")
@@ -335,6 +342,18 @@ class TitlebarFollowTests(TempDirTestCase):
         titlebar_theme.follow(other, "background", "kde", 0xFF, self.backups)
         self.assertEqual(set(titlebar_theme.read_all()), {self.config, other}, "the old config keeps following")
 
+    def test_a_symlinked_output_is_refused_before_anything_is_written(self):
+        os.makedirs(os.path.dirname(titlebar_theme.output_file()), exist_ok=True)
+        os.symlink(self.config, titlebar_theme.output_file())
+        with open(self.noctalia, encoding="utf-8") as handle:
+            before = handle.read()
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            titlebar_theme.follow(self.config, "background", "kde", 255, self.backups)
+        with open(self.noctalia, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), before)
+        self.assertFalse(os.path.exists(titlebar_theme.template_file()))
+        self.assertFalse(os.path.exists(titlebar_theme.script_file()))
+
     def test_follow_rejects_bad_input(self):
         for args in (("title", "kde", 255), ("background", "gtk", 255), ("background", "kde", 256)):
             with self.assertRaises(ValueError):
@@ -398,10 +417,14 @@ class TitlebarApplyTests(TempDirTestCase):
     def test_main_applies_each_config_block_and_continues_after_a_failure(self):
         first = self.write("a", "config.toml", text="[colors.title_bar]\n")
         missing = os.path.join(self.root, "gone", "config.toml")
+        garbled = os.path.join(self.root, "garbled.toml")
+        with open(garbled, "wb") as handle:
+            handle.write(b"\xff\xfe not utf-8\n")
         second = self.write("b", "config.toml", text="")
         rendered = self.write("colors.toml", text=(
             f'# header\n# config: {first}\nbackground = "#112233CC"  # source=kde\n'
             f'# config: {missing}\nbackground = "#000000FF"  # source=kde\n'
+            f'# config: {garbled}\nbackground = "#000000FF"  # source=kde\n'
             f'# config: {second}\nbackground_unfocused = "#445566FF"  # source=kde\n'))
         with patch("sys.stderr"):
             self.assertEqual(titlebar_apply.main([rendered]), 1, "the missing config is reported")

@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 
 import tomlkit
 
@@ -24,7 +25,7 @@ from .layout import (
 )
 from .paths import config_gui_data_dir, labels_file, load_all_entry_labels, write_text_file
 from .schema import field_schema_option
-from .tomlops import MISSING, getp, py, totext
+from .tomlops import MISSING, getp, py, same_data, totext
 
 
 def page_field_index():
@@ -222,6 +223,8 @@ class ConfigSession:
         groups_payload = None
         if binds is not None:
             locks, new_keys, groups_payload = self._apply_keybinds(doc, binds, summary)
+            if any(group.strip() for group in groups_payload[0]) and getp(doc, ("keybinds",)) is MISSING:
+                doc["keybinds"] = tomlkit.table()  # the group comment needs a [keybinds] header to live under
 
         inline_window_rule_matches(doc)
         aot_labels = [
@@ -243,6 +246,16 @@ class ConfigSession:
             new_text = move_new_keybinds(new_text, new_keys)
         if groups_payload is not None:
             new_text = keybinds.write_keybind_groups(new_text, *groups_payload)
+            if any(group.strip() for group in groups_payload[0]) and keybinds.KEYBIND_GROUPS_MARKER not in new_text:
+                summary.append({"page": "Keybinds",
+                                "label": "Groups not stored (the file has no [keybinds] header to keep them under)"})
+        # The steps after tomlkit.dumps edit plain text; never hand back a file that lost or changed a setting.
+        try:
+            written = tomllib.loads(new_text)
+        except tomllib.TOMLDecodeError as error:
+            raise ValueError(f"The edited config would not be valid TOML ({error}). Nothing was written.") from error
+        if not same_data(written, doc.unwrap()):
+            raise ValueError("The edited config would not contain the same settings. Nothing was written.")
         return text, new_text, (labels_all if labels_changed else None), locks, summary
 
     def _apply_keybinds(self, doc, binds, summary):
@@ -250,6 +263,8 @@ class ConfigSession:
             raise ValueError("Invalid keybind changes.")
         original = keybinds.read_bindings(doc)
         table = getp(doc, ("keybinds",))
+        if table is not MISSING and not hasattr(table, "keys"):
+            raise ValueError("keybinds is not a table in the config; fix it in the file first.")
         unparsed = {str(k) for k in table.keys() if k not in original} if table is not MISSING else set()
         disk_locks = keybinds.load_locked(self.path, self.config_dir)
         rows, assignments = {}, {}
@@ -328,7 +343,7 @@ class ConfigSession:
             try:
                 result = subprocess.run(
                     [executable, "config", "validate", "-c", name, "--json"],
-                    capture_output=True, text=True, timeout=30, check=False,
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, check=False,
                 )
             except subprocess.TimeoutExpired:
                 return {"ran": True, "valid": False,

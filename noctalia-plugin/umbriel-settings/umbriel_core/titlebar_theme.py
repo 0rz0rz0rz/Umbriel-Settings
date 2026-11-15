@@ -9,7 +9,6 @@ the config itself is applied after it.
 
 import os
 import re
-import shutil
 import tomllib
 
 from . import noctalia_theme
@@ -50,11 +49,8 @@ def _install_script():
     target = script_file()
     if os.path.islink(target):
         raise ValueError(f"{target} is a symlink; remove it first.")
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    tmp = target + ".tmp"
-    shutil.copyfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "titlebar_apply.py"), tmp)
-    os.chmod(tmp, 0o644)
-    os.replace(tmp, target)
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "titlebar_apply.py"), "rb") as source:
+        atomic_write(target, source.read(), 0o644)
     return target
 
 
@@ -167,14 +163,14 @@ def follow(config_path, field, source, alpha, backup_dir):
         return status(config)
     text = template_text(everything)
     output = output_file()
+    if os.path.islink(output):  # checked before anything is written
+        raise ValueError(f"{output} is a symlink; edit its target directly.")
     script = _install_script()
     if any("'" in path for path in (output, script)):
         raise ValueError("Paths with ' cannot be used in Noctalia's post_hook.")
     entry = {"input_path": _noctalia_path(template_file()), "output_path": output,
              "post_hook": f"python3 '{script}' '{output}'"}
     noctalia_theme.write_user_template(TEMPLATE_KEY, template_file(), text, entry, backup_dir)
-    if os.path.islink(output):
-        raise ValueError(f"{output} is a symlink; edit its target directly.")
     roles, palette = noctalia_theme.load_roles()
     rendered = render(text, roles) if palette == "noctalia" else None
     if rendered is not None:  # the UI queues these colors for review; Noctalia refreshes the file later

@@ -22,5 +22,5 @@ The same Luau code runs in the Noctalia panel (`panel.luau`) and in the standalo
 - Syntax: Luau ∩ Lua 5.4/5.5 (no `continue`, `+=`, type annotations, backtick strings); `check.py plugin` parses with both `luac` and `luau-compile`. Avoid `cond and nil or x` (always `x`): use `if`/`else` or `(not cond) and x or nil`. Glyphs from Tabler (`tests/test_host_bridge.py` checks names).
 - Icon-only buttons need a `tooltip`: the app uses it as the accessible name (`tests/test_app_render.py` checks it).
 - Context-menu `onActivate` names an entry global; the app host has no context menus, so keep a visible button for every menu action.
-- Check features against the target Noctalia API level before using them; a new API also needs the app host (`host/api.py`) and the mock (`tests/harness.lua`).
-- Test with `test-noctalia-plugin` (extend `panel_test.lua` / `app_test.lua`, or `tests/test_host_runtime.py`), verify with `python tools/check.py plugin host`, and look at the app with `.claude/skills/edit-controls/render_app.py`. Neither proves live Noctalia rendering.
+- Check features against the target Noctalia API level before using them; a new API also needs the app host (`host/api.py`) and the mock (`noctalia-plugin/tests/harness.lua`).
+- Test with `test-noctalia-plugin` (extend `panel_test.lua` / `state_test.lua` / `app_test.lua`, or `tests/test_host_runtime.py`), verify with `python tools/check.py plugin host`, and look at the app with `.claude/skills/edit-controls/render_app.py`. Neither proves live Noctalia rendering.

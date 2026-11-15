@@ -67,6 +67,17 @@ class CoreIsolationTests(unittest.TestCase):
         self.assertTrue(match, app_version)
         self.assertEqual(plugin_version, f"{match[1]}.{match[2]}.{int(match[3])}")
 
+    def test_appimage_lock_matches_the_requirements(self):
+        """The build installs only hashed wheels from appimage/requirements.lock; a version bump needs new pins."""
+        import re
+        with open(os.path.join(PYTHON_DIR, "requirements.txt"), encoding="utf-8") as handle:
+            wanted = {line.split("#")[0].strip().lower().replace("_", "-") for line in handle} - {""}
+        with open(os.path.join(ROOT, "appimage", "requirements.lock"), encoding="utf-8") as handle:
+            text = handle.read()
+        locked = {name.lower().replace("_", "-") for name in re.findall(r"^(\S+==\S+) \\$", text, re.M)}
+        self.assertLessEqual(wanted, locked, "Run tools/update_appimage_pins.py.")
+        self.assertNotRegex(text, r"(?m)^\S+==\S+$", "every locked package has hashes")
+
 
 class CoreEntryTests(unittest.TestCase):
     def test_entry_names_prefer_custom_then_name_then_match(self):

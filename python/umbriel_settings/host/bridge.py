@@ -35,7 +35,12 @@ class Bridge(QObject):
 
     @Slot(str, str)
     def invoke(self, callback_json, args_json):
-        self.on_invoke(json.loads(callback_json), json.loads(args_json))
+        try:
+            callback, args = json.loads(callback_json), json.loads(args_json)
+        except ValueError:
+            return
+        if isinstance(args, list):
+            self.on_invoke(callback, args)
 
     @Slot(str)
     def key(self, chord):

@@ -5,7 +5,6 @@ import re
 import tomlkit
 
 MISSING = object()
-PINNED_OPTIONAL_INCLUDES = ("noctalia.toml", "titlebar.toml")
 ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 RESERVED_ENV = {
     "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "DISPLAY", "UMBRIEL_SOCKET", "LIBEI_SOCKET",
@@ -40,29 +39,38 @@ def getp(c, path):
     return cur
 
 
-def normalize_optional_includes(files):
-    """Keep Noctalia before titlebar while leaving other include slots unchanged."""
-    files = list(files)
-    pinned_indexes = [
-        index for index, name in enumerate(files)
-        if name in PINNED_OPTIONAL_INCLUDES
-    ]
-    pinned_files = sorted(
-        (files[index] for index in pinned_indexes),
-        key=PINNED_OPTIONAL_INCLUDES.index,
+def header_re(path, aot=False):
+    """Pattern for the `[path]` (or `[[path]]`) header line, however it is indented, spaced or quoted."""
+    parts = r"[ \t]*\.[ \t]*".join(
+        "(?:{0}|\"{0}\"|'{0}')".format(re.escape(part)) for part in path.split(".")
     )
-    for index, name in zip(pinned_indexes, pinned_files, strict=True):
-        files[index] = name
-    return files
+    left, right = (r"\[\[", r"\]\]") if aot else (r"\[", r"\]")
+    return re.compile(r"^[ \t]*" + left + r"[ \t]*" + parts + r"[ \t]*" + right + r"[ \t]*(?:#.*)?\r?\n?$")
+
+
+def same_data(a, b):
+    """Compare two parsed TOML values; unlike ==, NaN equals NaN and true is not 1."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same_data(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(map(same_data, a, b))
+    if isinstance(a, float) and isinstance(b, float) and a != a and b != b:
+        return True
+    return isinstance(a, bool) == isinstance(b, bool) and a == b
 
 
 def ensure_table(c, path):
-    """Make sure every table along `path` exists (creating empty ones) and return the innermost table."""
+    """Make sure every table along `path` exists (creating empty ones) and return the innermost table.
+
+    Raises ValueError when a key on the way holds something else (e.g. `layout = "x"`).
+    """
     cur = c
-    for k in path:
+    for depth, k in enumerate(path):
         if k not in cur:
             cur[k] = tomlkit.table()
         cur = cur[k]
+        if not isinstance(cur, dict):
+            raise ValueError(f"{'.'.join(path[:depth + 1])} is not a table in the config; fix it in the file first.")
     return cur
 
 

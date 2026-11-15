@@ -126,6 +126,7 @@ class AppStartupTests(unittest.TestCase):
         with (
             patch("PySide6.QtWidgets.QApplication") as app_class,
             patch("umbriel_settings.app_window.AppWindow") as window_class,
+            patch("umbriel_settings.app_window.quit_on_signals") as quit_on_signals,
             patch("umbriel_settings.appicon.create_app_icon"),
             patch("umbriel_settings.appicon.install_desktop_icon"),
             patch("umbriel_settings.qt6ct_theme.Qt6ctThemeFollower"),
@@ -138,6 +139,35 @@ class AppStartupTests(unittest.TestCase):
         window_class.assert_called_once_with({"appVersion": __version__, "initialConfig": "/tmp/example.toml",
                                               "validateDefault": False})
         qt_app.exec.assert_called_once_with()
+        quit_on_signals.assert_called_once_with(qt_app, window_class.return_value)
+
+    def test_a_ui_that_fails_to_start_shows_a_dialog(self):
+        with (
+            patch("PySide6.QtWidgets.QApplication") as app_class,
+            patch("PySide6.QtWidgets.QMessageBox") as message_box,
+            patch("umbriel_settings.app_window.AppWindow", side_effect=RuntimeError("app.luau:3: syntax error")),
+            patch("umbriel_settings.appicon.create_app_icon"),
+            patch("umbriel_settings.appicon.install_desktop_icon"),
+            patch("umbriel_settings.qt6ct_theme.Qt6ctThemeFollower"),
+            patch("sys.stderr"),
+        ):
+            self.assertEqual(app.main([]), 1)
+        self.assertIn("syntax error", message_box.critical.call_args.args[2])
+        app_class.return_value.exec.assert_not_called()
+
+    def test_an_unchanged_desktop_entry_is_not_rewritten(self):
+        from PySide6.QtGui import QIcon, QPixmap
+        from PySide6.QtWidgets import QApplication
+        self.qt_app = QApplication.instance() or QApplication([])
+        pixmap = QPixmap(8, 8)
+        pixmap.fill()
+        with tempfile.TemporaryDirectory() as data_home, patch.object(appicon.sys, "platform", "linux"), \
+                patch.dict(os.environ, {"XDG_DATA_HOME": data_home}):
+            os.environ.pop("APPIMAGE", None)
+            appicon.install_desktop_icon(QIcon(pixmap))
+            with patch.object(appicon, "write_text_file") as write:
+                appicon.install_desktop_icon(QIcon(pixmap))
+            write.assert_not_called()
 
     def test_legacy_flag_is_gone(self):
         with self.assertRaises(SystemExit), patch("sys.stderr"):

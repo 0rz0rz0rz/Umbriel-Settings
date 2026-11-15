@@ -199,9 +199,13 @@ def update_text(text, updates):
     return "".join(output)
 
 
-def save(path, backup_dir, expected_revision, changes):
+def save(path, backup_dir, expected_revision, changes, apps=()):
+    """Write the changes; the returned snapshot lists `apps` (the caller's list), not a fresh scan.
+
+    Scanning every .desktop file again here only to repeat the list the UI already has made saves slow.
+    """
     updates = validate_changes(changes)
-    apps = installed_apps()
+    apps = list(apps)
     if path.is_symlink():
         raise ValueError("Default applications file is a symlink; edit its target directly.")
     text, revision = read_document(path)

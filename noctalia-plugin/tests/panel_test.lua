@@ -264,9 +264,19 @@ assert(iconCalls == 1, "slow icon lookups in one callback: " .. iconCalls)
 noctalia.nowMs = nil
 noctalia.appIconPath = appIconPath
 find("input", function(n) return n.props.key == "app-search" end).props.onChange("")
-find("input", function(n) return n.props.key == "app-id" end).props.onChange("firefox.desktop")
+find("input", function(n) return n.props.key == "app-id-role-Web browser" end).props.onChange("firefox.desktop")
 clickText("Use")
 assert(store.desktop.apps.roles["Web browser"] == "firefox.desktop")
+-- an ID typed for one target is not offered to the next one
+find("row", function(n) return n.props.key == "role-Web browser" end).props.onClick()
+find("input", function(n) return n.props.key == "app-id-role-Web browser" end).props.onChange("typed.desktop")
+find("button", function(n) return n.props.tooltip == "Back" or n.props.key == "back" end, "back button").props.onClick()
+local otherRole
+for role in pairs(store.desktop.apps.roles) do if role ~= "Web browser" then otherRole = role end end
+local before = store.desktop.apps.roles[otherRole]
+find("row", function(n) return n.props.key == "role-" .. otherRole end).props.onClick()
+clickText("Use")
+assert(store.desktop.apps.roles[otherRole] == before, otherRole .. " got the ID typed for the web browser")
 
 -- backups list and comparison, and about
 replies.backups = function() return true, json.encode({ backups = {

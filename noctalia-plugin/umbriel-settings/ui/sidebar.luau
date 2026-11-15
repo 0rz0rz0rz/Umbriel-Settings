@@ -42,7 +42,7 @@ function M.render(ctx)
       for _, name in ipairs(section.pages) do
         local page = store.meta.pages[name]
         if page then
-          local changed = store.state and (home.pageCounts(store, name)) or 0
+          local changed = store.state and home.pageChanges(store, name) or 0
           local badge = changed > 0 and kit.badge(tostring(changed), "primary", "navb-" .. name) or nil
           table.insert(items, navItem(ctx, "nav-" .. name, page.glyph, name, active == name, badge, function()
             ctx.openPage(name)

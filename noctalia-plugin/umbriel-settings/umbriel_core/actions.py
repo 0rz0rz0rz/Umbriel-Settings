@@ -1,6 +1,4 @@
-"""Umbriel keybind action catalog and migration helpers."""
-
-import re
+"""Umbriel keybind action catalog."""
 
 ACTION_DOCS = """
 [Apps]
@@ -297,65 +295,3 @@ for _, items in ACTION_CATEGORIES:
 REQUIRED_ARG_ACTIONS = {h for h in ACTION_INFO if h not in _BARE_OK}
 
 
-def reduce_template(text):
-    """Turn a picked template into editable text: drop optional args, keep 'name ' for required ones.
-
-    'window-close [<window-id>]' -> 'window-close'; 'workspace-switch <workspace> [--output <output>]'
-    -> 'workspace-switch '; complete actions such as 'window-set-region left' are left unchanged.
-    """
-    head, _, rest = text.partition(" ")
-    if not rest:
-        return text
-    if rest.lstrip().startswith("["):
-        return head
-    if rest.lstrip().startswith("<"):
-        return head + " "
-    return text
-
-
-# Old (colon) syntax -> new (space) syntax, so configs written for earlier Umbriel versions still load.
-_LEGACY_ARGS = {          # head -> (number of positional args, flag for the trailing /part)
-    "workspace-switch": (1, "--output"),
-    "column-move-to-workspace": (1, "--output"),
-    "window-move-to-workspace": (1, "--output"),
-    "window-move-to-workspace-silent": (1, "--output"),
-    "output-sdr-white": (1, "--output"),
-    "window-move-by": (2, "--window"),
-    "window-move-to": (3, "--window"),
-}
-
-
-def migrate_action(action):
-    """Convert an action written in the old `name:arg/arg` syntax to the current `name arg --flag arg` form.
-
-    Actions already in the new syntax (and anything unrecognised) are returned unchanged.
-    """
-    a = action.strip()
-    if a == "window-unsnap":
-        return "window-clear-region"
-    m = re.match(r"^([a-z][a-z0-9-]*):(.*)$", a, re.S)
-    if not m:
-        return action
-    head, arg = m.groups()
-    if head == "spawn":
-        return f"spawn {arg}"
-    if head == "window-snap":
-        return f"window-set-region {arg}"
-    if head == "workspace-set-layout":
-        arg = arg.replace("floating", "stacking")
-        if arg.startswith("toggle:"):
-            return "workspace-set-layout toggle " + arg[len("toggle:"):].replace(",", " ")
-        return f"workspace-set-layout {arg}"
-    if not arg:
-        return head
-    spec = _LEGACY_ARGS.get(head)
-    if spec is None and head.startswith("effect-") and head.endswith(("-cycle", "-set")):
-        spec = (1, "--output" if "-screen-" in head else "--window")
-    if spec is None:
-        return f"{head} {arg}"
-    count, flag = spec
-    parts = arg.split("/", count)
-    out = [head] + [p for p in parts[:count] if p]
-    if len(parts) > count and parts[count]:
-        out += [flag, parts[count]]
-    return " ".join(out)

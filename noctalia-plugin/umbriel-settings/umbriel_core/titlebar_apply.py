@@ -95,6 +95,8 @@ def write(path, text):
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="") as out:
             out.write(text)
+            out.flush()
+            os.fsync(out.fileno())
         os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
@@ -111,7 +113,7 @@ def apply_file(config, values):
     try:
         with open(config, encoding="utf-8", newline="") as handle:
             text = handle.read()
-    except OSError as error:
+    except (OSError, UnicodeError) as error:
         print(f"{config}: not changed ({error}).", file=sys.stderr)
         return 1
     updated = apply(text, values)

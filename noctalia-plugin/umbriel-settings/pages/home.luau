@@ -30,6 +30,28 @@ function M.pageCounts(store, name)
   return changed, customized
 end
 
+-- Only the unsaved changes of a page: the app's sidebar shows them on every render, so this skips the
+-- per-field default comparison pageCounts needs for "customized".
+function M.pageChanges(store, name)
+  local page = store.meta.pages[name]
+  local changed = 0
+  if page.kind == "form" then
+    if next(store.fieldChanges) == nil then return 0 end
+    for _, group in ipairs(page.groups) do
+      for _, fid in ipairs(group.fields) do
+        if store.fieldChanges[fid] then changed = changed + 1 end
+      end
+    end
+  elseif page.kind == "entries" then
+    for _, eid in ipairs(page.editors) do changed = changed + store.entryOpCount(eid) end
+  elseif page.kind == "map" then
+    for _, eid in ipairs(page.maps) do changed = changed + store.mapOpCount(eid) end
+  elseif page.kind == "keybinds" then
+    changed = store.keybindsDirty and 1 or 0
+  end
+  return changed
+end
+
 local function countLabel(kind, count)
   if kind == "form" then return kit.plural(count, "customized setting") end
   if kind == "keybinds" then return kit.plural(count, "shortcut") end

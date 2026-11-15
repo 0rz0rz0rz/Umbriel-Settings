@@ -53,10 +53,13 @@ def read_scheme(path):
 
 def read_title_bar_rgb(path):
     """Return (title colors, header backgrounds, errors); colors are (r, g, b) tuples keyed by field path."""
-    parser = configparser.RawConfigParser(interpolation=None)
+    parser = configparser.RawConfigParser(interpolation=None, strict=False)
     parser.optionxform = str
-    with open(path, encoding="utf-8") as handle:
-        parser.read_file(handle)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            parser.read_file(handle)
+    except configparser.Error as error:
+        raise ValueError(f"{path} is not a readable color scheme: {error}") from error
 
     def read_color(section, key):
         if not parser.has_option(section, key):

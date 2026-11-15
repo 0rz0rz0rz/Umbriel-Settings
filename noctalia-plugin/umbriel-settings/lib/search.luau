@@ -67,17 +67,21 @@ function M.run(store, query)
 end
 
 -- Where a field lives: page and group for settings, editor for rule fields.
+local places = { meta = nil, fields = {} }  -- field id -> { page, group }, built once per meta
 function M.locate(meta, fid)
   local eid = string.match(fid, "^([%w_]+):")
   if eid then return { editor = eid, page = meta.editors[eid].page } end
-  for page, info in pairs(meta.pages) do
-    for _, group in ipairs(info.groups or {}) do
-      for _, id in ipairs(group.fields) do
-        if id == fid then return { page = page, group = group.title } end
+  if places.meta ~= meta then
+    places = { meta = meta, fields = {} }
+    for page, info in pairs(meta.pages) do
+      for _, group in ipairs(info.groups or {}) do
+        for _, id in ipairs(group.fields) do
+          places.fields[id] = places.fields[id] or { page = page, group = group.title }
+        end
       end
     end
   end
-  return nil
+  return places.fields[fid]
 end
 
 return M

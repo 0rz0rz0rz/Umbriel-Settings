@@ -5,17 +5,18 @@ in-process on a worker thread instead of as a subprocess; other commands run as 
 """
 
 import collections
-import concurrent.futures
 import importlib.util
 import json
 import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import traceback
 
 from umbriel_core.launch import child_env
+from umbriel_core.paths import atomic_write
 
 
 class ManualScheduler:
@@ -37,18 +38,6 @@ class ManualScheduler:
             self.queue.popleft()()
             count += 1
         return count
-
-
-class ThreadedScheduler(ManualScheduler):
-    """Background work on a thread pool; results are posted back to the queue (used by QtScheduler)."""
-
-    def __init__(self):
-        super().__init__()
-        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-
-    def background(self, work, done):
-        future = self.pool.submit(work)
-        future.add_done_callback(lambda f: self.post(lambda: done(f.result())))
 
 
 def fuzzy_score(pattern, text):
@@ -82,6 +71,7 @@ class NoctaliaApi:
         self.on_close = on_close or (lambda: None)
         self.on_frame_tick = on_frame_tick or (lambda wanted: None)
         self._helpers = {}
+        self._helper_lock = threading.Lock()
 
     # ------------------------------------------------------------------ globals
     def globals(self):
@@ -127,11 +117,8 @@ class NoctaliaApi:
     def writeFile(self, path, content):
         path = os.path.expanduser(path)
         try:
-            existed = os.path.exists(path)
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write(content)
-            if not existed:
-                os.chmod(path, 0o600)
+            # Atomic (a crash never leaves half a draft) and private from the first byte.
+            atomic_write(path, content, None if os.path.exists(path) else 0o600)
             return True
         except OSError as error:
             return False, str(error)
@@ -196,18 +183,19 @@ class NoctaliaApi:
     def _helper(self, path):
         """Import umbriel_settings.py once and reuse it (its commands then run in this process)."""
         path = os.path.abspath(path)
-        if path not in self._helpers:
-            spec = importlib.util.spec_from_file_location("umbriel_settings_app_helper", path)
-            module = importlib.util.module_from_spec(spec)
-            # The helper puts its folder first on sys.path; that folder holds umbriel_settings.py, which would
-            # shadow this package (also umbriel_settings) for later imports, so the path is restored.
-            saved_path = list(sys.path)
-            try:
-                spec.loader.exec_module(module)
-            finally:
-                sys.path[:] = saved_path
-            self._helpers[path] = module
-        return self._helpers[path]
+        with self._helper_lock:  # the first calls arrive together on worker threads; import once, undisturbed
+            if path not in self._helpers:
+                spec = importlib.util.spec_from_file_location("umbriel_settings_app_helper", path)
+                module = importlib.util.module_from_spec(spec)
+                # The helper puts its folder first on sys.path; that folder holds umbriel_settings.py, which would
+                # shadow this package (also umbriel_settings) for later imports, so the path is restored.
+                saved_path = list(sys.path)
+                try:
+                    spec.loader.exec_module(module)
+                finally:
+                    sys.path[:] = saved_path
+                self._helpers[path] = module
+            return self._helpers[path]
 
     def runAsync(self, argv, callback=None, timeout=None):
         args = [str(argv[i]) for i in range(1, len(argv) + 1)] if self.host.is_table(argv) else [str(argv)]
@@ -230,7 +218,7 @@ class NoctaliaApi:
                         "timedOut": False}
             except subprocess.TimeoutExpired:
                 return {"exitCode": -1, "stdout": "", "stderr": "", "timedOut": True}
-            except OSError as error:
+            except (OSError, ValueError) as error:  # ValueError: an argument with a NUL byte
                 return {"exitCode": 127, "stdout": "", "stderr": str(error), "timedOut": False}
 
         def done(result):

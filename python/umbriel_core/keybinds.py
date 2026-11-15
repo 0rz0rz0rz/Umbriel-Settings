@@ -8,7 +8,7 @@ import tomlkit
 
 from .actions import ACTION_INFO, REQUIRED_ARG_ACTIONS
 from .paths import migrate_gui_file, write_text_file
-from .tomlops import MISSING, ensure_table, getp
+from .tomlops import MISSING, ensure_table, getp, header_re
 
 # Known per-bind options with their own controls (anything else is preserved untouched).
 BIND_BOOL_OPTIONS = [("repeat", "Repeat"), ("allow_when_locked", "When locked"),
@@ -27,9 +27,10 @@ def load_locked(config_path, config_dir):
     migrate_gui_file(os.path.join(os.path.dirname(config_path), LOCK_FILE_NAME), lock_file(config_dir))
     try:
         with open(lock_file(config_dir), encoding="utf-8") as f:
-            return set(json.load(f))
-    except (OSError, ValueError, TypeError):
+            keys = json.load(f)
+    except (OSError, ValueError):
         return set()
+    return {key for key in keys if isinstance(key, str)} if isinstance(keys, list) else set()
 
 
 def save_locked(keys, config_dir):
@@ -69,7 +70,10 @@ def parse_keybind_groups(text):
 
 
 def write_keybind_groups(text, groups, assignments):
-    """Persist keybind group labels in an ignored TOML comment inside [keybinds]."""
+    """Persist keybind group labels in an ignored TOML comment inside [keybinds].
+
+    The comment is left out when keybinds exist without a [keybinds] header to put it under.
+    """
     newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines(keepends=True)
     lines = [
@@ -84,12 +88,15 @@ def write_keybind_groups(text, groups, assignments):
     if not groups and not assignments:
         return "".join(lines)
 
-    section_header = re.compile(r"^\[keybinds\][ \t]*(?:#.*)?\r?\n?$")
+    section_header = header_re("keybinds")
     start = next(
         (index for index, line in enumerate(lines) if section_header.match(line)),
         None,
     )
     if start is None:
+        if "keybinds" in tomlkit.parse(text):
+            # Written as dotted keys or an inline table: a [keybinds] header would declare it twice.
+            return "".join(lines)
         if lines and not lines[-1].endswith(("\n", "\r")):
             lines[-1] += newline
         lines.append("[keybinds]" + newline)

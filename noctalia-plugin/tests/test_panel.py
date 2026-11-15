@@ -31,6 +31,7 @@ class PanelHarnessTests(unittest.TestCase):
         self.config.write_text(CONFIG)
         self.env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
                     "XDG_DATA_HOME": str(self.root / "data"), "XDG_CONFIG_HOME": str(self.root / "xdg"),
+                    "XDG_DATA_DIRS": str(self.root / "share"),  # not the machine's installed apps
                     "PYTHONDONTWRITEBYTECODE": "1"}
 
     def helper(self, command, request):
@@ -59,8 +60,8 @@ class PanelHarnessTests(unittest.TestCase):
         (fixtures / "saved.json").write_text(json.dumps(saved or state))
         return fixtures
 
-    def run_lua(self, script, fixtures, marker):
-        result = subprocess.run(["lua", str(ROOT / "tests" / script), str(PLUGIN), str(fixtures)],
+    def run_lua(self, script, fixtures, marker, *extra):
+        result = subprocess.run(["lua", str(ROOT / "tests" / script), str(PLUGIN), str(fixtures), *extra],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(marker, result.stdout)
@@ -68,7 +69,8 @@ class PanelHarnessTests(unittest.TestCase):
 
     def test_panel_and_app_flows(self):
         fixtures = self.fixtures(CONFIG)
-        for script, marker in (("panel_test.lua", "panel ok"), ("app_test.lua", "app ok")):
+        for script, marker in (("panel_test.lua", "panel ok"), ("state_test.lua", "state ok"),
+                               ("app_test.lua", "app ok")):
             with self.subTest(script=script):
                 self.run_lua(script, fixtures, marker)
 
@@ -81,8 +83,11 @@ class PanelHarnessTests(unittest.TestCase):
                         for i in range(300))
         text += "".join(f'\n[[workspace]]\nindex = {i + 1}\n' for i in range(60))
         text += "".join(f'\n[output.BUDGET-{i}]\nscale = 1.0\n' for i in range(50))
-        output = self.run_lua("budget_test.lua", self.fixtures(text, saved=False), "budget ok")
-        self.assertRegex(output, r"budget: \d+ callbacks, slowest")
+        fixtures = self.fixtures(text, saved=False)
+        for layout in ("panel", "app"):  # the app also redraws its sidebar with every callback
+            with self.subTest(layout=layout):
+                output = self.run_lua("budget_test.lua", fixtures, "budget ok", layout)
+                self.assertRegex(output, rf"budget {layout}: \d+ callbacks, slowest")
 
     def test_bar_shows_unsaved_count_and_toggles_panel(self):
         manifest = (PLUGIN / "plugin.toml").read_text()

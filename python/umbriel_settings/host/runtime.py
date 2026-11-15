@@ -1,6 +1,8 @@
 """Lua 5.4 runtime (lupa) that runs the shared Luau UI like Noctalia does."""
 
+import collections
 import locale
+import re
 import sys
 import traceback
 
@@ -11,10 +13,21 @@ UI_KINDS = (
     "spacer", "progress", "button", "toggle", "slider", "colorPicker", "select", "input",
 )
 
+# How many renders a callback id stays valid: a click can be on its way while newer trees are rendered.
+CALLBACK_GENERATIONS = 16
+ENTRY_HANDLER = re.compile(r"on[A-Z][A-Za-z]*")
+
+
+def _no_python_attributes(obj, name, setting):
+    """The UI only calls the API functions it is given; it never reaches into Python objects."""
+    raise AttributeError("Python attributes are not available to the UI")
+
+
 # Noctalia rules: require("./x.luau") is relative to the requiring file, each module gets a private
 # global table (reads fall through to the shared globals) and is loaded once per entry.
 BOOTSTRAP = r"""
 local kinds = ...
+local loadChunk = loadfile  -- kept for require; the global is removed below
 ui = {}
 for _, kind in ipairs(kinds) do
   ui[kind] = function(props, children)
@@ -38,7 +51,7 @@ local function makeRequire(dir)
     if loaded[full] == nil then
       local env = setmetatable({}, { __index = _G })
       env.require = makeRequire(full:match("^(.*)/[^/]+$"))
-      local chunk = assert(loadfile(full, "t", env))
+      local chunk = assert(loadChunk(full, "t", env))
       local value = chunk()
       if value == nil then error("module " .. full .. " returned nil", 2) end
       loaded[full] = value
@@ -47,11 +60,15 @@ local function makeRequire(dir)
   end
 end
 
+-- Like Noctalia's Luau: no file, process or code-loading libraries for the UI (Luau keeps os.clock/date/time).
+python, io, package, debug, require, dofile, load, loadfile, loadstring = nil
+for _, name in ipairs({ "execute", "exit", "remove", "rename", "tmpname", "getenv", "setlocale" }) do os[name] = nil end
+
 return function(path, dir, app)
   local env = setmetatable({}, { __index = _G })
   env.require = makeRequire(dir)
   env.APP = app
-  assert(loadfile(path, "t", env))()
+  assert(loadChunk(path, "t", env))()
   return env
 end
 """
@@ -65,11 +82,15 @@ class LuaHost:
         # the user's locale (e.g. "0,75"), which would break string.format and tonumber in the shared UI.
         locale.setlocale(locale.LC_NUMERIC, "C")
         self.ui_dir = ui_dir
-        self.lua = lua54.LuaRuntime(unpack_returned_tuples=True)
+        self.lua = lua54.LuaRuntime(unpack_returned_tuples=True, register_eval=False, register_builtins=False,
+                                    attribute_filter=_no_python_attributes)
+        self._rawget = self.lua.globals().rawget
         self.on_render = on_render or (lambda tree: None)
         self.on_error = on_error or self._print_error
         self.entry = None
-        self.callbacks = {}
+        self.callbacks = {}  # of the last render
+        self._generation = 0
+        self._recent_callbacks = collections.OrderedDict()  # render generation -> its callbacks
         self.tree = None
         self.errors = []
         self._load_entry = self.lua.execute(BOOTSTRAP, self.to_lua(list(UI_KINDS)))
@@ -114,9 +135,16 @@ class LuaHost:
         self.entry = self._load_entry(f"{self.ui_dir}/{entry_name}", self.ui_dir, self.to_lua(app_options or {}))
         return self.entry
 
+    def entry_handler(self, name):
+        """A handler the entry script itself defines (onOpen, onKey, ...); never a Lua builtin or other global."""
+        if self.entry is None or not isinstance(name, str) or not ENTRY_HANDLER.fullmatch(name):
+            return None
+        function = self._rawget(self.entry, name)
+        return function if lua54.lua_type(function) == "function" else None
+
     def call(self, name, *args):
         """Call a global function of the entry script (onOpen, onKey, ...); errors are reported, not raised."""
-        function = self.entry[name] if self.entry is not None else None
+        function = self.entry_handler(name)
         if function is None:
             return None
         return self.guard(function, *args)
@@ -137,7 +165,11 @@ class LuaHost:
     # ------------------------------------------------------------------ rendering
     def render(self, tree):
         """panel.render(tree): convert to plain data; Lua functions become callback ids."""
+        self._generation += 1
         self.callbacks = {}
+        self._recent_callbacks[self._generation] = self.callbacks
+        while len(self._recent_callbacks) > CALLBACK_GENERATIONS:
+            self._recent_callbacks.popitem(last=False)
         self.tree = self._convert_node(tree)
         self.on_render(self.tree)
 
@@ -161,19 +193,28 @@ class LuaHost:
     def _convert_prop(self, value):
         kind = lua54.lua_type(value)
         if kind == "function":
-            callback_id = f"cb{len(self.callbacks) + 1}"
+            # The generation keeps an id from an older tree from naming another node's callback in this one.
+            callback_id = f"g{self._generation}:cb{len(self.callbacks) + 1}"
             self.callbacks[callback_id] = value
             return {"$callback": callback_id}
         if kind == "table":
             return self.to_py(value)
         return value
 
+    def _callback(self, callback_id):
+        """The function behind an id of this or a recent render: the one the user saw when they clicked."""
+        generation = str(callback_id).partition(":")[0]
+        try:
+            return self._recent_callbacks[int(generation[1:])].get(callback_id)
+        except (KeyError, ValueError):
+            return None
+
     def invoke(self, callback, *args):
-        """Run a callback from the renderer: {"$callback": id} or the name of an entry global."""
+        """Run a callback from the renderer: {"$callback": id} or the name of an entry handler."""
         if isinstance(callback, dict) and "$callback" in callback:
-            function = self.callbacks.get(callback["$callback"])
+            function = self._callback(callback["$callback"])
         elif isinstance(callback, str):
-            function = self.entry[callback] if self.entry is not None else None
+            function = self.entry_handler(callback)
         else:
             function = None
         if function is None:

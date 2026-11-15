@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+import traceback
 
 from . import APP_NAME, __version__
 
@@ -57,6 +58,7 @@ def main(argv=None):
         return check_schema()
     from PySide6.QtWidgets import QApplication, QMessageBox
 
+    from . import app_window
     from .app_window import AppWindow
     from .appicon import create_app_icon, install_desktop_icon
     from .qt6ct_theme import Qt6ctThemeFollower
@@ -77,9 +79,11 @@ def main(argv=None):
                             f"The window icon is set, but the desktop entry could not be installed:\n{error}")
     try:
         app.win = AppWindow(app_options(args))
-    except (FileNotFoundError, ImportError) as error:
+    except Exception as error:  # missing files or modules, a Lua error in the UI, unreadable bundled data
+        traceback.print_exc()
         QMessageBox.critical(None, "Cannot start Umbriel Settings", str(error))
         return 1
+    app_window.quit_on_signals(app, app.win)
     if app.win.restore_maximized:
         app.win.showMaximized()
     else:

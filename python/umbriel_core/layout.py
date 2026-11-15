@@ -4,6 +4,8 @@ import re
 
 import tomlkit
 
+from .tomlops import header_re
+
 
 def add_entry_name_comments(text, editors):
     """Render custom array-entry names as comments immediately above their TOML headers."""
@@ -13,10 +15,7 @@ def add_entry_name_comments(text, editors):
         for editor in editors
         if getattr(editor, "mode", None) == "aot"
     }
-    headers = {
-        path: re.compile(r"^\[\[" + re.escape(path) + r"\]\]\s*(?:#.*)?\r?\n?$")
-        for path in sections
-    }
+    headers = {path: header_re(path, aot=True) for path in sections}
     indexes = {path: 0 for path in sections}
     output = []
     for line in text.splitlines(keepends=True):
@@ -39,11 +38,14 @@ def add_entry_name_comments(text, editors):
 
 def inline_window_rule_matches(doc):
     """Keep each window rule's match fields inside its [[window_rule]] block."""
-    for rule in doc.get("window_rule", []):
-        if "match" not in rule:
+    rules = doc.get("window_rule", [])
+    if not isinstance(rules, list):  # hand-written as a single table; Umbriel's validation reports it
+        return
+    for rule in rules:
+        if not isinstance(rule, dict) or "match" not in rule:
             continue
         match = rule["match"]
-        if isinstance(match, tomlkit.items.InlineTable):
+        if not isinstance(match, dict) or isinstance(match, tomlkit.items.InlineTable):
             continue
         try:
             if any(k is not None and k.key == "match" and k.is_dotted() for k, _ in rule.value.body):
@@ -61,7 +63,7 @@ def move_new_keybinds(text, new_keys):
     if not new_keys:
         return text
     lines = text.splitlines(keepends=True)
-    keybind_header = re.compile(r"^\[keybinds\][ \t]*(?:#.*)?\r?\n?$")
+    keybind_header = header_re("keybinds")
     table_header = re.compile(r"^\s*\[\[?.+\]\]?[ \t]*(?:#.*)?\r?\n?$")
     start = next((i for i, line in enumerate(lines) if keybind_header.match(line)), None)
     if start is None:
@@ -121,7 +123,6 @@ CONFIG_LAYOUT = [
 ]
 BANNER_RE = re.compile(r"^\s*#\s*-{5,}")
 BANNER_WIDTH = 77
-GUI_NAME_MARKER = "# GUI rule name: "
 
 
 def banner_line(label, newline):

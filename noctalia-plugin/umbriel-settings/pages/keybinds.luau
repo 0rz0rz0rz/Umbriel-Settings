@@ -35,18 +35,22 @@ local function reduceTemplate(text)
   return text
 end
 
+-- Action templates by full text and by first word, built once per meta: the list describes every row
+-- on every render, and scanning all actions per row is the costliest loop on a large config.
+local actionIndex = { meta = nil, exact = {}, head = {} }
 local function describe(meta, action)
-  local head = string.match(action or "", "^(%S+)") or ""
-  for _, category in ipairs(meta.actions.categories) do
-    for _, item in ipairs(category[2]) do
-      if item[1] == action then return item[2], item[1] end
+  if actionIndex.meta ~= meta then
+    actionIndex = { meta = meta, exact = {}, head = {} }
+    for _, category in ipairs(meta.actions.categories) do
+      for _, item in ipairs(category[2]) do
+        local head = string.match(item[1], "^(%S+)")
+        if actionIndex.exact[item[1]] == nil then actionIndex.exact[item[1]] = item end
+        if head and actionIndex.head[head] == nil then actionIndex.head[head] = item end
+      end
     end
   end
-  for _, category in ipairs(meta.actions.categories) do
-    for _, item in ipairs(category[2]) do
-      if string.match(item[1], "^(%S+)") == head then return item[2], item[1] end
-    end
-  end
+  local item = actionIndex.exact[action or ""] or actionIndex.head[string.match(action or "", "^(%S+)") or ""]
+  if item then return item[2], item[1] end
   return nil, nil
 end
 
@@ -266,7 +270,7 @@ local function detailPage(ctx, route)
   table.insert(optionRows, ui.row({ key = "opt-group", gap = 8, align = "center" }, {
     ui.label({ text = "Group", fontSize = 13, flexGrow = 1 }),
     ui.select({ options = groupOptions, selectedIndex = selected, width = 160, controlSize = "sm",
-                onChange = function(i)
+                enabled = not locked, onChange = function(i)
                   i = tonumber(i) or 0
                   row.group = i == 0 and "" or store.keybinds.groups[i]
                   edit(); ctx.render()
@@ -299,6 +303,8 @@ local function detailPage(ctx, route)
         local copy = store.deepCopy(row)
         copy.key, copy.locked = "", false
         view.kbNew = copy
+        view.gen.kbkey = (view.gen.kbkey or 0) + 1  -- the inputs keep their keys: show the copy's (empty) shortcut
+        view.gen.kbaction = (view.gen.kbaction or 0) + 1
         ctx.replace({ name = "keybind", index = nil })
       end }),
       ui.spacer({ flexGrow = 1 }),

@@ -30,7 +30,7 @@ function M.number(value)
   if type(value) ~= "number" then return tostring(value) end
   local text
   if value == math.floor(value) and math.abs(value) < 1e15 then text = string.format("%d", math.floor(value))
-  else text = string.format("%g", value) end
+  else text = string.format("%.15g", value) end
   if M.decimalPoint() ~= "." then text = (string.gsub(text, "%.", M.decimalPoint())) end
   return text
 end
@@ -122,7 +122,7 @@ local function numberControl(ctx, spec, effective)
     key = key .. ":num:" .. gen(view, key), value = effective ~= nil and M.format(field, effective) or "",
     width = hasRange and 84 or nil, flexGrow = (not hasRange) and 1 or nil, controlSize = "sm",
     placeholder = (effective == nil and field.initial ~= nil) and ("e.g. " .. M.format(field, field.initial))
-      or field.min ~= nil and (M.number(field.min) .. " – " .. M.number(field.max)) or "number",
+      or (field.min ~= nil and field.max ~= nil) and (M.number(field.min) .. " – " .. M.number(field.max)) or "number",
     onChange = function(text)
       local number = parseNumber(text, integer)
       if number ~= nil and clamp(field, number) ~= nil then
@@ -131,8 +131,12 @@ local function numberControl(ctx, spec, effective)
       elseif noctalia.string.trim(text) == "" then
         view.invalid[key] = nil  -- an empty box is still being typed into, not an error
       else
-        view.invalid[key] = (integer and "Enter a whole number" or "Enter a number")
-          .. (field.min ~= nil and (" between " .. M.number(field.min) .. " and " .. M.number(field.max)) or "")
+        local range = ""
+        if field.min ~= nil and field.max ~= nil then
+          range = " between " .. M.number(field.min) .. " and " .. M.number(field.max)
+        elseif field.min ~= nil then range = " of at least " .. M.number(field.min)
+        elseif field.max ~= nil then range = " of at most " .. M.number(field.max) end
+        view.invalid[key] = (integer and "Enter a whole number" or "Enter a number") .. range
       end
       ctx.render()
     end,
@@ -194,15 +198,20 @@ local function choiceControl(ctx, spec, effective)
   local index = indexOf(choices, effective)
   local custom = field.kind == "combo" and (view.custom[key] or (effective ~= nil and index == nil))
   if field.kind == "combo" then table.insert(options, "Custom…") end
+  -- A value from the file that is not among the choices is shown as itself, not as the first choice.
+  local stray = field.kind ~= "combo" and effective ~= nil and index == nil
+  if stray then table.insert(options, tostring(effective) .. " (not a known value)") end
   local selected
-  if custom then selected = #options
+  if custom or stray then selected = #options
   elseif index then selected = index + offset
   else selected = 1 end
   local controls = { ui.select({
     key = key .. ":select", options = options, selectedIndex = selected - 1, flexGrow = 1, controlSize = "sm",
     onChange = function(text)
       local chosen = (tonumber(text) or 0) + 1
-      if field.kind == "combo" and chosen == #options then
+      if stray and chosen == #options then
+        return
+      elseif field.kind == "combo" and chosen == #options then
         view.custom[key] = true
       elseif unsettable and chosen == 1 then
         view.custom[key] = nil

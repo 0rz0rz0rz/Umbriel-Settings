@@ -53,7 +53,7 @@ def load_saved_config_path(saved_file, default_path):
             saved = f.read().strip()
         if saved:
             return normalize_config_path(saved)
-    except OSError:
+    except (OSError, UnicodeError):
         pass
     return default_path
 
@@ -117,20 +117,6 @@ def atomic_write(path, data, mode=None):
 def write_text_file(path, text):
     """Write text atomically; a symlinked GUI file is written through to its target."""
     atomic_write(os.path.realpath(path), text)
-
-
-def config_fingerprint(path):
-    """Return a content hash used to detect edits made outside this program."""
-    with open(path, "rb") as config_file:
-        data = config_file.read()
-    return hashlib.sha256(data).hexdigest()
-
-
-def read_config_state(path):
-    """Read config text and its matching content hash from the same file snapshot."""
-    with open(path, "rb") as config_file:
-        data = config_file.read()
-    return data.decode("utf-8"), hashlib.sha256(data).hexdigest()
 
 
 def labels_file(config_path, config_dir):

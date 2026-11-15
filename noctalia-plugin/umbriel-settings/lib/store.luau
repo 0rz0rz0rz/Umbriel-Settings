@@ -415,7 +415,11 @@ function M.restoreDraft()
   if draft.path ~= M.state.path then return desktopNote end
   local restored = 0
   for fid, change in pairs(draft.fields or {}) do
-    if M.meta.fields[fid] then M.fieldChanges[fid] = change; restored = restored + 1 end
+    if M.meta.fields[fid] and type(change) == "table" then
+      -- Through the setters: an edit that was saved after the draft was written is no change any more.
+      if change.unset then M.unsetField(fid) else M.setField(fid, change.value) end
+      if M.fieldChanges[fid] then restored = restored + 1 end
+    end
   end
   if equal(draft.revision, M.state.revision) then
     for _, op in ipairs(draft.entryOps or {}) do M.entryOp(op.editor, op); restored = restored + 1 end

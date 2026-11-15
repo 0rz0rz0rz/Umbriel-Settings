@@ -2,14 +2,18 @@
 
 import json
 import os
+import signal
+import socket
 import sys
 
-from PySide6.QtCore import QFileSystemWatcher, QSize, QTimer, QUrl
+from PySide6.QtCore import QFileSystemWatcher, QSize, QSocketNotifier, QTimer, QUrl
 from PySide6.QtGui import QIcon
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
+
+from umbriel_core.paths import atomic_write
 
 from .host.api import NoctaliaApi
 from .host.bridge import Bridge, QtScheduler
@@ -77,11 +81,30 @@ def load_window_state(data_dir):
 
 def save_window_state(data_dir, state):
     try:
-        os.makedirs(data_dir, exist_ok=True)
-        with open(os.path.join(data_dir, "window.json"), "w", encoding="utf-8") as handle:
-            json.dump(state, handle)
+        atomic_write(os.path.join(data_dir, "window.json"), json.dumps(state))
     except OSError:
         pass
+
+
+def quit_on_signals(app, window):
+    """Ctrl+C and SIGTERM (logout, kill) close the window like the close button, so the draft is kept.
+
+    Python only runs signal handlers between bytecodes and Qt's event loop is native code, so a wakeup
+    socket hands the event loop something to do when a signal arrives.
+    """
+    reader, writer = socket.socketpair()
+    writer.setblocking(False)
+    signal.set_wakeup_fd(writer.fileno())
+    notifier = QSocketNotifier(reader.fileno(), QSocketNotifier.Type.Read, app)
+    notifier.activated.connect(lambda *_: reader.recv(64))
+    app._signal_wakeup = (reader, writer, notifier)
+
+    def close(*_):
+        window.closing_confirmed = True  # no "unsaved changes" question for a signal
+        window.close()
+        app.quit()
+    for number in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(number, close)
 
 
 class AppWindow(QMainWindow):
@@ -132,6 +155,7 @@ class AppWindow(QMainWindow):
         self.watch_timer = QTimer(self, singleShot=True, interval=400)
         self.watch_timer.timeout.connect(self.on_external_change)
         self.watcher.fileChanged.connect(self.watch_timer.start)
+        self.watcher.directoryChanged.connect(self.on_directory_change)
 
         self.view.load(Page.HOME)
         self.statusBar().hide()
@@ -159,11 +183,19 @@ class AppWindow(QMainWindow):
             self.setWindowModified(self.pending > 0)
         elif key == "umbriel.config" and value != self.config_path:
             if self.config_path:
-                self.watcher.removePath(self.config_path)
+                self.watcher.removePaths([self.config_path, os.path.dirname(self.config_path)])
             self.config_path = value or ""
-            if self.config_path and os.path.exists(self.config_path):
-                self.watcher.addPath(self.config_path)
+            if self.config_path:
+                # The folder too: a file watch ends when an editor replaces the file, and can't start before
+                # the file exists.
+                self.watcher.addPaths([self.config_path, os.path.dirname(self.config_path)])
                 self.setWindowFilePath(self.config_path)
+
+    def on_directory_change(self, _path):
+        """The config appeared, or came back after its watch was lost: watch it again and reload."""
+        if self.config_path and self.config_path not in self.watcher.files() and os.path.exists(self.config_path):
+            self.watcher.addPath(self.config_path)
+            self.watch_timer.start()
 
     def on_external_change(self):
         # editors replace the file, which drops the watch; re-add it before reloading

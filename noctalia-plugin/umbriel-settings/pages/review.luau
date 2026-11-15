@@ -26,9 +26,22 @@ local function goToField(ctx, fid)
   end
 end
 
+-- Messages Umbriel's validation attached to settings; shown on their rows until the next check.
+local function setDiagnostics(ctx, report)
+  ctx.diagnostics = nil
+  for _, item in ipairs(report.validation and report.validation.diagnostics or {}) do
+    if item.field then
+      ctx.diagnostics = ctx.diagnostics or {}
+      ctx.diagnostics[item.field] = item.message
+    end
+  end
+end
+
 local function requestPreview(ctx, state)
   local store = ctx.store
   state.preview, state.error, state.loading = nil, nil, true
+  state.previewSeq = (state.previewSeq or 0) + 1
+  local seq = state.previewSeq
   if not store.hasConfigChanges() then
     state.loading = false
     state.preview = { changed = false, summary = {}, sections = {}, validation = { ran = false } }
@@ -36,7 +49,9 @@ local function requestPreview(ctx, state)
   end
   ctx.helper.call("preview", { config = store.state.path, changes = store.changeSet(), validate = state.validate },
     function(err, report)
+      if seq ~= state.previewSeq then return end  -- an answer for options that were changed again since
       state.loading = false
+      if not err and report.validation and report.validation.ran then setDiagnostics(ctx, report) end
       if err then state.error = err.error else state.preview = report end
       ctx.render()
     end, { timeout = 45000 })
@@ -45,7 +60,8 @@ end
 local function finishSave(ctx, state, message)
   state.saving = false
   ctx.diagnostics = nil
-  ctx.view.gen = {}
+  ctx.resetInputs()
+  ctx.store.saveDraft()  -- drops a draft from an earlier close that held what was just saved
   ctx.back()
   ctx.flash(message, "info")
 end
@@ -76,11 +92,14 @@ local function save(ctx, state)
   ctx.helper.call("save", { config = store.state.path, changes = store.changeSet(), validate = state.validate },
     function(err, report)
       if generation ~= ctx.helper.generation then
+        local saved = "Saved after the panel closed."
+        if store.desktopChanges() then saved = saved .. " Folder and app changes are still unsaved." end
         noctalia.notify("Umbriel Settings", err and ("Saving failed: " .. err.error)
-          or (report.saved and "Saved after the panel closed." or "Not saved: Umbriel rejected the config."))
+          or (report.saved and saved or "Not saved: Umbriel rejected the config."))
         if not err and report.saved then
           store.fieldChanges, store.entryOps, store.mapOps, store.keybindsDirty = {}, {}, {}, false
           store.load(report.state)
+          store.saveDraft()  -- the draft written on close still held these edits
         end
         return
       end
@@ -92,10 +111,7 @@ local function save(ctx, state)
       if not report.saved then
         state.saving = false
         state.preview = report
-        ctx.diagnostics = {}
-        for _, item in ipairs(report.validation.diagnostics or {}) do
-          if item.field then ctx.diagnostics[item.field] = item.message end
-        end
+        setDiagnostics(ctx, report)
         state.error = "Umbriel rejected the new config, so nothing was written. Fix the problems below."
         ctx.render()
         return
@@ -216,8 +232,7 @@ local function reviewPage(ctx, route)
                 variant = view.confirm == "discard" and "destructive" or "outline", onClick = function()
                   if view.confirm ~= "discard" then view.confirm = "discard"; ctx.render(); return end
                   view.confirm = nil
-                  store.discardAll()
-                  view.gen = {}
+                  ctx.discardAll()
                   ctx.home()
                 end }),
   }))
