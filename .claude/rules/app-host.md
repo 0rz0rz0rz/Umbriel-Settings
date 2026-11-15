@@ -17,7 +17,7 @@ Thin host: implements the Noctalia API subset, runs `app.luau` with lupa (Lua 5.
 | Module | Key symbols |
 | --- | --- |
 | `app.py` | `parse_args`, `app_options` (→ Lua `APP`), `check_schema`, `main`; `APP_NAME`/`__version__` in `__init__.py` |
-| `app_window.py` | `AppWindow` (`on_ready on_invoke on_key on_state on_external_change closeEvent`; title `[*]`, close prompt, file watch), `Page` (logs JS errors; stays on `index.html`, no new windows), `icon_file` |
+| `app_window.py` | `AppWindow` (`on_ready on_invoke on_key on_state on_external_change closeEvent`; title `[*]`, close prompt, file watch, size saved to `window.json` via `load_window_state`/`save_window_state`), `Page` (logs JS errors; stays on `index.html`, no new windows), `icon_file` |
 | `appicon.py` | `create_app_icon` (assets/icon.png → .jpg → .jpeg, embedded 128 px PNG fallback), `install_desktop_icon` (per-user `.desktop`, `$APPIMAGE` aware) |
 | `qt6ct_theme.py` | `Qt6ctThemeFollower`: Qt palette from the qt6ct KDE scheme (`kde.read_scheme`) |
 | `host/runtime.py` | `LuaHost` (`start call guard render invoke to_py/to_lua`), `BOOTSTRAP` (ui constructors, lexical `require`, private module env), `as_callback_arg`; sets `LC_NUMERIC=C` |

@@ -80,7 +80,10 @@ def main(argv=None):
     except (FileNotFoundError, ImportError) as error:
         QMessageBox.critical(None, "Cannot start Umbriel Settings", str(error))
         return 1
-    app.win.show()
+    if app.win.restore_maximized:
+        app.win.showMaximized()
+    else:
+        app.win.show()
     return app.exec()
 
 

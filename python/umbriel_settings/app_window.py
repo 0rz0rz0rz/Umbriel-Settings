@@ -62,15 +62,40 @@ def icon_file(app_id, size, cache_dir):
     return path
 
 
+def load_window_state(data_dir):
+    """Saved {width, height, maximized}, or {} when missing or unusable."""
+    try:
+        with open(os.path.join(data_dir, "window.json"), encoding="utf-8") as handle:
+            state = json.load(handle)
+        width, height = int(state["width"]), int(state["height"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    if not (400 <= width <= 10000 and 300 <= height <= 10000):
+        return {}
+    return {"width": width, "height": height, "maximized": bool(state.get("maximized"))}
+
+
+def save_window_state(data_dir, state):
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+        with open(os.path.join(data_dir, "window.json"), "w", encoding="utf-8") as handle:
+            json.dump(state, handle)
+    except OSError:
+        pass
+
+
 class AppWindow(QMainWindow):
     def __init__(self, app_options=None):
         super().__init__()
         self.setWindowTitle(f"{TITLE}[*]")
-        self.resize(1280, 860)
         self.pending = 0
         self.config_path = ""
         self.closing_confirmed = False
         self.data_dir = app_data_dir()
+        saved = load_window_state(self.data_dir)
+        self.resize(saved.get("width", 1280), saved.get("height", 860))
+        self.normal_size = self.size()  # last size while not maximized
+        self.restore_maximized = saved.get("maximized", False)
 
         self.view = QWebEngineView(self)
         self.view.setPage(Page(self.view))
@@ -146,6 +171,11 @@ class AppWindow(QMainWindow):
             self.watcher.addPath(self.config_path)
         self.host.call("onExternalChange")
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not (self.isMaximized() or self.isFullScreen()):
+            self.normal_size = self.size()
+
     # ------------------------------------------------------------------ closing
     def closeEvent(self, event):
         if self.pending > 0 and not self.closing_confirmed:
@@ -166,6 +196,10 @@ class AppWindow(QMainWindow):
                 event.ignore()
                 return
         self.host.call("onClose")
+        save_window_state(self.data_dir, {
+            "width": self.normal_size.width(), "height": self.normal_size.height(),
+            "maximized": self.isMaximized() or self.isFullScreen(),
+        })
         event.accept()
 
 

@@ -186,7 +186,7 @@ function M.render(ctx)
         end
       end
       if #row == 1 then
-        table.insert(row, ui.spacer({ flexGrow = 1 }))
+        table.insert(row, ui.column({ flexGrow = 1, padding = 12 }, {}))  -- same padding as a card so both columns match
         table.insert(content, ui.row({ key = "cards-end-" .. section.title, gap = 10 }, row))
       end
     end

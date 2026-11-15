@@ -13,7 +13,9 @@ from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
 from test_host_runtime import CONFIG, FAKE_UMBRIEL, lupa
-from umbriel_settings.app_window import AppWindow  # QtWebEngine must load before QApplication exists
+
+# QtWebEngine must load before QApplication exists
+from umbriel_settings.app_window import AppWindow, load_window_state, save_window_state
 
 # Clicks the innermost element showing exactly this text; the click bubbles to the node's handler.
 CLICK_JS = """(() => {
@@ -128,6 +130,16 @@ class AppRenderTests(unittest.TestCase):
 
         self.assertEqual(self.win.view.page().console_errors, [])
         self.assertEqual(self.win.host.errors, [])
+
+    def test_window_size_is_remembered_across_runs(self):
+        self.assertEqual(load_window_state(self.win.data_dir), {})
+        self.win.resize(1000, 700)
+        self.pause()
+        self.win.pending = 0
+        self.win.close()
+        self.assertEqual(load_window_state(self.win.data_dir), {"width": 1000, "height": 700, "maximized": False})
+        save_window_state(self.win.data_dir, {"width": 5, "height": 5})  # unusable: falls back to the default
+        self.assertEqual(load_window_state(self.win.data_dir), {})
 
     def test_page_cannot_navigate_away_or_load_remote_content(self):
         self.wait_for_text("Home", "Appearance")

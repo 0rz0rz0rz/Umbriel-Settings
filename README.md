@@ -41,6 +41,7 @@ Nothing is written until you press **Review & save** (Ctrl+S):
 - Every save or restore makes a timestamped backup (newest 10 kept). **Backups** on the home page compares,
   restores and deletes them. User folders, default apps and Noctalia's config get their own backups.
 - Unsaved edits are kept as a draft when you close and restored next time, unless the file changed meanwhile.
+- The window size (and maximized state) is remembered between runs.
 - If the config changes on disk, it is reloaded: setting edits are kept, rule and keybind edits are dropped
   with a note.
 - Symlinked files are refused; open the link's target instead.
@@ -194,7 +195,7 @@ unsaved, and shares backups, rule names and keybind locks with the app. Setup:
 | Path | Contents |
 | --- | --- |
 | Your Umbriel config | Saved changes; custom keybind groups are TOML comments |
-| `$XDG_DATA_HOME/umbriel-settings/` | `gui-config-path` (last config), `configs/<id>/` (backups, rule names, keybind locks), `backups/` (user folders, default apps), `noctalia-backups/`, `app-ui/` (drafts, cache, icons), `editor-command` |
+| `$XDG_DATA_HOME/umbriel-settings/` | `gui-config-path` (last config), `configs/<id>/` (backups, rule names, keybind locks), `backups/` (user folders, default apps), `noctalia-backups/`, `app-ui/` (drafts, cache, icons), `editor-command`, `window.json` (app window size) |
 | `$XDG_CONFIG_HOME/umbriel-settings/` | `noctalia-palette.conf` (from Noctalia), `titlebar-colors.toml`, `titlebar_apply.py`, `*.titlebar.bak` (config before the script's last change) |
 | `$XDG_CONFIG_HOME/noctalia/templates/` | `umbriel-settings-palette.conf`, `umbriel-titlebar.toml` (entries in `noctalia-config.toml`) |
 | `$XDG_DATA_HOME/applications/umbriel-settings.desktop`, `…/icons/hicolor/128x128/apps/umbriel-settings.png` | Desktop entry and icon |
