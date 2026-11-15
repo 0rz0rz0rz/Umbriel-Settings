@@ -84,12 +84,47 @@ rm -rf "$pyside/Qt/qml" "$pyside/Qt/metatypes" "$pyside/include" "$pyside/glue" 
 for tool in assistant balsam balsamui designer linguist lrelease lupdate qmlformat qmllint qmlls qsb \
     uic rcc deploy; do rm -rf "${pyside:?}/$tool"; done
 rm -rf "${pyside:?}"/pyside6-*
+# Qt/qml is gone, so the Quick Controls styles, dialogs, templates and Labs modules can never be
+# imported; the compositor, UiTools and QML compiler libraries serve other Qt tools only.
+find "$pyside/Qt/lib" -maxdepth 1 \( \
+    -name 'libQt6QuickControls2*' -o -name 'libQt6QuickDialogs2*' -o -name 'libQt6QuickTemplates2*' \
+    -o -name 'libQt6Labs*' -o -name 'libQt6QmlCompiler*' -o -name 'libQt6UiTools*' \
+    -o -name 'libQt6WaylandCompositor*' -o -name 'libQt6WaylandEglCompositorHwIntegration*' \
+    -o -name 'libQt6QuickTest*' -o -name 'libQt6QmlLocalStorage*' -o -name 'libQt6FFmpegStub*' \
+    -o -name 'libQt6EglFs*' \) -delete
+# EGLFS (no display server), PDF images, positioning and Lottie plugins: the app uses xcb/Wayland only.
+rm -rf "$pyside"/Qt/plugins/{wayland-graphics-integration-server,vectorimageformats,egldeviceintegrations,position} \
+    "$pyside"/Qt/plugins/imageformats/libqpdf.so \
+    "$pyside"/Qt/libexec/{qmlcachegen,qmlimportscanner,qmltyperegistrar}
+
+# python-appimage ships pip/build tooling, Tk and the stdlib test suite; the app needs none of them.
+stdlib="$(find "$appdir/opt" -maxdepth 3 -type d -name 'python3.*' -path '*/lib/*' | head -n 1)"
+[ -n "$stdlib" ] || { echo "Python stdlib not found in AppDir" >&2; exit 1; }
+find "$stdlib" -maxdepth 1 \( -name test -o -name tkinter -o -name idlelib -o -name turtledemo \
+    -o -name lib2to3 -o -name ensurepip -o -name 'config-*' \) -exec rm -rf {} +
+rm -f "$stdlib"/lib-dynload/_tkinter.* "$stdlib"/lib-dynload/_ctypes_test.* \
+    "$appdir"/usr/lib/libtcl8*.so* "$appdir"/usr/lib/libtk8*.so*
+for name in pip build pyproject_hooks certifi; do
+    rm -rf "${stdlib:?}/site-packages/$name" "${stdlib:?}/site-packages/$name"-*.dist-info
+done
+
+# Fail the build rather than ship a Qt library or plugin whose dependency was pruned above.
+command -v readelf >/dev/null || { echo "readelf (binutils) is required" >&2; exit 1; }
+missing="$(find "$pyside" -type f \( -name '*.so' -o -name '*.so.*' -o -name QtWebEngineProcess \) -print0 \
+    | xargs -0 readelf -d 2>/dev/null \
+    | sed -n 's/.*NEEDED.*\[\(libQt6[A-Za-z0-9]*\.so[.0-9]*\)\].*/\1/p' | sort -u \
+    | while read -r lib; do [ -e "$pyside/Qt/lib/$lib" ] || echo "$lib"; done)"
+[ -z "$missing" ] || { echo "Pruned Qt libraries are still required:" >&2; echo "$missing" >&2; exit 1; }
 
 chmod -R a+rX "$appdir"
 appimagetool="$("$work/venv/bin/python" -c 'from python_appimage.utils.deps import ensure_appimagetool as e; print(e())')"
 
 mkdir -p "$dist"
 output="$dist/Umbriel-Settings-$version-$arch.AppImage"
-ARCH="$arch" "$appimagetool" --no-appstream "$appdir" "$output"
+# zstd 22 costs no start time; block size does (FUSE decompresses whole blocks on every launch).
+# Measured: 128K 145 MB/0.70 s, 256K 140 MB/0.76 s, 512K 137 MB/0.92 s, 1M 133 MB/1.13 s.
+ARCH="$arch" "$appimagetool" --no-appstream --comp zstd \
+    --mksquashfs-opt -Xcompression-level --mksquashfs-opt 22 \
+    --mksquashfs-opt -b --mksquashfs-opt 256K "$appdir" "$output"
 chmod +x "$output"
 echo "Built $output"

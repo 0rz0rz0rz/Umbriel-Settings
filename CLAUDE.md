@@ -54,7 +54,7 @@ Grep for symbols (`^function\|^local function\|^def \|^class `) and read ranges,
 - Files < ~800 lines. Tests: one file per area, `unittest`, temp paths.
 - After every code change, update whatever it made stale in the READMEs (root, `noctalia-plugin/`, `noctalia-plugin/umbriel-settings/`), skills, rules and this file before reporting done.
 - Names: "Umbriel Settings"; package `umbriel_settings`; launcher `python/umbriel-settings.py`; desktop ID/data dirs `umbriel-settings`; plugin ID `0rz0rz0rz/umbriel-settings`. Old `umbriel-config-gui` only for migration (`paths.LEGACY_DIR_NAME`). The app imports the helper (`umbriel_settings.py`) under a private name and restores `sys.path`.
-- Versions: app `__version__` = `<Umbriel version>-<NNN>` (`0.1.0-004`), plugin = `<major>.<minor>.<NNN>` (`0.1.4`), plus README table. Builds raise only `NNN`; `0.1.0` follows Umbriel (`NNN` → `001`). Check Umbriel/Noctalia release notes after their updates.
+- Versions: app `__version__` = `<Umbriel version>-<NNN>` (`0.1.0-005`), plugin = `<major>.<minor>.<NNN>` (`0.1.5`), plus README table. Builds raise only `NNN`; `0.1.0` follows Umbriel (`NNN` → `001`). Check Umbriel/Noctalia release notes after their updates.
 - MIT: keep both `LICENSE` copies, AppImage license bundling, Tabler font license.
 - Comment only what needs it. No planning/notes files. Prefer repo and `umbriel config schema --json` over the web.
 - AppImage builds, commits, pushes, tags, releases: only on explicit permission for that action; never force-push; short imperative commit messages.

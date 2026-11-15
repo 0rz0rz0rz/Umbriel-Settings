@@ -112,13 +112,13 @@ Alt+Left back.
 # From a checkout (with a virtual environment, use .venv/bin/python instead of /usr/bin/python3)
 "Mod+Shift+C" = "spawn /usr/bin/python3 /home/you/Applications/Umbriel-Settings/python/umbriel-settings.py"
 # From the AppImage
-"Mod+Shift+C" = "spawn /home/you/Applications/Umbriel-Settings-0.1.0-004-x86_64.AppImage"
+"Mod+Shift+C" = "spawn /home/you/Applications/Umbriel-Settings-0.1.0-005-x86_64.AppImage"
 # Works for any install: the desktop entry the app creates on first start
 "Mod+Shift+C" = "spawn gio launch /home/you/.local/share/applications/umbriel-settings.desktop"
 ```
 
 **AppImage build**: `appimage/build-appimage.sh` writes `dist/Umbriel-Settings-<version>-<arch>.AppImage`
-(needs network, `python3` with `venv`, and FUSE or `APPIMAGE_EXTRACT_AND_RUN=1`). The desktop entry points
+(needs network, `python3` with `venv`, `readelf` from binutils, and FUSE or `APPIMAGE_EXTRACT_AND_RUN=1`). The desktop entry points
 at the AppImage, so keep it at a stable path.
 
 **Upgrading from `umbriel-config-gui`** (the old name): data moves to `$XDG_DATA_HOME/umbriel-settings`
@@ -208,12 +208,12 @@ icon is used if none exists or the file is invalid.
 
 | Item | Version |
 | --- | --- |
-| App (`python/umbriel_settings/__init__.py`) | `0.1.0-004` |
-| AppImage (latest release) | `0.1.0-004` |
-| Noctalia plugin (`plugin.toml`) | `0.1.4` |
+| App (`python/umbriel_settings/__init__.py`) | `0.1.0-005` |
+| AppImage (latest release) | `0.1.0-005` |
+| Noctalia plugin (`plugin.toml`) | `0.1.5` |
 
 The app version is `<Umbriel version>-<revision>`; each build raises the revision, which restarts at `001`
-when Umbriel's version changes. The plugin uses plain `MAJOR.MINOR.PATCH` (`0.1.0-004` → `0.1.4`).
+when Umbriel's version changes. The plugin uses plain `MAJOR.MINOR.PATCH` (`0.1.0-005` → `0.1.5`).
 
 ## Development
 
