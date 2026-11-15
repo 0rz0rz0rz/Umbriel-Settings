@@ -53,6 +53,7 @@ Keys: Ctrl+F search, Ctrl+S review, Alt+Left back, Esc close.
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `display` | `select` | `icon` | What the bar widget shows: `icon` (with a dot while edits are unsaved), `icon_text` or `text`. A vertical bar always shows only the icon. |
+| `icon` | `select` | `moon-stars` | The bar widget's icon: `settings`, `settings-2`, `settings-cog`, `adjustments-horizontal`, `adjustments-cog`, `tool`, `tools`, `moon`, `moon-stars`, `moon-2` or `home-cog`. Unknown values fall back to `moon-stars`. |
 
 ## Notes
 

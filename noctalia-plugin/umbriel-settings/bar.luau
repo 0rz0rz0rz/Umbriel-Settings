@@ -6,13 +6,32 @@ local function display()
   return "icon"
 end
 
+local ICONS = {
+  ["settings"] = true,
+  ["settings-2"] = true,
+  ["settings-cog"] = true,
+  ["adjustments-horizontal"] = true,
+  ["adjustments-cog"] = true,
+  ["tool"] = true,
+  ["tools"] = true,
+  ["moon"] = true,
+  ["moon-stars"] = true,
+  ["moon-2"] = true,
+  ["home-cog"] = true,
+}
+
+local function icon()
+  local value = noctalia.getConfig and noctalia.getConfig("icon")
+  return ICONS[value] and value or "moon-stars"
+end
+
 local function refresh()
   barWidget.setTooltip(pending > 0 and ("Umbriel Settings: " .. pending .. " unsaved change(s)")
     or "Open Umbriel Settings")
   local mode = display()
   if barWidget.isVertical and barWidget.isVertical() then mode = "icon" end
   local children = {}
-  if mode ~= "text" then table.insert(children, ui.glyph({ name = "settings" })) end
+  if mode ~= "text" then table.insert(children, ui.glyph({ name = icon() })) end
   if mode ~= "icon" then
     table.insert(children, ui.label({ text = pending > 0 and "Umbriel Settings •" or "Umbriel Settings" }))
   elseif pending > 0 then

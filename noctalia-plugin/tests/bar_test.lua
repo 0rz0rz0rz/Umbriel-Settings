@@ -19,10 +19,10 @@ noctalia = {
   state = { watch = function(key, fn) watchers[key] = fn end },
 }
 
-local function shown()
+local function shown(expected)
   local glyph, text = false, nil
   for _, child in ipairs(rendered.children) do
-    if child.kind == "glyph" then glyph = child.props.name == "settings" end
+    if child.kind == "glyph" then glyph = child.props.name == (expected or "moon-stars") end
     if child.kind == "label" then text = child.props.text end
   end
   return glyph, text
@@ -59,6 +59,15 @@ config.display = "bogus"
 update()
 glyph, text = shown()
 assert(glyph and text == nil, "unknown values fall back to icon only")
+
+config.icon = "tools"
+update()
+glyph = shown("tools")
+assert(glyph, "the chosen icon is drawn")
+config.icon = "not-a-glyph"
+update()
+glyph = shown()
+assert(glyph, "an unknown icon falls back to moon-stars")
 
 onClick()
 onClick()

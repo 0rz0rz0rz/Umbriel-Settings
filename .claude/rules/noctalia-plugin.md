@@ -9,7 +9,7 @@ Noctalia loads `panel.luau`/`bar.luau`, the app (lupa) loads `app.luau`; `lib/ u
 
 | File | Notes |
 | --- | --- |
-| `plugin.toml`, `bar.luau` | ID `0rz0rz0rz/umbriel-settings` (dir = ID suffix), panel ID `folders` (legacy, keep), API 43 (Noctalia ≥ 5.4). Bar dot while state `umbriel.pending` > 0; setting `display` = `icon`/`icon_text`/`text` (`translations/en.json`) |
+| `plugin.toml`, `bar.luau` | ID `0rz0rz0rz/umbriel-settings` (dir = ID suffix), panel ID `folders` (legacy, keep), API 43 (Noctalia ≥ 5.4). Bar dot while state `umbriel.pending` > 0; setting `display` = `icon`/`icon_text`/`text` (`translations/en.json`); setting `icon` = one of 11 Tabler glyphs (list in `bar.luau`, `plugin.toml`, `en.json`; names must exist in Noctalia's `tabler.json`) |
 | `panel.luau`, `app.luau` | Layout + entry globals only (`onOpen onClose onFrameTick onKey onMenu`; app adds `onExternalChange`). App options via global `APP` (`isApp appVersion initialConfig validateDefault rebuildDefault`) |
 | `lib/shell.luau` | `shell.create(layout, options)` → `ctx, handlers`; `ctx.render/renderSoon/go/replace/back/home/openPage/flash/reload/switchConfig/loadDesktop/loadSearchIndex/loadKde`; routes in `body()`; publishes `umbriel.pending`/`umbriel.config`. Failed meta load → **Try again** (`loadMeta`); `onExternalChange` mid-reload sets `ctx.changedDuringLoad` → re-read |
 | `lib/helper.luau` | JSON request/response files in `pluginDataDir()/run/`; stdout only `{ok,error,code}`; generation guard drops stale callbacks; crash → last stderr line |
