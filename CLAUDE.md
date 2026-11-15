@@ -57,5 +57,5 @@ Grep for symbols (`^function\|^local function\|^def \|^class `) and read ranges,
 - Versions: app `__version__` = `<Umbriel version>-<NNN>` (`0.1.0-005`), plugin = `<major>.<minor>.<NNN>` (`0.1.5`), plus README table. Builds raise only `NNN`; `0.1.0` follows Umbriel (`NNN` → `001`). Check Umbriel/Noctalia release notes after their updates.
 - MIT: keep both `LICENSE` copies, AppImage license bundling, Tabler font license.
 - Comment only what needs it. No planning/notes files. Prefer repo and `umbriel config schema --json` over the web.
-- AppImage builds, commits, pushes, tags, releases: only on explicit permission for that action; never force-push; short imperative commit messages.
+- AppImage builds, commits, pushes, tags, releases: only on explicit permission for that action; a permitted build that is then pushed also gets its tag and GitHub release without asking. Never force-push; short imperative commit messages.
 - Ask one concise question only when a choice changes behavior; otherwise decide and state the assumption.

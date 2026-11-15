@@ -44,4 +44,4 @@ The build bundles `python/umbriel_settings`, `python/umbriel_core` (one `-x` wit
 ## Rules
 
 - Do not force-push, delete tags, or replace an existing release's assets unless the user asks.
-- Ask before pushing, tagging, or publishing if the user has not requested a release.
+- Ask before pushing if the user has not requested it. Once a permitted build is pushed, always tag and release it (steps 5-6) without asking.
