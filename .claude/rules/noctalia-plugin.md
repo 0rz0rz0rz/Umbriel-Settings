@@ -1,6 +1,6 @@
 ---
 paths:
-  - "noctalia-plugin/**/*"
+  - "noctalia-plugin/umbriel-settings/**/*"
 ---
 
 # Shared Luau UI, plugin, helper (`noctalia-plugin/umbriel-settings/`)
