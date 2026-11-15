@@ -18,7 +18,7 @@ Thin host: implements the Noctalia API subset, runs `app.luau` with lupa (Lua 5.
 | --- | --- |
 | `app.py` | `parse_args`, `app_options` (→ Lua `APP`), `check_schema`, `main`; `APP_NAME`/`__version__` in `__init__.py` |
 | `app_window.py` | `AppWindow` (`on_ready on_invoke on_key on_state on_external_change closeEvent`; title `[*]`, close prompt, file watch), `Page` (logs JS errors; stays on `index.html`, no new windows), `icon_file` |
-| `appicon.py` | `create_app_icon` (assets/icon.jpg, embedded fallback), `install_desktop_icon` (per-user `.desktop`, `$APPIMAGE` aware) |
+| `appicon.py` | `create_app_icon` (assets/icon.png → .jpg → .jpeg, embedded 128 px PNG fallback), `install_desktop_icon` (per-user `.desktop`, `$APPIMAGE` aware) |
 | `qt6ct_theme.py` | `Qt6ctThemeFollower`: Qt palette from the qt6ct KDE scheme (`kde.read_scheme`) |
 | `host/runtime.py` | `LuaHost` (`start call guard render invoke to_py/to_lua`), `BOOTSTRAP` (ui constructors, lexical `require`, private module env), `as_callback_arg`; sets `LC_NUMERIC=C` |
 | `host/api.py` | `NoctaliaApi.globals()`; `runAsync`: helper in-process (`_helper`, `run(argv)`; exceptions → `exitCode 1` + traceback, callback always runs), other commands as subprocesses with `launch.child_env()`; `json_encode` (empty table → `[]`); `ManualScheduler` (tests), `ThreadedScheduler`, `fuzzy_score` |

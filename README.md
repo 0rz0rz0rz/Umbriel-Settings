@@ -199,8 +199,9 @@ unsaved, and shares backups, rule names and keybind locks with the app. Setup:
 | `$XDG_CONFIG_HOME/noctalia/templates/` | `umbriel-settings-palette.conf`, `umbriel-titlebar.toml` (entries in `noctalia-config.toml`) |
 | `$XDG_DATA_HOME/applications/umbriel-settings.desktop`, `…/icons/hicolor/128x128/apps/umbriel-settings.png` | Desktop entry and icon |
 
-Custom icon: replace `python/umbriel_settings/assets/icon.jpg` with a JPEG (the built-in icon is used if it's
-missing or invalid).
+Custom icon: replace `python/umbriel_settings/assets/icon.png` with your own PNG (transparency is kept), or delete it
+and add `icon.jpg`/`icon.jpeg`. The first of `icon.png`, `icon.jpg`, `icon.jpeg` that exists is used; the built-in
+icon is used if none exists or the file is invalid.
 
 ## Versions
 
