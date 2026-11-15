@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from PySide6.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
 # Import app_window before any test patches PySide6.QtWidgets.QApplication; it binds the name at import.
@@ -34,9 +34,9 @@ class AppIconTests(unittest.TestCase):
     def write_png(self, color):
         image = QImage(256, 256, QImage.Format.Format_ARGB32)
         image.fill(QColor(0, 0, 0, 0))
-        for y in range(64, 192):
-            for x in range(64, 192):
-                image.setPixelColor(x, y, QColor(color))
+        painter = QPainter(image)
+        painter.fillRect(64, 64, 128, 128, QColor(color))
+        painter.end()
         self.assertTrue(image.save(self.png_path, "PNG"))
 
     def install(self, icon, **environ):
