@@ -61,8 +61,15 @@ def failure_blocks(output, limit):
     return "\n".join(picked)
 
 
+# Exits right after the results: on Python 3.11 PySide6/QtWebEngine can crash in interpreter finalization
+# ("bool_dealloc") after every test passed.
+RUN_UNITTEST = ("import os, sys, unittest; "
+                "result = unittest.main(module=None, argv=['unittest', *sys.argv[1:]], exit=False).result; "
+                "sys.stdout.flush(); sys.stderr.flush(); os._exit(0 if result.wasSuccessful() else 1)")
+
+
 def unittest_modules(modules):
-    return [sys.executable, "-m", "unittest", *modules]
+    return [sys.executable, "-c", RUN_UNITTEST, *modules]
 
 
 CHECKS = {
