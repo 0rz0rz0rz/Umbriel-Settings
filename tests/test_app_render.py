@@ -144,7 +144,12 @@ class AppRenderTests(unittest.TestCase):
 
     def test_a_config_that_is_deleted_and_written_again_is_watched_again(self):
         self.wait_for_text("Home", "Appearance")
+        # The path is published once the config has loaded, which slow runners finish after the first render.
+        deadline = time.monotonic() + 30
+        while not self.win.config_path and time.monotonic() < deadline:
+            self.pause(50)
         config = Path(self.win.config_path)
+        self.assertTrue(self.win.config_path, "the config path was never published")
         self.assertIn(str(config), self.win.watcher.files())
         config.unlink()
         self.pause(700)
