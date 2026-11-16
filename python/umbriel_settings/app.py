@@ -58,7 +58,7 @@ def main(argv=None):
         return check_schema()
     from PySide6.QtWidgets import QApplication, QMessageBox
 
-    from . import app_window
+    from . import app_window, instance
     from .app_window import AppWindow
     from .appicon import create_app_icon, install_desktop_icon
     from .qt6ct_theme import Qt6ctThemeFollower
@@ -67,6 +67,13 @@ def main(argv=None):
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName(APP_NAME)
     app.setDesktopFileName("umbriel-settings")
+    options = app_options(args)
+    # A launcher's activation token lets the running window take the focus on Wayland.
+    server = instance.claim({"config": options.get("initialConfig", ""),
+                             "token": os.environ.get("XDG_ACTIVATION_TOKEN", "")})
+    if server is None:
+        return 0  # the running app was raised instead
+    app.instance_server = server
     app.theme_follower = Qt6ctThemeFollower(app)
     app.theme_follower.start()
     icon = create_app_icon()
@@ -78,12 +85,13 @@ def main(argv=None):
         QMessageBox.warning(None, "Could not install desktop icon",
                             f"The window icon is set, but the desktop entry could not be installed:\n{error}")
     try:
-        app.win = AppWindow(app_options(args))
+        app.win = AppWindow(options)
     except Exception as error:  # missing files or modules, a Lua error in the UI, unreadable bundled data
         traceback.print_exc()
         QMessageBox.critical(None, "Cannot start Umbriel Settings", str(error))
         return 1
     app_window.quit_on_signals(app, app.win)
+    server.activated.connect(app.win.activate_from)
     if app.win.restore_maximized:
         app.win.showMaximized()
     else:

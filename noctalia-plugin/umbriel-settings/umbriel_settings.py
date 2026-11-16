@@ -421,6 +421,11 @@ COMMANDS = {
     "titlebar": cmd_titlebar, "titlebar-follow": cmd_titlebar_follow,
 }
 
+# Commands that write the config, its sidecars, backups or desktop files; they run one at a time across the
+# plugin, the app and other windows, so a revision check and the write that follows can't interleave.
+WRITE_COMMANDS = {"save", "set-config", "restore", "delete-backups", "desktop-save", "set-editor",
+                  "palette-template", "titlebar-follow"}
+
 
 def atomic_write_text(path, text):
     """Responses, caches and the editor command are private to the user."""
@@ -452,13 +457,19 @@ def run(argv):
                 request = {}
             if not isinstance(request, dict):
                 raise HelperError("The request must be a JSON object.")
-        result = COMMANDS[command](request)
+        if command in WRITE_COMMANDS:
+            with paths.write_lock(data_dir()):
+                result = COMMANDS[command](request)
+        else:
+            result = COMMANDS[command](request)
         if response:
             atomic_write_text(response, json.dumps(result, ensure_ascii=False, separators=(",", ":")))
             return json.dumps({"ok": True})
         return json.dumps({"ok": True, "result": result}, ensure_ascii=False)
     except HelperError as error:
         return json.dumps({"ok": False, "error": str(error), "code": error.code})
+    except TimeoutError as error:  # the write lock (subprocess timeouts are handled by each command)
+        return json.dumps({"ok": False, "error": str(error), "code": "busy"})
     except (OSError, UnicodeError, ValueError, KeyError, TypeError) as error:
         return json.dumps({"ok": False, "error": str(error) or type(error).__name__, "code": "error"})
     except Exception as error:  # a bug: still answer, so the panel and the app never wait forever

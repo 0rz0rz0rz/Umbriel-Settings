@@ -4,8 +4,10 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import tomllib
 import unittest
+import unittest.mock
 
 import tomlkit
 
@@ -210,6 +212,50 @@ class CorePathTests(unittest.TestCase):
         self.assertEqual(schema.field_schema_option(options, "output.<name>.scale")["default"], 1.0)
         self.assertIsNone(schema.field_schema_option(options, "general.missing"))
         self.assertIs(getp(tomlkit.document(), ("a",)), MISSING)
+
+    def test_schema_coverage_matching_rules(self):
+        catalog = [
+            ("general.mod_key", "choice"),
+            ("general.gaps", "int"),               # stale: Umbriel has no such option
+            ("output.<name>.scale", "float"),
+            ("window_rule[].match", "raw"),        # raw covers everything below it
+            ("decoration.blur", "table"),
+            ("keybinds.<name>", "custom"),
+            ("input.device[].accel", "float"),
+        ]
+        document = {"options": [
+            {"path": "general.mod_key", "type": "enum"},
+            {"path": "general.layout", "type": "enum"},            # missing
+            {"path": "general", "type": "table"},                  # tables are never missing
+            {"path": "output.<name>.scale", "type": "float"},
+            {"path": "output.<name>.mode", "type": "string"},      # missing
+            {"path": "output.*.scale", "type": "float"},           # a literal "*" matches <name> too
+            {"path": "window_rule[].match.app_id", "type": "string"},
+            {"path": "window_rule[].opacity", "type": "float"},    # missing
+            {"path": "workspace[].match", "type": "string"},       # [] only matches the same array
+            {"path": "decoration.blur.size", "type": "int"},
+            {"path": "decoration.shadow.size", "type": "int"},     # missing: a prefix of another field
+            {"path": "keybinds.<name>", "type": "string"},
+            {"path": "input.device[].accel", "type": "float"},
+            {"path": "input.device[].accel.extra", "type": "float"},  # longer than a plain field: missing
+            {"path": "<name>.x", "type": "int"},                   # odd first segments do not crash
+            "junk",
+        ]}
+        with unittest.mock.patch.object(schema, "schema_field_catalog", return_value=catalog):
+            missing, stale = schema.check_schema_coverage(document)
+        self.assertEqual(missing, ["<name>.x", "decoration.shadow.size", "general.layout",
+                                   "input.device[].accel.extra", "output.<name>.mode",
+                                   "window_rule[].opacity", "workspace[].match"])
+        self.assertEqual(stale, ["general.gaps"])
+
+    def test_schema_coverage_stays_fast_on_a_large_schema(self):
+        # Every catalog path plus thousands of unknown options: the old pairwise fnmatch scan took seconds here.
+        options = [{"path": path.replace("<name>", "*"), "type": "int"} for path, _ in schema.schema_field_catalog()]
+        options += [{"path": f"section{i % 40}.group{i}.option", "type": "string"} for i in range(3000)]
+        started = time.perf_counter()
+        missing, stale = schema.check_schema_coverage({"options": options})
+        self.assertLess(time.perf_counter() - started, 1.0)
+        self.assertEqual((len(missing), stale), (3000, []))
 
 
 class CoreKdeTests(unittest.TestCase):

@@ -19,30 +19,35 @@ noctalia = {
   state = { watch = function(key, fn) watchers[key] = fn end },
 }
 
+-- Returns whether the expected glyph shows, the text label (if any) and whether the unsaved dot is visible.
 local function shown(expected)
-  local glyph, text = false, nil
+  local glyph, text, dot = false, nil, nil
   for _, child in ipairs(rendered.children) do
     if child.kind == "glyph" then glyph = child.props.name == (expected or "moon-stars") end
-    if child.kind == "label" then text = child.props.text end
+    if child.kind == "label" and child.props.key == "dot" then dot = child.props.opacity == 1
+    elseif child.kind == "label" then text = child.props.text end
   end
-  return glyph, text
+  assert(dot ~= nil, "the dot is always laid out, so the widget keeps its width")
+  return glyph, text, dot
 end
 
 assert(loadfile(arg[1]))()
-local glyph, text = shown()
-assert(glyph and text == nil and tooltip ~= "", "default shows only the icon")
+local glyph, text, dot = shown()
+assert(glyph and text == nil and not dot and tooltip ~= "", "default shows only the icon")
+local idle = #rendered.children
 
 watchers["umbriel.pending"](3)
-glyph, text = shown()
-assert(glyph and text == "•" and tooltip:find("3 unsaved"), "icon only keeps the unsaved dot: " .. tooltip)
+glyph, text, dot = shown()
+assert(glyph and text == nil and dot and tooltip:find("3 unsaved"), "icon only keeps the unsaved dot: " .. tooltip)
+assert(#rendered.children == idle, "unsaved edits don't add or remove widget parts")
 
 config.display = "icon_text"
 update()
-glyph, text = shown()
-assert(glyph and text == "Umbriel Settings •", "icon and text")
+glyph, text, dot = shown()
+assert(glyph and text == "Umbriel Settings" and dot, "icon and text")
 watchers["umbriel.pending"](0)
-glyph, text = shown()
-assert(glyph and text == "Umbriel Settings", "icon and text without unsaved edits")
+glyph, text, dot = shown()
+assert(glyph and text == "Umbriel Settings" and not dot, "icon and text without unsaved edits")
 
 config.display = "text"
 update()

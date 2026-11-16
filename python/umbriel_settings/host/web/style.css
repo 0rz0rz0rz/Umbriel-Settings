@@ -13,7 +13,7 @@ body {
 .flex { display: flex; min-width: 0; min-height: 0; }
 .col { flex-direction: column; }
 .rowdir { flex-direction: row; }
-.scroll { overflow-y: auto; overflow-x: hidden; }
+.scroll { overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }  /* rows don't narrow when it appears */
 .scroll > .inner { display: flex; flex-direction: column; min-height: min-content; }
 .clickable { cursor: pointer; }
 .clickable:hover { filter: brightness(1.12); }

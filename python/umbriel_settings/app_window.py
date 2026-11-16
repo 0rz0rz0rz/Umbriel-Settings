@@ -142,7 +142,7 @@ class AppWindow(QMainWindow):
         self.api = NoctaliaApi(
             self.host, self.scheduler, self.data_dir, colors=self.theme.color,
             icon_path=lambda app_id, size=None: icon_file(app_id, size, os.path.join(self.data_dir, "icons")),
-            notify=lambda title, body: self.statusBar().showMessage(f"{title}: {body}" if body else title, 8000),
+            notify=lambda title, body: self.show_notice(f"{title}: {body}" if body else title),
             on_state=self.on_state, on_close=self.close, on_frame_tick=self.on_frame_tick,
         )
         options = {"isApp": True}
@@ -158,7 +158,27 @@ class AppWindow(QMainWindow):
         self.watcher.directoryChanged.connect(self.on_directory_change)
 
         self.view.load(Page.HOME)
+        # The status bar only appears while a notification (noctalia.notify) is shown.
         self.statusBar().hide()
+        self.statusBar().messageChanged.connect(lambda text: self.statusBar().setVisible(bool(text)))
+
+    def show_notice(self, text):
+        self.statusBar().show()
+        self.statusBar().showMessage(text, 8000)
+
+    def activate_from(self, message):
+        """Another launch handed over (single instance): come to the front and open its config, if any."""
+        token = message.get("token")
+        if isinstance(token, str) and token:
+            os.environ["XDG_ACTIVATION_TOKEN"] = token  # Qt's Wayland backend activates with it once
+        if self.isMinimized():
+            self.showNormal()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        config = message.get("config")
+        if isinstance(config, str) and config:
+            self.host.call("onRelaunch", config)
 
     # ------------------------------------------------------------------ bridge callbacks
     def on_ready(self):

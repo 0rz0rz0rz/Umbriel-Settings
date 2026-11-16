@@ -26,3 +26,4 @@ function onFrameTick() handlers.onFrameTick() end
 function onKey(chord, pressed) handlers.onKey(chord, pressed) end
 function onMenu(action, context) handlers.onMenu(action, context) end
 function onExternalChange() handlers.onExternalChange() end
+function onRelaunch(path) handlers.onRelaunch(path) end

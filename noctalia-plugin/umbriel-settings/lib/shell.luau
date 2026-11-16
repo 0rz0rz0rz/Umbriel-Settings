@@ -70,6 +70,7 @@ function M.create(layout, options)
     if name == "keybinds" or name == "keybind" or name == "actions" then return keybinds.render(ctx, current) end
     if name == "folders" or name == "apps" or name == "appPicker" then return desktop.render(ctx, current) end
     if name == "about" then return about.render(ctx, current) end
+    if name == "customized" then return home.renderCustomized(ctx) end
     return review.render(ctx, current)
   end
 
@@ -87,23 +88,40 @@ function M.create(layout, options)
                                 revealKey = current.reveal }, parts.content or parts)
     local pending = store.pendingCount()
     local saveBar = nil
-    if store.meta and pending > 0 and current.name ~= "review" then
+    -- Always shown once a config is loaded (quiet while nothing is unsaved): a bar that came and went would
+    -- change the page height with every edit, and with it whether the page scrolls; the scrollbar then
+    -- narrows or widens every row (Noctalia can't reserve its gutter for plugins).
+    if store.meta and store.state and current.name ~= "review" then
+      local dirty = pending > 0
       saveBar = ui.row({ key = "savebar", gap = 8, align = "center", padding = 10, radius = 12,
-                         fill = "primary_container" }, {
-        ui.glyph({ name = "pencil", size = 16, color = "primary" }),
-        ui.label({ text = kit.plural(pending, "unsaved change"), fontSize = 13, flexGrow = 1 }),
-        ui.button({ text = "Discard", variant = "ghost", controlSize = "sm", onClick = function()
+                         fill = dirty and "primary_container" or "surface_container" }, {
+        ui.glyph({ name = dirty and "pencil" or "check", size = 16, color = dirty and "primary" or kit.MUTED }),
+        ui.label({ text = dirty and kit.plural(pending, "unsaved change") or "No unsaved changes", fontSize = 13,
+                   color = not dirty and kit.MUTED or nil, flexGrow = 1 }),
+        ui.button({ text = "Undo", glyph = "arrow-back-up", variant = "ghost", controlSize = "sm", tooltip = "Ctrl+Z",
+                    enabled = store.canUndo(), onClick = function() ctx.undo() end }),
+        ui.button({ text = "Discard", variant = "ghost", controlSize = "sm", enabled = dirty, onClick = function()
           ctx.discardAll()
           ctx.flash("All unsaved changes were discarded.", "info")
         end }),
         ui.button({ text = "Review & save", glyph = "device-floppy", variant = "primary", controlSize = "sm",
-                    tooltip = "Ctrl+S", onClick = function() ctx.go({ name = "review" }) end }),
+                    tooltip = "Ctrl+S", enabled = dirty, onClick = function() ctx.go({ name = "review" }) end }),
       })
     end
     panel.render(layout(ctx, { header = parts.header or {}, notices = noticeNodes, content = content,
                                saveBar = saveBar, route = current }))
     noctalia.state.set("umbriel.pending", pending)
     noctalia.state.set("umbriel.config", store.state and store.state.path or "")
+  end
+
+  -- Reverts the newest edit; inputs are rebuilt because they only take their text when created.
+  function ctx.undo()
+    if store.undo() then
+      ctx.resetInputs()
+      ctx.render()
+    else
+      ctx.flash("Nothing to undo.", "info")
+    end
   end
 
   -- Coalesce bursts (slider drags) into one render per frame.
@@ -317,6 +335,18 @@ function M.create(layout, options)
       if route().name ~= "review" and store.pendingCount() > 0 then ctx.go({ name = "review" }) end
     elseif chord == "alt+Left" then
       ctx.back()
+    elseif chord == "ctrl+z" then
+      ctx.undo()
+    elseif chord == "Escape" then  -- app only: in Noctalia, Escape always closes the panel
+      if (view.query or "") ~= "" then
+        view.query = ""
+        view.gen.search = (view.gen.search or 0) + 1
+        ctx.render()
+      elseif ctx.canGoBack() then
+        ctx.back()
+      elseif route().name ~= "home" then
+        ctx.home()
+      end
     end
   end
 
@@ -330,6 +360,23 @@ function M.create(layout, options)
   function handlers.onExternalChange()
     if not (store.meta and store.state) then return end
     if loading.config then ctx.changedDuringLoad = true else ctx.reload() end
+  end
+
+  -- The app was started again (single instance) with a config path: open it unless unsaved edits of the
+  -- current config would be lost.
+  function handlers.onRelaunch(path)
+    path = noctalia.string.trim(tostring(path or ""))
+    if path == "" then return end
+    if not store.meta then
+      if firstLoad then options.initialConfig = path end
+      return
+    end
+    if store.state and path == store.state.path then return end
+    if store.hasConfigChanges() then
+      ctx.flash("Save or discard your changes before opening " .. path .. ".", "warning")
+      return
+    end
+    ctx.reload(path, false)
   end
 
   return ctx, handlers

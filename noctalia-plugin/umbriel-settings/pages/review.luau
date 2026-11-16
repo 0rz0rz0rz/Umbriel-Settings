@@ -97,7 +97,7 @@ local function save(ctx, state)
         noctalia.notify("Umbriel Settings", err and ("Saving failed: " .. err.error)
           or (report.saved and saved or "Not saved: Umbriel rejected the config."))
         if not err and report.saved then
-          store.fieldChanges, store.entryOps, store.mapOps, store.keybindsDirty = {}, {}, {}, false
+          store.fieldChanges, store.entryOps, store.mapOps, store.keybindsDirty, store.history = {}, {}, {}, false, {}
           store.load(report.state)
           store.saveDraft()  -- the draft written on close still held these edits
         end
@@ -116,7 +116,7 @@ local function save(ctx, state)
         ctx.render()
         return
       end
-      store.fieldChanges, store.entryOps, store.mapOps, store.keybindsDirty = {}, {}, {}, false
+      store.fieldChanges, store.entryOps, store.mapOps, store.keybindsDirty, store.history = {}, {}, {}, false, {}
       store.load(report.state)
       local warnings = 0
       for _, item in ipairs(report.validation.diagnostics or {}) do

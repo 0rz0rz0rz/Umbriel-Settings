@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 import unittest
 import unittest.mock
@@ -180,6 +181,29 @@ class SaveTests(HelperTestCase):
         self.assertEqual(report["state"]["fields"]["general.mod_key"], "Alt")
         labels = {(item["label"], item["new"]) for item in report["summary"]}
         self.assertIn(("Mod key", "Alt"), labels)
+
+    def test_saves_wait_for_another_writer_but_reads_do_not(self):
+        state = self.read()
+        sys.path.insert(0, str(HELPER.parent))
+        self.addCleanup(sys.path.remove, str(HELPER.parent))
+        from umbriel_core import paths
+
+        held = threading.Event()
+
+        def other_writer():
+            with paths.write_lock(str(self.root / "data" / "umbriel-settings")):
+                held.set()
+                time.sleep(0.6)
+        writer = threading.Thread(target=other_writer)
+        writer.start()
+        self.addCleanup(writer.join)
+        held.wait(5)
+        started = time.monotonic()
+        self.read()
+        self.assertLess(time.monotonic() - started, 0.6, "a read does not take the write lock")
+        report = self.save(state, fields={"general.mod_key": {"value": "Alt"}})
+        self.assertTrue(report["saved"])
+        self.assertFalse(writer.is_alive(), "the save waited until the other writer was done")
 
     def test_preview_does_not_write(self):
         state = self.read()

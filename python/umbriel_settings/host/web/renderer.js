@@ -97,7 +97,11 @@ function create(node) {
     el = document.createElement("input");
     el.type = "range";
     el.addEventListener("input", () => { fillSlider(el); invokeSoon(el, el.__props.onChange, el.value); });
-    el.addEventListener("change", () => invoke(el.__props.onDragEnd, el.value));
+    el.addEventListener("change", () => {  // the end must not overtake the last coalesced change
+      const queued = pending.get(el);
+      if (queued) { pending.delete(el); invoke(queued[0], queued[1]); }
+      invoke(el.__props.onDragEnd, el.value);
+    });
     el.addEventListener("pointerdown", () => { el.__dragging = true; });
     el.addEventListener("pointerup", () => { el.__dragging = false; });
   } else if (kind === "colorPicker") {
@@ -422,9 +426,13 @@ function markdown(source) {
 }
 
 // ------------------------------------------------------------------ keys and startup
+// Ctrl+Z in a text field stays the field's own text undo; elsewhere it undoes the last settings edit.
+const typing = (e) => e.target instanceof HTMLElement && e.target.matches("input[type=text], input[type=password], textarea");
 const KEYS = { "ctrl+f": (e) => e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f",
                "ctrl+s": (e) => e.ctrlKey && !e.altKey && e.key.toLowerCase() === "s",
-               "alt+Left": (e) => e.altKey && e.key === "ArrowLeft" };
+               "ctrl+z": (e) => e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "z" && !typing(e),
+               "alt+Left": (e) => e.altKey && e.key === "ArrowLeft",
+               "Escape": (e) => e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey };
 document.addEventListener("keydown", (e) => {
   for (const [chord, test] of Object.entries(KEYS)) {
     if (test(e)) { e.preventDefault(); bridge && bridge.key(chord); return; }

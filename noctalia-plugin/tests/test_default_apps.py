@@ -103,6 +103,35 @@ class DefaultAppsPluginTests(unittest.TestCase):
         self.assertEqual(self.helper("extension", ".pdf")["mime"], "application/pdf")
         self.helper("extension", "bad/extension", success=False)
 
+    def test_only_the_desktop_entry_group_counts_and_broken_files_are_skipped(self):
+        appdir = self.root / "data" / "applications"
+        (appdir / "kde").mkdir(parents=True)
+        system = self.root / "system" / "applications"
+        system.mkdir(parents=True)
+        files = {
+            appdir / "good.desktop": "# c\n[Desktop Entry]\nName=Good\nExec=good %U\n"
+                                     "[Desktop Action new]\nName=New window\nNoDisplay=true\n",
+            appdir / "kde" / "sub.desktop": "[Desktop Entry]\nName = Spaced\n",
+            appdir / "nodisplay.desktop": "[Desktop Entry]\nName=Gone\nNoDisplay=True\n",
+            appdir / "link.desktop": "[Desktop Entry]\nType=Link\nName=Link\n",
+            appdir / "tryexec.desktop": "[Desktop Entry]\nName=Missing\nTryExec=no-such-program-xyz\n",
+            appdir / "noname.desktop": "[Desktop Entry]\nExec=x\n",
+            appdir / "garbage.desktop": "[Desktop Entry]\nName=Broken\nthis line has no equals sign\n",
+            appdir / "other.desktop": "[Other]\nName=Other\n",
+            system / "good.desktop": "[Desktop Entry]\nName=System copy\n",
+            system / "system.desktop": "[Desktop Entry]\nName=System\n",
+        }
+        for path, text in files.items():
+            path.write_text(text)
+        (appdir / "latin1.desktop").write_bytes(b"[Desktop Entry]\nName=Caf\xe9\n")
+        self.env.update(LC_ALL="", LC_MESSAGES="", LANG="C", XDG_CURRENT_DESKTOP="")
+        self.assertEqual(self.helper("read")["apps"], [
+            {"id": "good.desktop", "name": "Good"},
+            {"id": "noname.desktop", "name": "noname"},
+            {"id": "kde-sub.desktop", "name": "Spaced"},
+            {"id": "system.desktop", "name": "System"},
+        ])
+
     def test_app_names_follow_the_locale_and_desktop_filters_apply(self):
         appdir = self.root / "data" / "applications"
         appdir.mkdir(parents=True)

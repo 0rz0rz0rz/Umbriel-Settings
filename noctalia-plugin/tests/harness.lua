@@ -1,7 +1,7 @@
 -- Mocked Noctalia API shared by panel_test.lua and app_test.lua (plain Lua, fixtures from the real helper).
 -- H.start(entryFile, appOptions) loads an entry script; the returned table exposes the helpers.
 local pluginDir, fixtureDir = arg[1], arg[2]
-local H = { env = {} }
+local H = { env = {}, clock = 1000 }  -- clock: what noctalia.nowMs() returns; tests advance it
 
 -- ------------------------------------------------------------------ JSON
 local json = {}
@@ -179,6 +179,7 @@ noctalia = {
   removeFile = function(path) files[path] = nil; return true end,
   notify = function(_, body) table.insert(notifications, body) end,
   getColor = function() return "#336699" end,
+  nowMs = function() return H.clock end,
   getenv = function(name) return H.env[name] end,
   fuzzyScore = function(query, text) return text:lower():find(query:lower(), 1, true) and 10 or 1 end,
   appIconPath = function() return nil end,
@@ -191,6 +192,7 @@ noctalia = {
   end,
   runAsync = function(argv, callback)
     assert(argv[1] == "python3" and argv[3] == pluginDir .. "/umbriel_settings.py", "helper argv")
+    assert(string.match(argv[2], "^%-Xpycache_prefix=.+/pycache$"), "bytecode goes to the data dir")
     local command, requestPath, responsePath = argv[4], argv[6], argv[8]
     local request = json.decode(files[requestPath])
     table.insert(calls, { command = command, request = request })
@@ -285,6 +287,13 @@ H.json, H.fixtures, H.files, H.calls, H.replies, H.loaded, H.pluginDir = json, f
 H.flushReads, H.texts, H.hasText, H.find, H.clickText, H.lastCall, H.screen =
   flushReads, texts, hasText, find, clickText, lastCall, screen
 H.tree = function() return tree end
+-- Moves a slider like the pointer does (press, drag, release later); `wheel` = a mouse-wheel notch, which Noctalia
+-- reports as one change and an immediate drag end.
+function H.slide(node, value, wheel)
+  node.props.onChange(tostring(value))
+  if not wheel then H.clock = H.clock + 150 end
+  node.props.onDragEnd()
+end
 H.timing = timing
 -- Prints the slowest callback; fails when it exceeds `limit` seconds of CPU.
 function H.checkBudget(label, limit)

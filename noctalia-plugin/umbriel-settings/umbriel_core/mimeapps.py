@@ -1,6 +1,5 @@
 """Read and update XDG default applications (mimeapps.list)."""
 
-import configparser
 import hashlib
 import mimetypes
 import os
@@ -61,11 +60,47 @@ def locale_keys(environ=None):
 
 def shown_here(entry, desktops):
     """Apply a desktop entry's OnlyShowIn/NotShowIn to the current desktops (XDG_CURRENT_DESKTOP)."""
-    only = {item for item in entry.get("OnlyShowIn", "").split(";") if item}
-    hidden = {item for item in entry.get("NotShowIn", "").split(";") if item}
+    only = {item for item in entry.get("onlyshowin", "").split(";") if item}
+    hidden = {item for item in entry.get("notshowin", "").split(";") if item}
     if only and not only & desktops:
         return False
     return not hidden & desktops
+
+
+# Keys installed_apps reads (lower-cased, like the configparser it replaced), plus Name[<locale>].
+DESKTOP_KEYS = {"type", "hidden", "nodisplay", "onlyshowin", "notshowin", "tryexec", "name"}
+
+
+def desktop_entry(path, wanted):
+    """The `wanted` keys of a file's [Desktop Entry] group, or None when it has none or the group is malformed.
+
+    Only that group is read (translations and actions are skipped), which keeps scanning hundreds of files fast.
+    """
+    try:
+        text = Path(path).read_bytes().decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
+    entry, inside = None, False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped[0] in "#;":
+            continue
+        if stripped[0] == "[":
+            if inside:
+                break
+            inside = stripped == "[Desktop Entry]"
+            if inside:
+                entry = {}
+            continue
+        if not inside:
+            continue
+        key, sep, value = stripped.partition("=")
+        if not sep:
+            return None
+        key = key.strip().lower()
+        if key in wanted:
+            entry[key] = value.strip()
+    return entry
 
 
 def installed_apps():
@@ -74,6 +109,7 @@ def installed_apps():
     roots.extend(Path(root) / "applications" for root in
                  (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if root)
     languages = locale_keys()
+    wanted = DESKTOP_KEYS | {f"name[{key.lower()}]" for key in languages}
     desktops = {item for item in os.environ.get("XDG_CURRENT_DESKTOP", "").split(":") if item}
     apps, seen = [], set()
     for root in roots:
@@ -87,25 +123,20 @@ def installed_apps():
                 if app_id in seen:
                     continue
                 seen.add(app_id)
-                parser = configparser.ConfigParser(interpolation=None, strict=False)
-                try:
-                    with path.open(encoding="utf-8") as file:
-                        parser.read_file(file)
-                except (OSError, configparser.Error, UnicodeError):
+                entry = desktop_entry(path, wanted)
+                if entry is None:
                     continue  # one broken desktop entry must not hide every other app
-                if not parser.has_section("Desktop Entry"):
-                    continue
-                entry = parser["Desktop Entry"]
-                if (entry.get("Type", "Application") != "Application"
-                        or entry.get("Hidden", "").lower() == "true"
-                        or entry.get("NoDisplay", "").lower() == "true"
+                if (entry.get("type", "Application") != "Application"
+                        or entry.get("hidden", "").lower() == "true"
+                        or entry.get("nodisplay", "").lower() == "true"
                         or not shown_here(entry, desktops)):
                     continue
-                executable = entry.get("TryExec", "")
+                executable = entry.get("tryexec", "")
                 if executable and not shutil.which(executable):
                     continue
-                name = next((entry[f"Name[{key}]"] for key in languages if entry.get(f"Name[{key}]")), None)
-                apps.append({"id": app_id, "name": name or entry.get("Name") or app_id[:-8]})
+                name = next((entry[f"name[{key.lower()}]"] for key in languages if entry.get(f"name[{key.lower()}]")),
+                            None)
+                apps.append({"id": app_id, "name": name or entry.get("name") or app_id[:-8]})
     return sorted(apps, key=lambda app: (app["name"].casefold(), app["id"].casefold()))
 
 

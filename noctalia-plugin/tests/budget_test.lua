@@ -47,5 +47,18 @@ for _, section in ipairs(meta.nav) do
   end
 end
 assert(visited >= 20, "visited " .. visited .. " pages")
+
+-- the customized view walks every field; undo of a typed shortcut restores the large keybind list
+search("")
+assert(click("Customized"), "Customized button\nScreen: " .. H.screen())
+search("")
+assert(click("Keybinds"), "Keybinds card")
+local store = H.loaded[H.pluginDir .. "/lib/store.luau"]
+assert(click(store.keybinds.rows[1].key), "first shortcut")
+local keyInput = function() return find("input", function(n) return tostring(n.props.key):match("^kb%-key%-") end) end
+keyInput().props.onChange("F12")
+keyInput().props.onChange("F11")
+entry.onKey("ctrl+z", true)
+assert(not store.keybindsDirty, "undone")
 H.checkBudget("budget " .. layout, 0.025)
 print("budget ok")

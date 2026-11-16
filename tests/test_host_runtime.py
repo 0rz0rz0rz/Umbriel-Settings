@@ -114,6 +114,25 @@ class HostRuntimeTests(unittest.TestCase):
         self.assertIn('mod_key = "Alt" # main modifier', self.config.read_text())
         self.assertEqual(self.states.get("umbriel.pending"), 0)
 
+    def test_a_second_launch_opens_its_config_unless_edits_would_be_lost(self):
+        other = Path(self.temp.name) / "other.toml"
+        other.write_text(CONFIG.replace('"Super"', '"Alt"'))
+        self.host.call("onRelaunch", str(other))
+        self.settle()
+        self.assertEqual(self.states.get("umbriel.config"), str(other))
+        saved = Path(os.environ["XDG_DATA_HOME"]) / "umbriel-settings" / "gui-config-path"
+        self.assertFalse(saved.exists() and str(other) in saved.read_text(), "a launch argument is not remembered")
+
+        self.click("General")
+        self.click("Session")
+        select = self.find(lambda n: n["props"].get("key") == "f:general.mod_key:select")
+        self.host.invoke(select["props"]["onChange"], select["props"]["options"].index("Super"))
+        self.settle()
+        self.host.call("onRelaunch", str(self.config))
+        self.settle()
+        self.assertEqual(self.states.get("umbriel.config"), str(other), "unsaved edits keep the config open")
+        self.assertIn("Save or discard your changes", self.screen())
+
     def test_loading_the_helper_does_not_shadow_the_app_package(self):
         """The helper file is umbriel_settings.py, like this package; its sys.path change must not leak."""
         import importlib

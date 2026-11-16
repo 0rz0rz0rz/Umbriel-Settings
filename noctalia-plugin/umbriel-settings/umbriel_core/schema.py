@@ -2,6 +2,7 @@
 
 import fnmatch
 import json
+import re
 import shutil
 import subprocess
 
@@ -93,49 +94,69 @@ def schema_field_catalog():
     return catalog
 
 
+def _segment(part):
+    """A path segment as a literal string, or a compiled pattern when it holds a wildcard (`<name>` → `*`)."""
+    normalized = part.replace("[]", "__array__").replace("<name>", "*")
+    if any(char in normalized for char in "*?["):
+        return re.compile(fnmatch.translate(normalized)).match
+    return normalized
+
+
+def _value(part):
+    return part.replace("[]", "__array__").replace("<name>", "*")
+
+
+def _prefix_matches(patterns, values):
+    """Every pattern segment matches the value segment at its position (values may be longer)."""
+    for pattern, value in zip(patterns, values, strict=False):
+        if not (pattern == value if isinstance(pattern, str) else pattern(value)):
+            return False
+    return True
+
+
 def check_schema_coverage(schema):
-    """Compare supported schema options with the GUI's field and custom-editor catalog."""
-    options = schema.get("options", [])
-    catalog = schema_field_catalog()
-    schema_paths = {option.get("path") for option in options if isinstance(option, dict)}
+    """Compare supported schema options with the GUI's field and custom-editor catalog.
 
-    def normalize(part):
-        return part.replace("[]", "__array__").replace("<name>", "*")
+    Segments are compared with shell wildcards (`<name>` matches any one segment). Both sides are bucketed by
+    their first segment, so each option is only compared with catalog entries that can match it.
+    """
+    catalog = []
+    by_first, wild_first = {}, []
+    for field_path, kind in schema_field_catalog():
+        patterns = [_segment(part) for part in field_path.split(".")]
+        entry = (field_path, patterns, kind in ("raw", "table", "custom"))
+        catalog.append(entry)
+        if isinstance(patterns[0], str):
+            by_first.setdefault(patterns[0], []).append(entry)
+        else:
+            wild_first.append(entry)
 
-    def pattern_matches(pattern, value):
-        return fnmatch.fnmatchcase(normalize(value), normalize(pattern))
+    options = [option for option in schema.get("options", []) if isinstance(option, dict)]
+    paths_by_first = {}
+    for path in {option.get("path") for option in options}:
+        if isinstance(path, str):
+            values = [_value(part) for part in path.split(".")]
+            paths_by_first.setdefault(values[0], []).append(values)
 
     missing = []
     for option in options:
-        if not isinstance(option, dict) or option.get("type") in ("table", "map", "array_of_tables"):
+        if option.get("type") in ("table", "map", "array_of_tables"):
             continue
         path = str(option.get("path", ""))
-        path_parts = path.split(".")
-        covered = False
-        for field_path, kind in catalog:
-            field_parts = field_path.split(".")
-            for length in range(1, min(len(field_parts), len(path_parts)) + 1):
-                if all(
-                    pattern_matches(field_parts[index], path_parts[index])
-                    for index in range(length)
-                ):
-                    if length == len(field_parts) and (
-                        kind in ("raw", "table", "custom") or len(field_parts) == len(path_parts)
-                    ):
-                        covered = True
-                        break
-            if covered:
-                break
-        if not covered:
+        values = [_value(part) for part in path.split(".")]
+        if not any(
+            len(patterns) <= len(values) and (covers_children or len(patterns) == len(values))
+            and _prefix_matches(patterns, values)
+            for _, patterns, covers_children in by_first.get(values[0], []) + wild_first
+        ):
             missing.append(path)
 
     stale = []
-    for field_path, _ in catalog:
-        if not any(
-            len(path.split(".")) >= len(field_path.split("."))
-            and all(pattern_matches(field_part, schema_part) for field_part, schema_part
-                    in zip(field_path.split("."), path.split("."), strict=False))
-            for path in schema_paths
-        ):
+    for field_path, patterns, _ in catalog:
+        if isinstance(patterns[0], str):
+            candidates = paths_by_first.get(patterns[0], [])
+        else:
+            candidates = [values for group in paths_by_first.values() for values in group]
+        if not any(len(values) >= len(patterns) and _prefix_matches(patterns, values) for values in candidates):
             stale.append(field_path)
     return sorted(set(missing)), sorted(set(stale))

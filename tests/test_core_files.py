@@ -136,6 +136,18 @@ class AtomicWriteTests(TempDirTestCase):
             self.assertEqual(handle.read(), "[]")
 
 
+class WriteLockTests(TempDirTestCase):
+    def test_a_held_lock_times_out_and_is_released_after_errors(self):
+        directory = os.path.join(self.root, "data")
+        with paths.write_lock(directory), self.assertRaisesRegex(TimeoutError, "still saving"), \
+                paths.write_lock(directory, timeout=0.1):
+            pass
+        with self.assertRaises(RuntimeError), paths.write_lock(directory):
+            raise RuntimeError("a failing save")
+        with paths.write_lock(directory, timeout=0.1):  # free again
+            pass
+
+
 class CursorThemeTests(TempDirTestCase):
     def test_discovers_themes_in_xdg_and_legacy_locations(self):
         home = self.root

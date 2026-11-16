@@ -43,7 +43,8 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
 ```
 
 - **Home** has a search over setting names, help text, config keys (`border_width`), rule names and
-  shortcuts, and cards for every page with customized/unsaved counts.
+  shortcuts, cards for every page with customized/unsaved counts, and **Customized**, a list of every
+  setting that differs from Umbriel's default.
 - **Setting rows** show the control, the default, ⓘ help with the config key, undo, and an eraser that
   removes the key so Umbriel's default applies. **Only customized** hides settings at their default.
 - **Rules, outputs, devices and effects** are lists: edit, name, reorder, duplicate, delete.
@@ -60,7 +61,9 @@ Nothing is written until **Review & save** (Ctrl+S): the review lists every chan
 its setting. Unsaved edits (including folders and default apps) survive closing the panel and restarting
 Noctalia as a draft.
 
-Keys: Ctrl+F search, Ctrl+S review, Alt+Left back, Esc close.
+Keys: Ctrl+F search, Ctrl+S review, Ctrl+Z undo the last unsaved edit (also **Undo** in the save bar),
+Alt+Left back, Esc close. Scrolling the mouse wheel over a slider doesn't change it; drag it or type in the
+box next to it.
 
 ## Settings
 
@@ -94,15 +97,16 @@ Keys: Ctrl+F search, Ctrl+S review, Alt+Left back, Esc close.
   atomically, symlinks refused), `$XDG_CONFIG_HOME/user-dirs.dirs` and `$XDG_CONFIG_HOME/mimeapps.list` (other
   entries and MIME fallbacks kept). Each write is preceded by a timestamped backup (newest 10 per file) in
   `$XDG_DATA_HOME/umbriel-settings/`, which also holds the chosen config path, rule names, keybind locks and
-  the editor command. Drafts and cache live in Noctalia's plugin data directory.
+  the editor command, and `write.lock`, which lets one writer (panel or app) save at a time. Drafts and cache
+  live in Noctalia's plugin data directory.
 - **Title bars that follow Noctalia**, only after pressing **KDE** / **KDE header**: the user template
   `~/.config/noctalia/templates/umbriel-titlebar.toml`, its `umbriel_titlebar` entry in `noctalia-config.toml`
   (backed up first) and `~/.config/umbriel-settings/titlebar_apply.py`. On palette changes Noctalia renders
   `~/.config/umbriel-settings/titlebar-colors.toml` and runs the script, which sets only `background` /
   `background_unfocused` in `[colors.title_bar]` of each following config (an include can't, because
   Noctalia's umbriel template always loads `noctalia.toml` last).
-- **Processes**: `python3 -B umbriel_settings.py <command>` (JSON request/response files in the plugin data
-  directory); `umbriel config validate` (on a temporary `.umbriel-settings-*.toml` next to the config,
+- **Processes**: `python3 umbriel_settings.py <command>` (JSON request/response files and the helper's
+  bytecode cache in the plugin data directory); `umbriel config validate` (on a temporary `.umbriel-settings-*.toml` next to the config,
   removed afterwards), `umbriel config schema --json`, `umbriel outputs --json`; on button press only:
   `zenity`/`kdialog`, `gio launch`, `xdg-open` or your editor. Noctalia runs `python3 titlebar_apply.py`
   after palette changes while a title-bar color follows it.

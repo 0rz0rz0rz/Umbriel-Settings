@@ -144,6 +144,32 @@ class AppRenderTests(unittest.TestCase):
         save_window_state(self.win.data_dir, {"width": 5, "height": 5})  # unusable: falls back to the default
         self.assertEqual(load_window_state(self.win.data_dir), {})
 
+    def test_a_slider_drag_is_stored_when_released(self):
+        self.wait_for_text("Home", "Appearance")
+        self.click("Appearance")
+        self.click("Windows")
+        self.wait_for_text("Border width")
+        # The release (change) comes right after the last move (input), which the page sends one frame later.
+        self.js("const s = document.querySelector('#root input[type=range]'); s.value = s.max;"
+                "s.dispatchEvent(new Event('input')); s.dispatchEvent(new Event('change')); 'ok'")
+        deadline = time.monotonic() + 5
+        while self.win.pending != 1 and time.monotonic() < deadline:
+            self.pause(50)
+        self.assertEqual(self.win.pending, 1, "the dragged value is one unsaved change")
+        self.pause(200)  # a late duplicate of the last move must not start a gesture that never ends
+        self.assertEqual(self.js("String(document.querySelector('#root input[type=range]').value === "
+                                 "document.querySelector('#root input[type=range]').max)"), "true")
+        self.assertEqual(self.win.host.errors, [])
+
+    def test_notifications_show_the_status_bar_only_while_they_last(self):
+        bar = self.win.statusBar()
+        self.assertTrue(bar.isHidden())
+        self.win.api.notify("Umbriel Settings", "Saved after the panel closed.")
+        self.assertFalse(bar.isHidden())
+        self.assertEqual(bar.currentMessage(), "Umbriel Settings: Saved after the panel closed.")
+        bar.clearMessage()
+        self.assertTrue(bar.isHidden())
+
     def test_a_config_that_is_deleted_and_written_again_is_watched_again(self):
         self.wait_for_text("Home", "Appearance")
         # The path is published once the config has loaded, which slow runners finish after the first render.

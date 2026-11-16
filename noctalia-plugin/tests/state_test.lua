@@ -91,6 +91,38 @@ local copyInput = input("^kb%-key%-")
 assert(copyInput.props.key ~= keyInput.props.key and copyInput.props.value == "",
        "the copy shows “" .. tostring(copyInput.props.value) .. "” under key " .. copyInput.props.key)
 
+-- Undo: repeated edits of one value are one step; entry and keybind edits are replayed from the file
+goHome()
+store.discardAll()
+store.setField("appearance.border_width", 5)
+store.setField("appearance.border_width", 6)
+store.setField("general.mod_key", "Alt")
+entry.onKey("ctrl+z", true)
+assert(store.fieldChanges["general.mod_key"] == nil and store.fieldChanges["appearance.border_width"].value == 6,
+       "the newest edit is undone first")
+entry.onKey("ctrl+z", true)
+assert(next(store.fieldChanges) == nil, "edits of one field undo as one step")
+local rules = #store.entryItems("window_rule")
+store.entryOp("window_rule", { op = "add" })
+store.entryOp("window_rule", { op = "label", index = rules, text = "A" })
+store.entryOp("window_rule", { op = "label", index = rules, text = "Ab" })
+entry.onKey("ctrl+z", true)
+assert(#store.entryItems("window_rule") == rules + 1 and store.entryItems("window_rule")[rules + 1].label == ""
+       and #store.entryOps == 1, "typing a label undoes as one step")
+entry.onKey("ctrl+z", true)
+assert(#store.entryItems("window_rule") == rules and #store.entryOps == 0, "the added rule is gone")
+clickText("Keybinds")
+local firstKey = store.keybinds.rows[1].key
+clickText(firstKey)
+input("^kb%-key%-").props.onChange("F12")
+input("^kb%-key%-").props.onChange("F11")
+assert(store.keybindsDirty and store.keybinds.rows[1].key ~= firstKey, "the shortcut was edited")
+clickText("Undo")
+assert(store.keybinds.rows[1].key == firstKey and not store.keybindsDirty, "typing a shortcut undoes as one step")
+assert(input("^kb%-key%-").props.value ~= "F11", "the input shows the restored shortcut")
+entry.onKey("ctrl+z", true)
+assert(hasText("Nothing to undo."), screen())
+
 -- a successful save removes a draft that still held the saved edits
 goHome()
 store.setField("general.mod_key", "Alt")

@@ -1,13 +1,16 @@
 import json
+import os
 import re
+import tempfile
 import threading
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
 
 from umbriel_core.meta import PAGE_GLYPHS
-from umbriel_settings.host.api import fuzzy_score
+from umbriel_settings.host.api import ManualScheduler, NoctaliaApi, fuzzy_score
 from umbriel_settings.host.bridge import Bridge, QtScheduler
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,6 +78,63 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(wait_until(self.app, lambda: "done" in seen and posted))
         self.assertEqual(seen["done"], gui_thread)
         self.assertNotEqual(seen["worker"], gui_thread)
+
+    def test_a_failing_background_job_still_answers_on_the_gui_thread(self):
+        scheduler = QtScheduler()
+        self.addCleanup(scheduler.pool.shutdown)
+        seen = {}
+
+        def work():
+            raise RuntimeError("boom")
+        scheduler.background(work, lambda result: seen.update(result=result, thread=threading.get_ident()),
+                             lambda error: f"failed: {error}")
+        self.assertTrue(wait_until(self.app, lambda: "result" in seen))
+        self.assertEqual(seen, {"result": "failed: boom", "thread": threading.get_ident()})
+
+    def test_file_and_process_callbacks_run_even_when_the_work_raises(self):
+        class Host:
+            def guard(self, function, *args):
+                return function(*args)
+
+            def to_lua(self, value):
+                return value
+
+            def is_table(self, value):
+                return isinstance(value, list)
+        scheduler = ManualScheduler()
+        api = NoctaliaApi(Host(), scheduler, "/nonexistent")
+        answers = []
+        with unittest.mock.patch.object(api, "readFile", side_effect=MemoryError("too big")):
+            api.readFileAsync("/x", lambda contents, error: answers.append((contents, error)))
+            scheduler.drain()
+        with unittest.mock.patch("umbriel_settings.host.api.child_env", side_effect=RuntimeError("bad env")):
+            api.runAsync("true", lambda result: answers.append(result["exitCode"]))
+            scheduler.drain()
+        self.assertEqual(answers, [(None, "MemoryError: too big"), 1])
+
+
+class SingleInstanceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QCoreApplication.instance() or QCoreApplication([])
+
+    def test_a_later_launch_reaches_the_running_app_and_stale_sockets_are_replaced(self):
+        from umbriel_settings import instance
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = os.path.join(temp, "app.sock")
+            self.assertFalse(instance.hand_over({"config": "/a.toml"}, path, timeout_ms=200), "nobody listens yet")
+            Path(path).write_text("left behind by a crashed app")
+            server = instance.claim({}, path)
+            self.assertIsNotNone(server, "the stale socket file was replaced")
+            try:
+                received = []
+                server.activated.connect(received.append)
+                self.assertIsNone(instance.claim({"config": "/b.toml", "token": "t"}, path), "handed over")
+                self.assertTrue(wait_until(self.app, lambda: received))
+                self.assertEqual(received, [{"config": "/b.toml", "token": "t"}])
+            finally:
+                server.server.close()
 
 
 class SharedAssetTests(unittest.TestCase):

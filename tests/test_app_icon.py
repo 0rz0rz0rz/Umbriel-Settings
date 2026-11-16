@@ -130,8 +130,12 @@ class AppStartupTests(unittest.TestCase):
             patch("umbriel_settings.appicon.create_app_icon"),
             patch("umbriel_settings.appicon.install_desktop_icon"),
             patch("umbriel_settings.qt6ct_theme.Qt6ctThemeFollower"),
+            patch("umbriel_settings.instance.claim") as claim,
+            patch.dict(os.environ, {"XDG_ACTIVATION_TOKEN": "token-1"}),
         ):
             app.main(["--no-validate", "/tmp/example.toml"])
+        claim.assert_called_once_with({"config": "/tmp/example.toml", "token": "token-1"})
+        claim.return_value.activated.connect.assert_called_once_with(window_class.return_value.activate_from)
         qt_app = app_class.return_value
         qt_app.setApplicationName.assert_called_once_with("Umbriel Settings")
         qt_app.setApplicationDisplayName.assert_called_once_with("Umbriel Settings")
@@ -149,10 +153,23 @@ class AppStartupTests(unittest.TestCase):
             patch("umbriel_settings.appicon.create_app_icon"),
             patch("umbriel_settings.appicon.install_desktop_icon"),
             patch("umbriel_settings.qt6ct_theme.Qt6ctThemeFollower"),
+            patch("umbriel_settings.instance.claim"),
             patch("sys.stderr"),
         ):
             self.assertEqual(app.main([]), 1)
         self.assertIn("syntax error", message_box.critical.call_args.args[2])
+        app_class.return_value.exec.assert_not_called()
+
+    def test_a_second_launch_hands_over_and_exits_without_a_window(self):
+        with (
+            patch("PySide6.QtWidgets.QApplication") as app_class,
+            patch("umbriel_settings.app_window.AppWindow") as window_class,
+            patch("umbriel_settings.appicon.install_desktop_icon") as install,
+            patch("umbriel_settings.instance.claim", return_value=None),
+        ):
+            self.assertEqual(app.main([]), 0)
+        window_class.assert_not_called()
+        install.assert_not_called()
         app_class.return_value.exec.assert_not_called()
 
     def test_an_unchanged_desktop_entry_is_not_rewritten(self):

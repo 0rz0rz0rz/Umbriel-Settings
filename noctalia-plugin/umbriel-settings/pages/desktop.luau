@@ -98,7 +98,7 @@ local function foldersPage(ctx)
       ui.row({ gap = 6, align = "center" }, {
         ui.input({ key = "fold-" .. key .. "-" .. tostring(view.gen["fold-" .. key] or 0), value = value, flexGrow = 1,
                    controlSize = "sm", placeholder = "Not set",
-                   onChange = function(text) dirs.values[key] = text; ctx.render() end }),
+                   onChange = function(text) store.setDesktop("userdirs", key, text); ctx.render() end }),
         ui.button({ text = "Browse…", glyph = "folder-open", controlSize = "sm", variant = "outline",
                     enabled = not view.browsing, onClick = function()
                       view.browsing = true
@@ -107,7 +107,7 @@ local function foldersPage(ctx)
                         view.browsing = false
                         if err then ctx.flash(err.error, "error")
                         elseif data.path then
-                          dirs.values[key] = data.path
+                          store.setDesktop("userdirs", key, data.path)
                           view.gen["fold-" .. key] = (view.gen["fold-" .. key] or 0) + 1
                         end
                         ctx.render()
@@ -201,7 +201,7 @@ local function appsPage(ctx)
         ui.button({ text = "Change", controlSize = "sm", variant = "outline",
                     onClick = function() ctx.go({ name = "appPicker", kind = "mime", target = mime }) end }),
         ui.button({ glyph = "trash", variant = "ghost", controlSize = "sm", tooltip = "Remove this association",
-                    enabled = value ~= "", onClick = function() apps.mimes[mime] = ""; ctx.render() end }),
+                    enabled = value ~= "", onClick = function() store.setDesktop("mimes", mime, ""); ctx.render() end }),
       }))
     end
   end
@@ -218,7 +218,7 @@ local function pickerPage(ctx, route)
     ui.input({ key = "app-search", value = view.appQuery or "", focus = true, placeholder = "Search installed apps",
                onChange = function(text) view.appQuery = text; ctx.render() end }) }
   local function choose(id)
-    if route.kind == "role" then apps.roles[route.target] = id else apps.mimes[route.target] = id end
+    store.setDesktop(route.kind == "role" and "roles" or "mimes", route.target, id)
     view.appQuery, view.appManual = "", nil
     ctx.back()
   end

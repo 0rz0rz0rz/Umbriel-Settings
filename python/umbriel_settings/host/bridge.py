@@ -2,6 +2,7 @@
 
 import concurrent.futures
 import json
+import traceback
 
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
 
@@ -60,15 +61,19 @@ class QtScheduler(QObject):
     def post(self, function):
         QTimer.singleShot(0, function)
 
-    def background(self, work, done):
+    def background(self, work, done, on_error=None):
+        """work() on a pool thread, then done(result) on the GUI thread.
+
+        If work() raises, done(on_error(error)) runs instead, so a Lua callback waiting on the result is never
+        left hanging; without on_error the traceback is printed and done is skipped.
+        """
         def run():
             try:
                 result = work()
-            except Exception as error:  # surfaced through the helper's own error handling where possible
-                result = error
-            self._deliver.emit(lambda: done(result) if not isinstance(result, Exception) else _raise(result))
+            except Exception as error:  # every failure must reach the GUI thread
+                if on_error is None:
+                    traceback.print_exception(error)
+                    return
+                result = on_error(error)
+            self._deliver.emit(lambda: done(result))
         self.pool.submit(run)
-
-
-def _raise(error):
-    raise error

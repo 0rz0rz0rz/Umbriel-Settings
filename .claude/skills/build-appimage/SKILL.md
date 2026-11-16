@@ -14,6 +14,8 @@ description: "Use when building, releasing, or republishing a new Umbriel Settin
 - New GUI build for the same Umbriel version: increment `NNN` (`001` -> `002`).
 - New Umbriel version (check `umbriel --version`): use it and reset `NNN` to `001`.
 
+Versions are raised only here, as part of building and releasing a new AppImage; commits and pushes in between keep the released version.
+
 This single value is used by `--version`, the AppImage file name; `plugin.toml` follows it as `<major>.<minor>.<NNN>` (`0.1.0-004` → `0.1.4`; `tests/test_core.py` checks it). Never raise the `0.1.0` part on your own.
 
 The build bundles `python/umbriel_settings`, `python/umbriel_core` (one `-x` with two paths) and the shared Luau UI from the plugin (`app.luau`, `lib/`, `ui/`, `pages/`, `umbriel_settings.py`) as `umbriel_settings/ui_shared/`. It installs `python/requirements.txt` (PySide6, tomlkit, lupa) and keeps QtWebEngine, QtWebChannel and their Qt libraries (`libexec/QtWebEngineProcess`, `resources/`, `translations/qtwebengine_locales`). The first build after the web-view switch is unverified: check that `umbriel_core/` sits next to `umbriel_settings/`, that `ui_shared/app.luau` exists, and that the app window opens and shows pages (WebEngine can fail at runtime when a pruned library is missing; run it from a terminal and read the errors). The script prunes unused Qt libraries, plugins and Python stdlib/tooling, then fails if a remaining Qt library still needs a pruned `libQt6*` (uses `readelf`); extend the prune lists, not the guard.

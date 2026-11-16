@@ -1,11 +1,14 @@
 """GUI data locations, atomic file writes and config snapshots shared by the app and the plugin."""
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
 import shutil
 import stat
 import tempfile
+import time
 
 DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/umbriel/config.toml")
 DATA_DIR_NAME = "umbriel-settings"
@@ -112,6 +115,31 @@ def atomic_write(path, data, mode=None):
         except OSError:
             pass
         raise
+
+
+@contextlib.contextmanager
+def write_lock(directory, timeout=40.0):
+    """Hold `<directory>/write.lock` so one writer at a time edits the config, its sidecars and desktop files.
+
+    The plugin's helper processes and the app's worker threads all take it (flock also excludes other open
+    files in the same process). Raises TimeoutError when another writer keeps it longer than `timeout` seconds.
+    """
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    handle = open(os.path.join(directory, "write.lock"), "a+b")  # closed in finally
+    try:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Another Umbriel Settings window is still saving. Try again in a moment.") \
+                        from None
+                time.sleep(0.05)
+        yield
+    finally:
+        handle.close()  # also releases the lock
 
 
 def write_text_file(path, text):

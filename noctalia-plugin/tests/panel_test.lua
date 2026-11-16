@@ -50,7 +50,10 @@ end
 clickText("Save")
 flushReads()
 assert(lastCall("save"), "saved")
-assert(not hasText("Review & save"), "no pending changes after saving: " .. screen())
+-- the save bar stays (so the page height and its scrollbar don't change with every edit), quiet and disabled
+assert(hasText("No unsaved changes"), "no pending changes after saving: " .. screen())
+assert(find("button", function(n) return n.props.text == "Review & save" end).props.enabled == false,
+       "nothing to review")
 assert(hasText("Saved."), "flash after save: " .. screen())
 
 -- rejected configs are not written and the diagnostic links to the setting
@@ -140,12 +143,26 @@ flushReads()  -- a picked color stops following; deliver that answer
 assert(lastCall("titlebar-follow").request.source == nil, "picking a color stops following")
 if not hasText("Background unfocused") then clickText("Title bar") end
 local function opacitySlider(id)
-  return find("slider", function(n) return n.props.key == "f:" .. id .. ":opacity-slider" end, "opacity slider for " .. id)
+  return find("slider", function(n) return tostring(n.props.key):find("f:" .. id .. ":opacity-slider:", 1, true) == 1 end,
+              "opacity slider for " .. id)
 end
 assert(opacitySlider("colors.title_bar.background").props.value == 1, "the picked #112233FF is fully opaque")
-opacitySlider("colors.title_bar.background").props.onChange("0.5")
+-- a mouse-wheel notch over a slider changes nothing (it is meant to scroll the page)
+local before = opacitySlider("colors.title_bar.background")
+H.slide(before, 0.99, true)
+assert(store.fieldChanges["colors.title_bar.background"].value == "#112233FF", "the wheel changed nothing")
+assert(opacitySlider("colors.title_bar.background").props.key ~= before.props.key, "the slider is rebuilt at its value")
+-- dragging previews the value and stores it on release
+local dragged = opacitySlider("colors.title_bar.background")
+dragged.props.onChange("0.6")
+flushReads()
+assert(hasText("0.60 · 99") and store.fieldChanges["colors.title_bar.background"].value == "#112233FF",
+       "previewed, not stored yet: " .. screen())
+dragged.props.onChange("0.5")
+H.clock = H.clock + 150
+dragged.props.onDragEnd()
 assert(store.fieldChanges["colors.title_bar.background"].value == "#11223380", "0.5 is alpha 80, color kept")
-opacitySlider("colors.title_bar.background_unfocused").props.onChange("0.84")
+H.slide(opacitySlider("colors.title_bar.background_unfocused"), 0.84)
 assert(store.fieldChanges["colors.title_bar.background_unfocused"].value == "#1A1A1FD6", "0.84 rounds to D6")
 flushReads()  -- runs the frame tick that renderSoon waits for
 assert(hasText("0.84 · D6"), "value and hex shown: " .. screen())
@@ -159,7 +176,7 @@ if not hasText("Background unfocused") then clickText("Title bar") end
 find("button", function(n) return n.props.key == "f:colors.title_bar.background:kde:KDE header" end).props.onClick()
 flushReads()
 assert(hasText("Follows Noctalia · KDE header"), "follow state shown: " .. screen())
-opacitySlider("colors.title_bar.background").props.onChange("0.5")
+H.slide(opacitySlider("colors.title_bar.background"), 0.5)
 local followCall = lastCall("titlebar-follow")
 assert(followCall.request.field == "background" and followCall.request.source == "kde_header"
        and followCall.request.opacity == 0.5, "slider changes the followed opacity")
@@ -254,14 +271,14 @@ assert(afterFrames >= 20, "remaining icons resolved on later frames: " .. afterF
 flushReads()
 assert(iconCalls == afterFrames, "icons are cached")
 -- slow lookups stop once the render's icon time budget is spent (always at least one per render)
-local fakeNow = 0
+local fakeNow, nowMs = 0, noctalia.nowMs
 noctalia.nowMs = function() return fakeNow end
 noctalia.appIconPath = function() iconCalls = iconCalls + 1; fakeNow = fakeNow + 10; return nil end
 for i = 1, 10 do table.insert(store.desktop.apps.apps, { id = "slow" .. i .. ".desktop", name = "Fake app slow " .. i }) end
 iconCalls = 0
 find("input", function(n) return n.props.key == "app-search" end).props.onChange("slow")
 assert(iconCalls == 1, "slow icon lookups in one callback: " .. iconCalls)
-noctalia.nowMs = nil
+noctalia.nowMs = nowMs
 noctalia.appIconPath = appIconPath
 find("input", function(n) return n.props.key == "app-search" end).props.onChange("")
 find("input", function(n) return n.props.key == "app-id-role-Web browser" end).props.onChange("firefox.desktop")
@@ -306,6 +323,39 @@ editorInput.props.onChange("code --new-window")
 clickText("Save")
 assert(lastCall("set-editor").request.editor == "code --new-window", "editor saved")
 assert(not hasText("Set up palette template"), "palette template is app-only")
+
+-- number sliders: a wheel notch changes nothing; a drag shows its value in the box and stores it on release
+local store = loaded[pluginDir .. "/lib/store.luau"]
+entry.onKey("ctrl+f", true)
+clickText("Appearance")
+if not hasText("Border width") then clickText("Windows") end
+local function widthSlider()
+  return find("slider", function(n) return tostring(n.props.key):find("f:appearance.border_width:slider:", 1, true) == 1 end)
+end
+local function widthBox()
+  return find("input", function(n) return tostring(n.props.key):find("f:appearance.border_width:num:", 1, true) == 1 end)
+end
+local width = store.value("appearance.border_width")
+H.slide(widthSlider(), (width or 0) + 1, true)
+assert(store.value("appearance.border_width") == width, "the wheel changed nothing")
+local drag = widthSlider()
+drag.props.onChange("7")
+flushReads()
+assert(widthBox().props.value == "7" and store.value("appearance.border_width") == width, "previewed in the box")
+H.clock = H.clock + 150
+drag.props.onDragEnd()
+assert(store.value("appearance.border_width") == 7, "stored on release")
+store.setField("appearance.border_width", width)
+
+-- Customized settings lists values that differ from Umbriel's defaults and opens them
+store.setField("appearance.border_width", 9)
+entry.onKey("ctrl+f", true)
+clickText("Customized")
+assert(hasText("Customized settings") and hasText("Border width"), screen())
+assert(not hasText("Show keybind cheatsheet at start"), "a value equal to its default is not customized: " .. screen())
+clickText("Border width")
+assert(hasText("Appearance") and find("input", function(n) return tostring(n.props.key):match("^f:appearance%.border_width") end),
+       "the setting's page opens at the setting: " .. screen())
 
 -- closing keeps a draft of unsaved edits for the next start
 entry.onClose()

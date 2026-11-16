@@ -97,6 +97,53 @@ local function hasDefault(field) return field.default ~= nil end
 local function gen(view, key) return tostring(view.gen[key] or 0) end
 local function bump(view, key) view.gen[key] = (view.gen[key] or 0) + 1 end
 
+-- Sliders commit on onDragEnd, not on every onChange. Noctalia steps a slider on mouse-wheel notches (plugins
+-- can't turn that off), so scrolling the page over one changed settings by accident. A notch arrives as a
+-- single onChange followed at once by onDragEnd, a few steps from the shown value; the pointer changes the value
+-- on press and ends on release. Such gestures are dropped in the panel and the slider is rebuilt at its value.
+-- (Arrow keys on a focused slider look the same; the number box next to it takes typed values.)
+-- props: key, min, max, step, value, ...; preview(number) runs on every change; commit(number) once at the end.
+local WHEEL_MS, WHEEL_STEPS = 20, 3
+local function now() return noctalia.nowMs and noctalia.nowMs() or 0 end
+local function slider(ctx, props, preview, commit)
+  local view, key, shown = ctx.view, props.key, props.value
+  view.sliding = view.sliding or {}
+  props.key = key .. ":" .. gen(view, key)
+  props.onChange = function(text)
+    local number = tonumber(text)
+    if number == nil then return end
+    local gesture = view.sliding[key]
+    if not gesture then
+      gesture = { at = now(), count = 0 }
+      view.sliding[key] = gesture
+    end
+    gesture.count, gesture.value = gesture.count + 1, number
+    if preview then preview(number) end
+    ctx.renderSoon()
+  end
+  props.onDragEnd = function(text)
+    local gesture = view.sliding[key]
+    view.sliding[key] = nil
+    if not gesture then return end
+    local final = tonumber(text) or gesture.value  -- the app passes the final value along
+    local wheel = not ctx.isApp and gesture.count == 1 and now() - gesture.at <= WHEEL_MS
+      and math.abs(final - (shown or final)) <= (props.step or 0) * WHEEL_STEPS + 1e-9
+    if wheel then
+      bump(view, key)  -- a new slider shows the stored value again; Noctalia moved the old one's thumb
+    else
+      commit(final)
+    end
+    ctx.render()
+  end
+  return ui.slider(props)
+end
+
+-- The value a slider gesture is previewing, if one is running.
+local function sliding(ctx, key)
+  local gesture = ctx.view.sliding and ctx.view.sliding[key]
+  return gesture and gesture.value
+end
+
 local function numberControl(ctx, spec, effective)
   local field, view, key = spec.field, ctx.view, spec.key
   local integer = field.kind == "int"
@@ -104,22 +151,21 @@ local function numberControl(ctx, spec, effective)
   local hasRange = field.min ~= nil and field.max ~= nil and field.max - field.min <= 100000
   if hasRange then
     local step = integer and 1 or ((field.max - field.min) <= 2 and 0.01 or (field.max - field.min) <= 20 and 0.05 or 0.5)
-    table.insert(controls, ui.slider({
+    local function whole(number) return integer and math.floor(number + 0.5) or number end
+    table.insert(controls, slider(ctx, {
       key = key .. ":slider", min = field.min, max = field.max, step = step,
-      value = effective or field.initial or field.min,
-      flexGrow = 1, controlSize = "sm",
-      onChange = function(text)
-        local number = tonumber(text)
-        if number == nil then return end
-        if integer then number = math.floor(number + 0.5) end
-        spec.onSet(number)
-        bump(view, key)
-        ctx.renderSoon()
-      end,
-    }))
+      value = effective or field.initial or field.min, flexGrow = 1, controlSize = "sm",
+    }, function() bump(view, key) end, function(number)
+      spec.onSet(whole(number))
+      bump(view, key)
+    end))
   end
+  -- While a slider gesture runs, the box shows the value it would set.
+  local preview = sliding(ctx, key .. ":slider")
+  if preview ~= nil then preview = integer and math.floor(preview + 0.5) or preview end
+  local boxValue = preview ~= nil and preview or effective
   table.insert(controls, ui.input({
-    key = key .. ":num:" .. gen(view, key), value = effective ~= nil and M.format(field, effective) or "",
+    key = key .. ":num:" .. gen(view, key), value = boxValue ~= nil and M.format(field, boxValue) or "",
     width = hasRange and 84 or nil, flexGrow = (not hasRange) and 1 or nil, controlSize = "sm",
     placeholder = (effective == nil and field.initial ~= nil) and ("e.g. " .. M.format(field, field.initial))
       or (field.min ~= nil and field.max ~= nil) and (M.number(field.min) .. " – " .. M.number(field.max)) or "number",
@@ -359,21 +405,22 @@ local function opacityRow(ctx, spec, effective)
   return ui.row({ key = key .. ":opacity", gap = 12, align = "center" }, {
     ui.column({ flexGrow = 1 }, { kit.muted("Opacity") }),
     ui.row({ width = M.EDITOR_WIDTH, gap = 6, align = "center", opacity = (spec.set or follow) and 1 or 0.75 }, {
-      ui.slider({ key = key .. ":opacity-slider", min = 0, max = 1, step = 0.01, value = alpha,
-                  flexGrow = 1, controlSize = "sm", tooltip = "Opacity (alpha of the color)",
-                  onChange = function(text)
-                    local number = tonumber(text)
-                    if number == nil then return end
-                    number = math.max(0, math.min(1, number))
-                    if follow then
-                      spec.onFollow(follow.source, number)
-                    else
-                      spec.onSet(rgb .. string.format("%02X", math.floor(number * 255 + 0.5)))
-                    end
-                    bump(view, key)
-                    ctx.renderSoon()
-                  end }),
-      ui.label({ text = string.format("%.2f · %s", alpha, alphaHex), fontSize = 12 }),
+      slider(ctx, { key = key .. ":opacity-slider", min = 0, max = 1, step = 0.01, value = alpha,
+                    flexGrow = 1, controlSize = "sm", tooltip = "Opacity (alpha of the color)" }, nil,
+        function(number)
+          number = math.max(0, math.min(1, number))
+          if follow then
+            spec.onFollow(follow.source, number)
+          else
+            spec.onSet(rgb .. string.format("%02X", math.floor(number * 255 + 0.5)))
+          end
+          bump(view, key)
+        end),
+      ui.label({ text = (function()
+        local shown = sliding(ctx, key .. ":opacity-slider")
+        if shown == nil then return string.format("%.2f · %s", alpha, alphaHex) end
+        return string.format("%.2f · %02X", shown, math.floor(shown * 255 + 0.5))
+      end)(), fontSize = 12 }),
     }),
     ui.row({ width = 96 }, {}),
   })

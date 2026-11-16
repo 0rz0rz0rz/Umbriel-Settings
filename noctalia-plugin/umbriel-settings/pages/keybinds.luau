@@ -72,7 +72,8 @@ local function conflict(store, key, index)
   return nil
 end
 
-local function changed(store) store.keybindsDirty = true end
+-- step names a typed edit (repeats are one undo step); nil makes every call its own step.
+local function changed(store, step) store.keybindsChanged(step) end
 
 -- ------------------------------------------------------------------ list
 local function listPage(ctx)
@@ -180,7 +181,7 @@ local function detailPage(ctx, route)
   local row = isNew and view.kbNew or store.keybinds.rows[route.index]
   if not row then return { header = { kit.header(ctx, "Keybind") }, content = { kit.empty("This shortcut no longer exists.") } } end
   local locked = row.locked == true
-  local function edit() if not isNew then changed(store) end end
+  local function edit(step) if not isNew then changed(store, step and (step .. ":" .. route.index)) end end
   local header = { kit.header(ctx, isNew and "New shortcut" or row.key, row.action) }
   local content = {}
   if locked then
@@ -204,7 +205,7 @@ local function detailPage(ctx, route)
     controlSize = "sm", enabled = not locked, placeholder = "Key: Return, Q, F1, XF86AudioMute…",
     onChange = function(text)
       row.key = joinShortcut(mods, noctalia.string.trim(text))
-      edit(); ctx.render()
+      edit("key"); ctx.render()
     end }))
   local clash = conflict(store, row.key, route.index)
   local shortcutCard = {
@@ -221,7 +222,7 @@ local function detailPage(ctx, route)
     ui.row({ gap = 6, align = "center" }, {
       ui.input({ key = "kb-action-" .. tostring(view.gen.kbaction or 0), value = row.action, flexGrow = 1,
                  controlSize = "sm", enabled = not locked, placeholder = "e.g. spawn kitty",
-                 onChange = function(text) row.action = text; edit(); ctx.render() end }),
+                 onChange = function(text) row.action = text; edit("action"); ctx.render() end }),
       ui.button({ text = "Choose…", glyph = "list-search", controlSize = "sm", enabled = not locked,
                   onClick = function() ctx.go({ name = "actions", target = route.index }) end }),
     }),
@@ -258,7 +259,7 @@ local function detailPage(ctx, route)
                    else
                      row.opts[name] = text ~= "" and text or nil
                    end
-                   edit()
+                   edit("opt-" .. name)
                  end }),
     }))
   end

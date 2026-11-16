@@ -28,9 +28,17 @@ class ManualScheduler:
     def post(self, function):
         self.queue.append(function)
 
-    def background(self, work, done):
+    def background(self, work, done, on_error=None):
         """Run work() off the GUI thread, then done(result) on it; here both run on the next drain."""
-        self.post(lambda: done(work()))
+        def run():
+            try:
+                result = work()
+            except Exception as error:  # same contract as QtScheduler.background
+                if on_error is None:
+                    raise
+                result = on_error(error)
+            done(result)
+        self.post(run)
 
     def drain(self, limit=10000):
         count = 0
@@ -139,7 +147,7 @@ class NoctaliaApi:
                 self.host.guard(callback, None, result[1])
             else:
                 self.host.guard(callback, result, None)
-        self.scheduler.background(work, done)
+        self.scheduler.background(work, done, lambda error: (None, f"{type(error).__name__}: {error}"))
         return True
 
     def fileExists(self, path):
@@ -225,7 +233,8 @@ class NoctaliaApi:
             if callback is not None:
                 result.update(stdoutTruncated=False, stderrTruncated=False)
                 self.host.guard(callback, self.host.to_lua(result))
-        self.scheduler.background(work, done)
+        self.scheduler.background(work, done, lambda error: {
+            "exitCode": 1, "stdout": "", "stderr": "".join(traceback.format_exception(error)), "timedOut": False})
         return True
 
     # ------------------------------------------------------------------ misc

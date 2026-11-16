@@ -26,7 +26,8 @@ function M.render(ctx)
                controlSize = "sm", placeholder = "Search  (Ctrl+F)",
                onChange = function(text)
                  view.query = text
-                 if root.name ~= "home" then ctx.home() else ctx.render() end
+                 -- results show on Home, also when a page (About, Review) sits on top of it
+                 if root.name ~= "home" or ctx.canGoBack() then ctx.home() else ctx.render() end
                end }),
     navItem(ctx, "nav-home", "home", "Home", active == "Home", nil, function()
       view.query = ""

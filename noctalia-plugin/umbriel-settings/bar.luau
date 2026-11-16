@@ -32,11 +32,11 @@ local function refresh()
   if barWidget.isVertical and barWidget.isVertical() then mode = "icon" end
   local children = {}
   if mode ~= "text" then table.insert(children, ui.glyph({ name = icon() })) end
-  if mode ~= "icon" then
-    table.insert(children, ui.label({ text = pending > 0 and "Umbriel Settings •" or "Umbriel Settings" }))
-  elseif pending > 0 then
-    table.insert(children, ui.label({ text = "•", color = "primary" }))
-  end
+  if mode ~= "icon" then table.insert(children, ui.label({ text = "Umbriel Settings" })) end
+  -- The dot is always laid out and only hidden: a widget that changes width moves the bar's layout and the
+  -- panel anchored to it, which then animates on every unsaved/saved flip (e.g. a slider dragged across its
+  -- saved value).
+  table.insert(children, ui.label({ key = "dot", text = "•", color = "primary", opacity = pending > 0 and 1 or 0 }))
   barWidget.render(ui.row({ gap = 6, align = "center" }, children))
 end
 

@@ -16,7 +16,9 @@ same core and interface code, so they look and behave alike; the app adds a side
   devices and environment variables.
 - **Search** (Ctrl+F) over setting names, help text, config keys (`border_width`), rule names and shortcuts.
 - **Clear rows**: control, default value, ⓘ help with the config key, ↶ undo, and an eraser that removes
-  the key so Umbriel's default applies. **Only customized** hides settings at their default.
+  the key so Umbriel's default applies. **Only customized** hides settings at their default, and
+  **Customized** on Home lists every setting that differs from Umbriel's default.
+- **Undo** (Ctrl+Z or the save bar) steps back through unsaved edits, one setting, rule or shortcut at a time.
 - **Lists** for rules, outputs, devices and effects: edit, name, reorder, duplicate, delete.
   **Inspect connected outputs** adds a monitor with one of its real modes.
 - **Keybinds** in groups: build shortcuts from modifier chips, pick actions from a searchable catalog, set
@@ -46,6 +48,8 @@ Nothing is written until you press **Review & save** (Ctrl+S):
 - If the config changes on disk, it is reloaded: setting edits are kept, rule and keybind edits are dropped
   with a note.
 - Symlinked files are refused; open the link's target instead.
+- The app and the Noctalia plugin save one at a time, and a save is refused if the file changed since it was
+  loaded.
 
 ## Install
 
@@ -105,7 +109,10 @@ python python/umbriel-settings.py [path/to/config.toml]
 Without a path it opens the config used last, else `~/.config/umbriel/config.toml` (switch files at the
 bottom of the home page). Options: `--config PATH`, `--no-validate`, `--no-rebuild`, `--check-schema`
 (compare the app's fields with your Umbriel and exit), `--version`. Keys: Ctrl+F search, Ctrl+S review,
-Alt+Left back.
+Ctrl+Z undo (outside text fields), Alt+Left back, Esc clears the search or goes back.
+
+Only one window runs at a time: starting the app again brings the open window to the front and opens the
+config given on the command line, unless the current one has unsaved changes.
 
 **Launch with a keybind** (in `[keybinds]` or on the Keybinds page; replace `/home/you`, quote paths with spaces):
 

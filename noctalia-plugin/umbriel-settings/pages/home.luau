@@ -127,6 +127,48 @@ local function results(ctx, query)
   return rows
 end
 
+-- Every page setting that differs from Umbriel's default, page by page; rows open the setting.
+local CUSTOMIZED_LIMIT = 40
+function M.renderCustomized(ctx)
+  local store = ctx.store
+  local header = { kit.header(ctx, "Customized settings", "Settings that differ from Umbriel's defaults") }
+  if not store.state then return { header = header, content = { kit.empty("Loading config…", "loader") } } end
+  local content, shown, total = {}, 0, 0
+  for _, section in ipairs(store.meta.nav) do
+    for _, name in ipairs(section.pages) do
+      local page = store.meta.pages[name]
+      local first = true
+      for _, group in ipairs(page and page.groups or {}) do
+        for _, fid in ipairs(group.fields) do
+          if store.isOverridden(fid) then
+            total = total + 1
+            if shown < CUSTOMIZED_LIMIT then
+              shown = shown + 1
+              if first then table.insert(content, kit.section(name, "cs-" .. name)); first = false end
+              local field = store.meta.fields[fid]
+              local value = store.value(fid)
+              local badges = { kit.badge(fields.format(field, value), "secondary", "cv-" .. fid) }
+              if store.isChanged(fid) then table.insert(badges, 1, kit.badge("changed", "primary", "cc-" .. fid)) end
+              table.insert(content, kit.navRow({ key = "cust-" .. fid, glyph = page.glyph, title = field.label,
+                subtitle = group.title .. (field.default ~= nil and ("  ·  default " .. fields.format(field, field.default)) or ""),
+                badges = badges, tooltip = field.help, onClick = function()
+                  ctx.openPage(name, { group = group.title, focus = fid, reveal = "f:" .. fid })
+                end }))
+            end
+          end
+        end
+      end
+    end
+  end
+  if total == 0 then
+    table.insert(content, kit.empty("Every setting uses Umbriel's default.", "adjustments-check"))
+  elseif total > shown then
+    table.insert(content, kit.muted("Showing " .. shown .. " of " .. total .. " customized settings; the pages' "
+                                    .. "“Only customized” switch shows the rest."))
+  end
+  return { header = header, content = content }
+end
+
 local function footer(ctx)
   local store, view = ctx.store, ctx.view
   local path = store.state and store.state.path or ""
@@ -144,6 +186,9 @@ local function footer(ctx)
     }),
   }
   local tools = {
+    ui.button({ text = "Customized", glyph = "adjustments-check", controlSize = "sm", variant = "outline",
+                tooltip = "Settings that differ from Umbriel's defaults",
+                onClick = function() ctx.go({ name = "customized" }) end }),
     ui.button({ text = "Backups", glyph = "history", controlSize = "sm", variant = "outline",
                 onClick = function() ctx.go({ name = "backups" }) end }),
     ui.button({ text = "Edit file", glyph = "file-text", controlSize = "sm", variant = "outline",

@@ -46,7 +46,8 @@ function M.call(command, request, cb, opts)
   end
   local generation = M.generation
   M.running = M.running + 1
-  local argv = { "python3", "-B", pluginDir .. "/umbriel_settings.py", command,
+  -- Bytecode goes to the data dir (not the plugin folder), saving the recompile on every call.
+  local argv = { "python3", "-Xpycache_prefix=" .. dataDir .. "/pycache", pluginDir .. "/umbriel_settings.py", command,
                  "--request", requestPath, "--response", responsePath }
   local accepted = noctalia.runAsync(argv, function(result)
     M.running = M.running - 1

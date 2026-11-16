@@ -13,6 +13,7 @@ M.keybinds = nil     -- working { rows, groups }
 M.keybindsDirty = false
 M.desktop = nil      -- { userdirs = {...}, apps = {...} }
 M.rebuild = nil      -- nil follows the file (banners present), else true/false
+M.history = {}       -- undo steps, newest last (see M.undo)
 
 local function deepCopy(value)
   if type(value) ~= "table" then return value end
@@ -64,7 +65,23 @@ end
 
 function M.isChanged(fid) return M.fieldChanges[fid] ~= nil end
 
+-- ------------------------------------------------------------------ undo
+local HISTORY_LIMIT = 50
+
+local function remember(step)
+  table.insert(M.history, step)
+  if #M.history > HISTORY_LIMIT then table.remove(M.history, 1) end
+end
+
+-- Repeated edits of one value (typing, slider drags) are one step: only the first records what it replaces.
+local function rememberField(fid)
+  local top = M.history[#M.history]
+  if top and top.kind == "field" and top.id == fid then return end
+  remember({ kind = "field", id = fid, previous = deepCopy(M.fieldChanges[fid]) })
+end
+
 function M.setField(fid, value)
+  rememberField(fid)
   local base = M.state and M.state.fields[fid]
   if base ~= nil and equal(base, value) then
     M.fieldChanges[fid] = nil
@@ -74,11 +91,15 @@ function M.setField(fid, value)
 end
 
 function M.unsetField(fid)
+  rememberField(fid)
   local base = M.state and M.state.fields[fid]
   M.fieldChanges[fid] = base ~= nil and { unset = true } or nil
 end
 
-function M.revertField(fid) M.fieldChanges[fid] = nil end
+function M.revertField(fid)
+  rememberField(fid)
+  M.fieldChanges[fid] = nil
+end
 
 function M.differs(field, value)
   if value == nil then return false end
@@ -150,9 +171,7 @@ end
 
 function M.entryItems(eid) return M.entries[eid] or {} end
 
--- Apply an entry operation locally and record it for the helper.
-function M.entryOp(eid, op)
-  local items = M.entries[eid]
+local function applyEntryOp(items, op)
   local kind = op.op
   if kind == "add" then
     table.insert(items, { name = op.name, label = "", values = {} })
@@ -173,12 +192,23 @@ function M.entryOp(eid, op)
   elseif kind == "unset" then
     items[op.index + 1].values[op.field] = nil
   end
+end
+
+-- Apply an entry operation locally and record it for the helper.
+function M.entryOp(eid, op)
+  applyEntryOp(M.entries[eid], op)
   op.editor = eid
+  local kind = op.op
   local last = M.entryOps[#M.entryOps]
+  local top = M.history[#M.history]
   if (kind == "set" or kind == "label") and last and last.editor == eid and last.op == kind
       and last.index == op.index and last.field == op.field then
+    if not (top and top.kind == "entry" and top.editor == eid) then
+      remember({ kind = "entry", editor = eid, ops = { table.unpack(M.entryOps) } })
+    end
     M.entryOps[#M.entryOps] = op  -- typing replaces the previous edit of the same value
   else
+    remember({ kind = "entry", editor = eid, ops = { table.unpack(M.entryOps) } })
     table.insert(M.entryOps, op)
   end
 end
@@ -194,22 +224,32 @@ end
 -- ------------------------------------------------------------------ maps
 function M.mapRows(eid) return M.maps[eid] or {} end
 
-function M.mapSet(eid, name, text, from)
-  local rows = M.maps[eid]
-  local found = false
-  for _, row in ipairs(rows) do
-    if row[1] == (from or name) then row[1] = name; row[2] = text; found = true end
+local function applyMapOp(rows, op)
+  if op.op == "set" then
+    local found = false
+    for _, row in ipairs(rows) do
+      if row[1] == (op.from or op.name) then row[1] = op.name; row[2] = op.value; found = true end
+    end
+    if not found then table.insert(rows, { op.name, op.value }) end
+  else
+    for index, row in ipairs(rows) do
+      if row[1] == op.name then table.remove(rows, index); break end
+    end
   end
-  if not found then table.insert(rows, { name, text }) end
-  table.insert(M.mapOps, { editor = eid, op = "set", name = name, value = text, from = from })
+end
+
+local function mapOp(op)
+  remember({ kind = "map", editor = op.editor, ops = { table.unpack(M.mapOps) } })
+  applyMapOp(M.maps[op.editor], op)
+  table.insert(M.mapOps, op)
+end
+
+function M.mapSet(eid, name, text, from)
+  mapOp({ editor = eid, op = "set", name = name, value = text, from = from })
 end
 
 function M.mapRemove(eid, name)
-  local rows = M.maps[eid]
-  for index, row in ipairs(rows) do
-    if row[1] == name then table.remove(rows, index); break end
-  end
-  table.insert(M.mapOps, { editor = eid, op = "remove", name = name })
+  mapOp({ editor = eid, op = "remove", name = name })
 end
 
 function M.mapOpCount(eid)
@@ -220,7 +260,42 @@ function M.mapOpCount(eid)
   return count
 end
 
+-- ------------------------------------------------------------------ keybinds
+-- The keybinds page edits rows in place and then calls this; `shadow` is the list as of the last recorded
+-- step, which is what an undo returns to. `step` names the edit (e.g. "key:3"); repeats of it are one step.
+local shadow = nil
+function M.keybindsChanged(step)
+  local top = M.history[#M.history]
+  if not (step and top and top.kind == "keybinds" and top.step == step) then
+    local before = shadow or { rows = {}, groups = {} }
+    remember({ kind = "keybinds", step = step, rows = before.rows, groups = before.groups, dirty = M.keybindsDirty })
+  end
+  M.keybindsDirty = true
+  shadow = deepCopy(M.keybinds)
+end
+
+local function resetKeybinds(source)
+  M.keybinds = { rows = deepCopy(source.rows), groups = deepCopy(source.groups) }
+  shadow = deepCopy(M.keybinds)
+end
+
 -- ------------------------------------------------------------------ desktop
+local function desktopTable(part)
+  local d = M.desktop
+  if part == "userdirs" then return d.userdirs.values end
+  return part == "roles" and d.apps.roles or d.apps.mimes
+end
+
+-- part: "userdirs" (folder key), "roles" (role name) or "mimes" (MIME type).
+function M.setDesktop(part, key, value)
+  local values = desktopTable(part)
+  local top = M.history[#M.history]
+  if not (top and top.kind == "desktop" and top.part == part and top.key == key) then
+    remember({ kind = "desktop", part = part, key = key, previous = values[key] })
+  end
+  values[key] = value
+end
+
 function M.desktopChanges()
   local d = M.desktop
   if not d then return nil end
@@ -247,6 +322,38 @@ function M.desktopChanges()
   if #apps > 0 then request.apps = { revision = d.apps.revision, changes = apps }; any = true end
   return any and request or nil
 end
+
+-- ------------------------------------------------------------------ undo
+-- Reverts the newest step; returns false when there is nothing to undo.
+function M.undo()
+  local step = table.remove(M.history)
+  if not step then return false end
+  if step.kind == "field" then
+    M.fieldChanges[step.id] = step.previous
+  elseif step.kind == "entry" then
+    M.entryOps = step.ops
+    local items = deepCopy(M.state.editors[step.editor])
+    for _, op in ipairs(M.entryOps) do
+      if op.editor == step.editor then applyEntryOp(items, op) end
+    end
+    M.entries[step.editor] = items
+  elseif step.kind == "map" then
+    M.mapOps = step.ops
+    local rows = deepCopy(M.state.maps[step.editor])
+    for _, op in ipairs(M.mapOps) do
+      if op.editor == step.editor then applyMapOp(rows, op) end
+    end
+    M.maps[step.editor] = rows
+  elseif step.kind == "keybinds" then
+    resetKeybinds(step)
+    M.keybindsDirty = step.dirty
+  elseif step.kind == "desktop" then
+    if M.desktop then desktopTable(step.part)[step.key] = step.previous end
+  end
+  return true
+end
+
+function M.canUndo() return #M.history > 0 end
 
 -- ------------------------------------------------------------------ totals
 function M.pendingCount()
@@ -304,7 +411,8 @@ function M.load(state)
   if not unchanged or not M.keybinds then
     M.entries = deepCopy(state.editors)
     M.maps = deepCopy(state.maps)
-    M.keybinds = { rows = deepCopy(state.keybinds.rows), groups = deepCopy(state.keybinds.groups) }
+    resetKeybinds(state.keybinds)
+    M.history = {}  -- steps of the old snapshot can't be replayed on this one
   end
   if dropped then return "The config changed on disk; rule, curve and keybind edits were discarded." end
   return nil
@@ -313,10 +421,11 @@ end
 function M.discardAll()
   M.fieldChanges, M.entryOps, M.mapOps, M.keybindsDirty = {}, {}, {}, false
   M.desktopDraft = nil
+  M.history = {}
   if M.state then
     M.entries = deepCopy(M.state.editors)
     M.maps = deepCopy(M.state.maps)
-    M.keybinds = { rows = deepCopy(M.state.keybinds.rows), groups = deepCopy(M.state.keybinds.groups) }
+    resetKeybinds(M.state.keybinds)
   end
   if M.desktop then
     M.desktop.userdirs.values = deepCopy(M.desktop.userdirs.original)
@@ -427,8 +536,9 @@ function M.restoreDraft()
       if op.op == "remove" then M.mapRemove(op.editor, op.name) else M.mapSet(op.editor, op.name, op.value, op.from) end
       restored = restored + 1
     end
-    if draft.keybinds then M.keybinds = draft.keybinds; M.keybindsDirty = true; restored = restored + 1 end
+    if draft.keybinds then resetKeybinds(draft.keybinds); M.keybindsDirty = true; restored = restored + 1 end
   end
+  M.history = {}  -- the restored draft is where undo stops
   if restored == 0 then return desktopNote end
   local note = "Restored " .. restored .. " unsaved change(s) from last time."
   return desktopNote and (note .. " " .. desktopNote) or note
