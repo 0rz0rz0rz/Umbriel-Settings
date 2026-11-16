@@ -6,6 +6,8 @@ effects, animation curves, environment variables and keybinds, plus XDG user fol
 The same interface also runs as a standalone app: see the
 [Umbriel-Settings repository](https://github.com/0rz0rz0rz/Umbriel-Settings).
 
+![Home page of the Umbriel Settings panel](screenshot.png)
+
 ## Plugin
 
 | Field | Value |
@@ -25,8 +27,20 @@ The same interface also runs as a standalone app: see the
 
 ## Usage
 
-Add the `settings` widget to a bar: it toggles the panel and shows a dot while edits are unsaved. Or run
-`noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders`.
+Add the **Umbriel Settings** widget (`settings`) to a bar from Noctalia's Settings → Bar: it toggles the
+panel and shows a dot while edits are unsaved. Or toggle the panel from a terminal or script:
+
+```sh
+noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
+```
+
+**Open with a keybind**: the plugin adds no shortcut of its own; bind the command in Umbriel, under
+`[keybinds]` in your config or as a `spawn` action on the panel's Keybinds page (pick a free combo):
+
+```toml
+[keybinds]
+"Mod+Shift+S" = "spawn noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders"
+```
 
 - **Home** has a search over setting names, help text, config keys (`border_width`), rule names and
   shortcuts, and cards for every page with customized/unsaved counts.
@@ -54,6 +68,22 @@ Keys: Ctrl+F search, Ctrl+S review, Alt+Left back, Esc close.
 | --- | --- | --- | --- |
 | `display` | `select` | `icon` | What the bar widget shows: `icon` (with a dot while edits are unsaved), `icon_text` or `text`. A vertical bar always shows only the icon. |
 | `icon` | `select` | `moon-stars` | The bar widget's icon: `settings`, `settings-2`, `settings-cog`, `adjustments-horizontal`, `adjustments-cog`, `tool`, `tools`, `moon`, `moon-stars`, `moon-2` or `home-cog`. Unknown values fall back to `moon-stars`. |
+
+## Troubleshooting
+
+- **"python3 was not found"**: install Python 3.11+ so `python3` is on the `PATH` Noctalia was started with.
+- **"Python's tomlkit module is missing"**: install `python-tomlkit` (or `pip install --user tomlkit`) and
+  reopen the panel. User folders and default apps work without it.
+- **"The umbriel command was not found; the config was not validated"**: the panel can't find `umbriel` on
+  Noctalia's `PATH`, so it shows no defaults or ranges and can't check the file before saving. Fix the
+  `PATH` Noctalia is started with.
+- **"… is a symlink; edit its target directly"**: the plugin never writes through a symlinked config,
+  `user-dirs.dirs` or `mimeapps.list`. For the config, enter the link's target path on Home instead.
+- **Rule, curve or keybind edits disappeared**: the config changed on disk while they were unsaved (another
+  editor, the app, a dotfile sync). Setting edits are kept; list edits are dropped so they can't overwrite
+  the new file.
+- **Widget or panel missing after an update**: run `noctalia msg config-reload`. Errors from the helper are
+  shown in the panel; Noctalia's own log is `~/.cache/noctalia/noctalia.log`.
 
 ## Notes
 

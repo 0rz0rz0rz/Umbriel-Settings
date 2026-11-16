@@ -189,7 +189,28 @@ Other entries and comments are kept. Folders are recorded, not created or moved.
 
 The plugin opens the same interface in a Noctalia panel, with a bar button that shows a dot while edits are
 unsaved, and shares backups, rule names and keybind locks with the app. Setup:
-[plugin README](noctalia-plugin/README.md).
+[plugin README](noctalia-plugin/README.md); usage and troubleshooting:
+[plugin user README](noctalia-plugin/umbriel-settings/README.md).
+
+**Install** (until it's in Noctalia's community plugins): clone this repository, install `python-tomlkit`,
+then add the repository's `noctalia-plugin` folder as a local plugin source and enable the plugin. Replace
+`/path/to` with where you cloned it:
+
+```sh
+git clone https://github.com/0rz0rz0rz/Umbriel-Settings.git
+noctalia msg plugins source add umbriel-settings path /path/to/Umbriel-Settings/noctalia-plugin
+noctalia msg plugins enable 0rz0rz0rz/umbriel-settings
+```
+
+The plugin runs from the checkout, so `git pull` updates it (then `noctalia msg config-reload`).
+
+Add the **Umbriel Settings** widget from Noctalia's Settings → Bar, or toggle the panel from a terminal or
+keybind (the plugin adds no shortcut of its own; pick a free combo):
+
+```toml
+[keybinds]
+"Mod+Shift+S" = "spawn noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders"
+```
 
 ## Files
 
