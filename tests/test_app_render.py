@@ -57,6 +57,8 @@ class AppRenderTests(unittest.TestCase):
     def close_window(self):
         self.win.pending = 0
         self.win.close()
+        # Let background helper calls finish before the temp dir goes: they still write to app-ui/run.
+        self.win.scheduler.pool.shutdown(wait=True)
         self.win.deleteLater()
         # Delete the page before Python tears down QApplication, or QtWebEngine crashes at exit.
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
