@@ -1,6 +1,6 @@
 ---
 name: edit-controls
-description: "Use when changing how Umbriel Settings looks or behaves visually: controls, field rows, navigation, sidebar, page layout, theme colors and fonts (shared Luau UI + web renderer)."
+description: "Use when changing how Umbriel Settings looks or behaves visually: controls, field rows, navigation, sidebar, page layout, theme colors and fonts (shared Luau UI + web renderer), or when updating the README screenshots."
 ---
 
 # Edit controls and layout
@@ -22,3 +22,18 @@ description: "Use when changing how Umbriel Settings looks or behaves visually: 
   ```
 
 - Verify with `python tools/check.py plugin host`.
+- README screenshots after a visible change to Home: `render_docs.py` (same `cd python` + offscreen env, optional
+  `--out <scratchpad>` to preview) rewrites `docs/home-app.png` (app, 1280×860), `docs/home-plugin.png` and the
+  plugin's `noctalia-plugin/umbriel-settings/screenshot.png` (panel.luau in the web view, 1028×808 with Noctalia's
+  24 px margin). It uses Umbriel's sample config shown as `~/.config/umbriel/config.toml` and temporary data dirs,
+  so no personal paths or settings appear. Look at the PNGs before committing.
+- Plugin thumbnail (`noctalia-plugin/umbriel-settings/thumbnail.webp`, the plugin-store card): run
+  `QT_QPA_PLATFORM=offscreen python .claude/skills/edit-controls/render_thumbnail.py` from the repo root
+  (`--out <scratchpad>/t.webp` to preview). It drives Noctalia's own
+  [thumbnail generator](https://assets.noctalia.dev/plugins/thumbnail-generator.html), which the
+  community-plugins rules require: it downloads the page and its html-to-image script into a temp dir and
+  fills in `plugin.toml`'s name and tags, a one-line description and the Mint accent. The card's screenshot
+  frame is small (588×331, tilted), so the README shot would turn to mush. Instead it renders its own panel shot
+  (16:9 at 800×450, 2× density, no margin), exports the card at 2× and draws it down to 960×540 before the
+  page's WebP encoder. It needs network access. Regenerate it whenever the panel's look changes, and always
+  before a community-plugins submission or update.
