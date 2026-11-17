@@ -12,6 +12,18 @@ assert(lastCall("meta") and lastCall("read") and lastCall("desktop"), "loads met
 assert(hasText("Umbriel Settings"), "home header")
 assert(hasText("Appearance") and hasText("Window rules") and hasText("Keybinds"), "page cards")
 
+-- the clear button empties the search box (a new, empty input) and is disabled while there is nothing to clear
+local function searchInput() return find("input", function(n) return tostring(n.props.key):match("^search:") end) end
+local function clearButton() return find("button", function(n) return n.props.key == "search-clear" end) end
+assert(clearButton().props.enabled == false, "nothing to clear yet")
+local typed = searchInput()
+typed.props.onChange("modifier")
+flushReads()
+assert(hasText("Mod key") and clearButton().props.enabled, "results and an enabled clear button: " .. screen())
+clearButton().props.onClick()
+assert(searchInput().props.key ~= typed.props.key and (searchInput().props.value or "") == "", "the box is emptied")
+assert(not hasText("Mod key") and clearButton().props.enabled == false, "results gone: " .. screen())
+
 -- search finds a setting by its help text and opens the right group
 local search = find("input", function(n) return tostring(n.props.key):match("^search:") end)
 search.props.onChange("modifier")

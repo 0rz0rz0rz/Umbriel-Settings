@@ -114,7 +114,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px;
 /* Narrow app windows: the sidebar shows icons only; each item keeps its name as tooltip and aria-label. */
 @media (max-width: 899px) {
   [data-key="sidebar"] { width: 60px !important; padding-left: 6px !important; padding-right: 6px !important; }
-  [data-key="sidebar"] .label, [data-key="sidebar"] input, [data-key^="navsec-"], [data-key^="navb-"] { display: none; }
+  [data-key="sidebar"] .label, [data-key="sidebar"] input, [data-key="search-clear"], [data-key^="navsec-"],
+  [data-key^="navb-"] { display: none; }
   [data-key="sidebar"] [data-key^="nav-"] { justify-content: center; }
 }
 

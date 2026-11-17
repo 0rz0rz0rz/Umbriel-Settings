@@ -67,9 +67,10 @@ local function pageCard(ctx, name)
   local badges = {}
   if changed > 0 then table.insert(badges, kit.badge(changed .. " unsaved", "primary", "b-" .. name)) end
   local summary = countLabel(page.kind, customized)
-  return ui.row({ key = "card-" .. name, gap = 12, align = "center", padding = 12, radius = 12, flexGrow = 1,
-                  fill = "surface_container", tooltip = page.help, onClick = function() ctx.openPage(name) end }, {
-    ui.glyph({ name = page.glyph or "settings", size = 22, color = "primary" }),
+  return ui.row({ key = "card-" .. name, gap = 12, align = "center", paddingH = 12, paddingV = 7, radius = 12,
+                  flexGrow = 1, fill = "surface_container", border = kit.CARD_BORDER,
+                  borderWidth = kit.CARD_BORDER_WIDTH, tooltip = page.help, onClick = function() ctx.openPage(name) end }, {
+    ui.glyph({ name = page.glyph or "settings", size = 20, color = "primary" }),
     ui.column({ gap = 2, flexGrow = 1 }, {
       ui.label({ text = name, fontSize = 14, fontWeight = "bold", maxLines = 1 }),
       kit.muted(summary or page.help or "", { maxLines = 1 }),
@@ -299,8 +300,7 @@ function M.render(ctx)
   local header = { kit.header(ctx, ctx.isApp and "Home" or "Umbriel Settings", subtitle) }
   -- the app's sidebar has the search box; the panel shows it here
   if not ctx.isApp then
-    table.insert(header, ui.input({
-      key = "search:" .. tostring(view.gen.search or 0), value = view.query, focus = true,
+    table.insert(header, kit.searchBox(ctx, {
       placeholder = "Search settings, rules and shortcuts  (Ctrl+F)",
       onChange = function(text)
         view.query = text
@@ -334,14 +334,14 @@ function M.render(ctx)
         if store.meta.pages[name] then
           table.insert(row, pageCard(ctx, name))
           if #row == 2 then
-            table.insert(content, ui.row({ key = "cards-" .. name, gap = 10 }, row))
+            table.insert(content, ui.row({ key = "cards-" .. name, gap = 8 }, row))
             row = {}
           end
         end
       end
       if #row == 1 then
-        table.insert(row, ui.column({ flexGrow = 1, padding = 12 }, {}))  -- same padding as a card so both columns match
-        table.insert(content, ui.row({ key = "cards-end-" .. section.title, gap = 10 }, row))
+        table.insert(row, ui.column({ flexGrow = 1, paddingH = 12, paddingV = 7 }, {}))  -- as a card: columns match
+        table.insert(content, ui.row({ key = "cards-end-" .. section.title, gap = 8 }, row))
       end
     end
   end

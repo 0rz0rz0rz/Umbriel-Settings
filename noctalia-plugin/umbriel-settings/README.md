@@ -28,7 +28,7 @@ The same interface also runs as a standalone app: see the
 ## Usage
 
 Add the **Umbriel Settings** widget (`settings`) to a bar from Noctalia's Settings → Bar: it toggles the
-panel and shows a dot while edits are unsaved. Or toggle the panel from a terminal or script:
+panel and turns your accent color while edits are unsaved. Or toggle the panel from a terminal or script:
 
 ```sh
 noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
@@ -74,7 +74,7 @@ box next to it.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `display` | `select` | `icon` | What the bar widget shows: `icon` (with a dot while edits are unsaved), `icon_text` or `text`. A vertical bar always shows only the icon. |
+| `display` | `select` | `icon` | What the bar widget shows: `icon`, `icon_text` or `text`; the icon (the text in `text`) takes the accent color while edits are unsaved. A vertical bar always shows only the icon. |
 | `icon` | `select` | `moon-stars` | The bar widget's icon: `settings`, `settings-2`, `settings-cog`, `adjustments-horizontal`, `adjustments-cog`, `tool`, `tools`, `moon`, `moon-stars`, `moon-2` or `home-cog`. Unknown values fall back to `moon-stars`. |
 
 ## Troubleshooting

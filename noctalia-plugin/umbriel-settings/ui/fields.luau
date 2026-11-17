@@ -513,8 +513,6 @@ function M.row(ctx, spec)
     table.insert(labelRow, ui.glyph({ name = "refresh-alert", size = 14, color = "tertiary",
                                       tooltip = "Takes effect after restarting Umbriel" }))
   end
-  table.insert(labelRow, ui.row({ flexGrow = 1 }, {}))
-  if spec.changed then table.insert(labelRow, kit.badge("unsaved", "primary", key .. ":b1")) end
   -- One quiet line: a hint, then "Default 2" or, once the key differs from it, "Customized · default 2".
   local defaultText = hasDefault(field) and M.format(field, field.default) or nil
   if defaultText == "empty" then defaultText = nil end
@@ -548,16 +546,18 @@ function M.row(ctx, spec)
     tooltip = "Show help", selected = view.help[key] == true,
     onClick = function() view.help[key] = not view.help[key] or nil; ctx.render() end }))
 
-  local children = {
-    ui.row({ key = key .. ":main", gap = 12, align = "center" }, {
-      ui.column({ gap = 2, flexGrow = 1, tooltip = field.help }, {
-        ui.row({ gap = 6, align = "center" }, labelRow),
-        status and kit.muted(status, { maxLines = 1, color = customized and "primary" or nil }) or nil,
-      }),
-      ui.row({ width = M.EDITOR_WIDTH, gap = 6, align = "center", opacity = spec.set and 1 or 0.75 }, controls),
-      ui.row({ width = 96, gap = 0, justify = "end", align = "center" }, actions),
+  local main = {
+    ui.column({ gap = 2, flexGrow = 1, tooltip = field.help }, {
+      ui.row({ gap = 6, align = "center" }, labelRow),
+      status and kit.muted(status, { maxLines = 1, color = customized and "primary" or nil }) or nil,
     }),
   }
+  -- centered on the whole row like the control, not on the label's line
+  if spec.changed then table.insert(main, kit.badge("unsaved", "primary", key .. ":b1")) end
+  table.insert(main, ui.row({ width = M.EDITOR_WIDTH, gap = 6, align = "center", opacity = spec.set and 1 or 0.75 },
+                            controls))
+  table.insert(main, ui.row({ width = 96, gap = 0, justify = "end", align = "center" }, actions))
+  local children = { ui.row({ key = key .. ":main", gap = 12, align = "center" }, main) }
   if below then
     table.insert(children, ui.column({ key = key .. ":list", gap = 4, paddingH = 8 }, below))
   end

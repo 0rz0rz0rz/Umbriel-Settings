@@ -204,8 +204,8 @@ Other entries and comments are kept. Folders are recorded, not created or moved.
 
 ## Noctalia plugin
 
-The plugin opens the same interface in a Noctalia panel, with a bar button that shows a dot while edits are
-unsaved, and shares backups, rule names and keybind locks with the app. Setup:
+The plugin opens the same interface in a Noctalia panel, with a bar button that turns your accent color while
+edits are unsaved, and shares backups, rule names and keybind locks with the app. Setup:
 [plugin README](noctalia-plugin/README.md); usage and troubleshooting:
 [plugin user README](noctalia-plugin/umbriel-settings/README.md).
 

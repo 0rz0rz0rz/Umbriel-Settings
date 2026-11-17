@@ -85,7 +85,7 @@ function M.create(layout, options)
         ctx.render()
       end, "flash-" .. index))
     end
-    local content = ui.scroll({ key = "content-" .. #stack .. "-" .. current.name, gap = 10, flexGrow = 1,
+    local content = ui.scroll({ key = "content-" .. #stack .. "-" .. current.name, gap = 8, flexGrow = 1,
                                 revealKey = current.reveal }, parts.content or parts)
     local pending = store.pendingCount()
     local saveBar = nil
@@ -94,7 +94,9 @@ function M.create(layout, options)
     -- narrows or widens every row (Noctalia can't reserve its gutter for plugins).
     if store.meta and store.state and current.name ~= "review" then
       local dirty = pending > 0
-      saveBar = ui.row({ key = "savebar", gap = 8, align = "center", padding = 10, radius = 12,
+      -- as tall as a two-line card (kit.navRow: border 1 + padding 6, two lines, 6 + 1 = 51 px in the app)
+      saveBar = ui.row({ key = "savebar", gap = 8, align = "center", paddingH = 12, height = 51, radius = 10,
+                         border = kit.CARD_BORDER, borderWidth = kit.CARD_BORDER_WIDTH,
                          fill = dirty and "primary_container" or "surface_container" }, {
         ui.glyph({ name = dirty and "pencil" or "check", size = 16, color = dirty and "primary" or kit.MUTED }),
         ui.label({ text = dirty and kit.plural(pending, "unsaved change") or "No unsaved changes", fontSize = 13,

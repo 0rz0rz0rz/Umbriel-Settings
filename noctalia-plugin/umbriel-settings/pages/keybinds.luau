@@ -164,7 +164,7 @@ local function drop(ctx, payload, value)
   ctx.render()
 end
 
-local GAP = 10       -- the list's spacing; between rows it is an insertion zone while sorting is possible
+local GAP = 8        -- the list's spacing; between rows it is an insertion zone while sorting is possible
 local SLOP = 32      -- drag-only reach of a gap: about half a row, so the nearest gap follows the pointer
 
 local function gapZone(key, accepts, value, height)

@@ -29,8 +29,12 @@ function M.badge(text, color, key)
   })
 end
 
+-- Cards carry a thin outline so they stand out from the page; their padding is that much smaller to keep the height.
+M.CARD_BORDER, M.CARD_BORDER_WIDTH = "outline_variant", 1
+
 function M.card(props, children)
   props.fill = props.fill or "surface_container"
+  props.border, props.borderWidth = props.border or M.CARD_BORDER, props.borderWidth or M.CARD_BORDER_WIDTH
   props.radius = props.radius or 12
   props.padding = props.padding or 12
   props.gap = props.gap or 8
@@ -94,9 +98,29 @@ function M.navRow(props)
   table.insert(children, ui.column({ gap = 2, flexGrow = 1 }, text))
   for _, badge in ipairs(props.badges or {}) do table.insert(children, badge) end
   table.insert(children, ui.glyph({ name = props.trailing or "chevron-right", size = 16, color = M.MUTED }))
-  return ui.row({ key = props.key, gap = 12, align = "center", paddingH = 12, paddingV = 10, radius = 10,
-                  fill = props.fill or "surface_container", tooltip = props.tooltip, onClick = props.onClick },
+  return ui.row({ key = props.key, gap = 12, align = "center", paddingH = 12, paddingV = 6, radius = 10,
+                  border = M.CARD_BORDER, borderWidth = M.CARD_BORDER_WIDTH, fill = props.fill or "surface_container",
+                  tooltip = props.tooltip, onClick = props.onClick },
                 children)
+end
+
+-- The global search box with a clear button. The button stays laid out (disabled while the box is empty) so
+-- the box keeps its width; clearing replaces the input (inputs are uncontrolled) and keeps the focus there.
+function M.searchBox(ctx, props)
+  local view = ctx.view
+  props.key = "search:" .. tostring(view.gen.search or 0)
+  props.value = view.query
+  props.focus = true
+  props.flexGrow = 1
+  return ui.row({ key = "search-box", gap = 4, align = "center" }, {
+    ui.input(props),
+    ui.button({ key = "search-clear", glyph = "eraser", variant = "ghost", controlSize = props.controlSize,
+                tooltip = "Clear search", enabled = (view.query or "") ~= "", onClick = function()
+                  view.query = ""
+                  view.gen.search = (view.gen.search or 0) + 1
+                  ctx.render()
+                end }),
+  })
 end
 
 -- Section heading in its own case: string.upper is byte-wise and would leave "Bézier" as "BéZIER".

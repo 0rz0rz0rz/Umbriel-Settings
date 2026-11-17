@@ -19,40 +19,49 @@ noctalia = {
   state = { watch = function(key, fn) watchers[key] = fn end },
 }
 
--- Returns whether the expected glyph shows, the text label (if any) and whether the unsaved dot is visible.
+-- Returns whether the expected glyph shows, the text label (if any) and whether unsaved edits are marked
+-- (the icon tinted, or the text when there is no icon).
 local function shown(expected)
-  local glyph, text, dot = false, nil, nil
+  local glyph, text, tinted = false, nil, false
   for _, child in ipairs(rendered.children) do
-    if child.kind == "glyph" then glyph = child.props.name == (expected or "moon-stars") end
-    if child.kind == "label" and child.props.key == "dot" then dot = child.props.opacity == 1
-    elseif child.kind == "label" then text = child.props.text end
+    if child.kind == "glyph" then
+      glyph = child.props.name == (expected or "moon-stars")
+      tinted = child.props.color == "primary"
+    elseif child.kind == "label" then
+      text = child.props.text
+      if child.props.color == "primary" then tinted = true end
+    end
   end
-  assert(dot ~= nil, "the dot is always laid out, so the widget keeps its width")
-  return glyph, text, dot
+  return glyph, text, tinted
 end
 
 assert(loadfile(arg[1]))()
-local glyph, text, dot = shown()
-assert(glyph and text == nil and not dot and tooltip ~= "", "default shows only the icon")
+local glyph, text, marked = shown()
+assert(glyph and text == nil and not marked and tooltip ~= "", "default shows only the icon")
 local idle = #rendered.children
 
 watchers["umbriel.pending"](3)
-glyph, text, dot = shown()
-assert(glyph and text == nil and dot and tooltip:find("3 unsaved"), "icon only keeps the unsaved dot: " .. tooltip)
+glyph, text, marked = shown()
+assert(glyph and text == nil and marked and tooltip:find("3 unsaved"), "unsaved edits tint the icon: " .. tooltip)
 assert(#rendered.children == idle, "unsaved edits don't add or remove widget parts")
 
 config.display = "icon_text"
 update()
-glyph, text, dot = shown()
-assert(glyph and text == "Umbriel Settings" and dot, "icon and text")
+glyph, text, marked = shown()
+assert(glyph and text == "Umbriel Settings" and marked, "icon and text")
 watchers["umbriel.pending"](0)
-glyph, text, dot = shown()
-assert(glyph and text == "Umbriel Settings" and not dot, "icon and text without unsaved edits")
+glyph, text, marked = shown()
+assert(glyph and text == "Umbriel Settings" and not marked, "icon and text without unsaved edits")
 
 config.display = "text"
 update()
-glyph, text = shown()
-assert(not glyph and text == "Umbriel Settings", "text only")
+glyph, text, marked = shown()
+assert(not glyph and text == "Umbriel Settings" and not marked, "text only")
+watchers["umbriel.pending"](1)
+glyph, text, marked = shown()
+assert(text == "Umbriel Settings" and marked, "text only: unsaved edits tint the text")
+assert(#rendered.children == 1, "no extra parts")
+watchers["umbriel.pending"](0)
 
 vertical = true
 update()

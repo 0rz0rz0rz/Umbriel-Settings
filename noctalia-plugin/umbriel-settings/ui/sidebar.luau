@@ -35,13 +35,12 @@ function M.render(ctx)
   local active = tool and "" or (root.name == "home" and "Home" or root.page or "")
   local items = {
     ui.label({ key = "app-title", text = "Umbriel Settings", fontSize = 16, fontWeight = "bold" }),
-    ui.input({ key = "search:" .. tostring(view.gen.search or 0), value = view.query, focus = true,
-               controlSize = "sm", placeholder = "Search  (Ctrl+F)",
-               onChange = function(text)
-                 view.query = text
-                 -- results show on Home, also when a page (About, Review) sits on top of it
-                 if root.name ~= "home" or ctx.canGoBack() then ctx.home() else ctx.render() end
-               end }),
+    kit.searchBox(ctx, { controlSize = "sm", placeholder = "Search  (Ctrl+F)",
+                         onChange = function(text)
+                           view.query = text
+                           -- results show on Home, also when a page (About, Review) sits on top of it
+                           if root.name ~= "home" or ctx.canGoBack() then ctx.home() else ctx.render() end
+                         end }),
     navItem(ctx, "nav-home", "home", "Home", active == "Home", nil, function()
       view.query = ""
       view.gen.search = (view.gen.search or 0) + 1

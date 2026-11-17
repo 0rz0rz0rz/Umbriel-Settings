@@ -30,13 +30,15 @@ local function refresh()
     or "Open Umbriel Settings")
   local mode = display()
   if barWidget.isVertical and barWidget.isVertical() then mode = "icon" end
+  -- Unsaved edits tint the icon (the text when there is no icon) instead of adding a mark: a widget that
+  -- changes width moves the bar and the panel anchored to it on every unsaved/saved flip, and a mark kept
+  -- hidden would leave a gap. Without a color the bar's own default applies again.
+  local accent = pending > 0 and "primary" or nil
   local children = {}
-  if mode ~= "text" then table.insert(children, ui.glyph({ name = icon() })) end
-  if mode ~= "icon" then table.insert(children, ui.label({ text = "Umbriel Settings" })) end
-  -- The dot is always laid out and only hidden: a widget that changes width moves the bar's layout and the
-  -- panel anchored to it, which then animates on every unsaved/saved flip (e.g. a slider dragged across its
-  -- saved value).
-  table.insert(children, ui.label({ key = "dot", text = "•", color = "primary", opacity = pending > 0 and 1 or 0 }))
+  if mode ~= "text" then table.insert(children, ui.glyph({ name = icon(), color = accent })) end
+  if mode ~= "icon" then
+    table.insert(children, ui.label({ text = "Umbriel Settings", color = mode == "text" and accent or nil }))
+  end
   barWidget.render(ui.row({ gap = 6, align = "center" }, children))
 end
 
