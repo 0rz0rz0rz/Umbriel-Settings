@@ -103,11 +103,40 @@ def desktop_entry(path, wanted):
     return entry
 
 
-def installed_apps():
+def application_roots():
     data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
     roots = [data_home / "applications"]
     roots.extend(Path(root) / "applications" for root in
                  (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if root)
+    return roots
+
+
+def entry_name(entry, languages):
+    return next((entry[f"name[{key.lower()}]"] for key in languages if entry.get(f"name[{key.lower()}]")),
+                None) or entry.get("name")
+
+
+def app_names(app_ids):
+    """Names of desktop files that installed_apps() leaves out (NoDisplay, e.g. the userapp-*.desktop files
+    browsers and mail clients write when they make themselves the default); unknown IDs are skipped."""
+    languages = locale_keys()
+    wanted = DESKTOP_KEYS | {f"name[{key.lower()}]" for key in languages}
+    names = {}
+    for app_id in app_ids:
+        if not app_id.endswith(".desktop") or "/" in app_id:
+            continue
+        for root in application_roots():
+            entry = desktop_entry(root / app_id, wanted)
+            if entry is not None:
+                name = entry_name(entry, languages)
+                if name:
+                    names[app_id] = name
+                break
+    return names
+
+
+def installed_apps():
+    roots = application_roots()
     languages = locale_keys()
     wanted = DESKTOP_KEYS | {f"name[{key.lower()}]" for key in languages}
     desktops = {item for item in os.environ.get("XDG_CURRENT_DESKTOP", "").split(":") if item}
@@ -134,9 +163,7 @@ def installed_apps():
                 executable = entry.get("tryexec", "")
                 if executable and not shutil.which(executable):
                     continue
-                name = next((entry[f"name[{key.lower()}]"] for key in languages if entry.get(f"name[{key.lower()}]")),
-                            None)
-                apps.append({"id": app_id, "name": name or entry.get("name") or app_id[:-8]})
+                apps.append({"id": app_id, "name": entry_name(entry, languages) or app_id[:-8]})
     return sorted(apps, key=lambda app: (app["name"].casefold(), app["id"].casefold()))
 
 

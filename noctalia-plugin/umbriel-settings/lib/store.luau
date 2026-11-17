@@ -68,6 +68,10 @@ function M.isChanged(fid) return M.fieldChanges[fid] ~= nil end
 -- ------------------------------------------------------------------ undo
 local HISTORY_LIMIT = 50
 
+-- Every edit bumps `serial`; a save remembers it (saveMark) so edits made while it runs survive (markSaved).
+M.serial = 0
+local keybindsSerial = 0
+
 local function remember(step)
   table.insert(M.history, step)
   if #M.history > HISTORY_LIMIT then table.remove(M.history, 1) end
@@ -75,6 +79,7 @@ end
 
 -- Repeated edits of one value (typing, slider drags) are one step: only the first records what it replaces.
 local function rememberField(fid)
+  M.serial = M.serial + 1
   local top = M.history[#M.history]
   if top and top.kind == "field" and top.id == fid then return end
   remember({ kind = "field", id = fid, previous = deepCopy(M.fieldChanges[fid]) })
@@ -196,6 +201,7 @@ end
 
 -- Apply an entry operation locally and record it for the helper.
 function M.entryOp(eid, op)
+  M.serial = M.serial + 1
   applyEntryOp(M.entries[eid], op)
   op.editor = eid
   local kind = op.op
@@ -239,6 +245,7 @@ local function applyMapOp(rows, op)
 end
 
 local function mapOp(op)
+  M.serial = M.serial + 1
   remember({ kind = "map", editor = op.editor, ops = { table.unpack(M.mapOps) } })
   applyMapOp(M.maps[op.editor], op)
   table.insert(M.mapOps, op)
@@ -265,6 +272,8 @@ end
 -- step, which is what an undo returns to. `step` names the edit (e.g. "key:3"); repeats of it are one step.
 local shadow = nil
 function M.keybindsChanged(step)
+  M.serial = M.serial + 1
+  keybindsSerial = M.serial
   local top = M.history[#M.history]
   if not (step and top and top.kind == "keybinds" and top.step == step) then
     local before = shadow or { rows = {}, groups = {} }
@@ -288,6 +297,7 @@ end
 
 -- part: "userdirs" (folder key), "roles" (role name) or "mimes" (MIME type).
 function M.setDesktop(part, key, value)
+  M.serial = M.serial + 1
   local values = desktopTable(part)
   local top = M.history[#M.history]
   if not (top and top.kind == "desktop" and top.part == part and top.key == key) then
@@ -328,6 +338,8 @@ end
 function M.undo()
   local step = table.remove(M.history)
   if not step then return false end
+  M.serial = M.serial + 1
+  if step.kind == "keybinds" then keybindsSerial = M.serial end
   if step.kind == "field" then
     M.fieldChanges[step.id] = step.previous
   elseif step.kind == "entry" then
@@ -418,6 +430,50 @@ function M.load(state)
   return nil
 end
 
+-- What a save is about to write; pass it back to markSaved when the save succeeds.
+function M.saveMark()
+  return { serial = M.serial, entries = #M.entryOps, maps = #M.mapOps }
+end
+
+local function rest(list, from)
+  local out = {}
+  for i = from + 1, #list do table.insert(out, list[i]) end
+  return out
+end
+
+-- After a successful save: take the saved snapshot and drop only what that save wrote. Edits made while it
+-- ran stay pending, replayed on the new snapshot (the saved ops are a prefix of the op lists, so the newer
+-- ones still apply). Returns true when such newer edits exist.
+function M.markSaved(state, mark)
+  local newer = M.serial ~= mark.serial
+  local entryOps, mapOps = rest(M.entryOps, mark.entries), rest(M.mapOps, mark.maps)
+  local keepKeybinds = newer and M.keybindsDirty and keybindsSerial > mark.serial
+  M.state = state
+  for fid, change in pairs(M.fieldChanges) do
+    local base = state.fields[fid]
+    if (change.unset and base == nil) or (not change.unset and equal(change.value, base)) then
+      M.fieldChanges[fid] = nil
+    end
+  end
+  M.entryOps, M.mapOps = entryOps, mapOps
+  M.entries = deepCopy(state.editors)
+  for _, op in ipairs(entryOps) do
+    if M.entries[op.editor] then applyEntryOp(M.entries[op.editor], op) end
+  end
+  M.maps = deepCopy(state.maps)
+  for _, op in ipairs(mapOps) do
+    if M.maps[op.editor] then applyMapOp(M.maps[op.editor], op) end
+  end
+  if keepKeybinds then
+    shadow = deepCopy(M.keybinds)
+  else
+    resetKeybinds(state.keybinds)
+    M.keybindsDirty = false
+  end
+  M.history = {}  -- older steps refer to the previous snapshot
+  return newer
+end
+
 function M.discardAll()
   M.fieldChanges, M.entryOps, M.mapOps, M.keybindsDirty = {}, {}, {}, false
   M.desktopDraft = nil
@@ -469,11 +525,24 @@ function M.loadDesktop(data)
                  revision = data.userdirs.revision },
     apps = { roles = deepCopy(apps.roles), originalRoles = deepCopy(apps.roles), mimes = deepCopy(apps.mimes),
              originalMimes = deepCopy(apps.mimes), revision = apps.revision, apps = apps.apps,
+             names = apps.names or {},  -- names of assigned apps missing from `apps` (NoDisplay)
              roleMimes = apps.role_mimes, extensions = apps.extensions or {} },
   }
   local draft = M.desktopDraft
   M.desktopDraft = nil
   return draft and applyDesktopDraft(draft) or nil
+end
+
+-- One desktop part was written (the other may have failed): its values become the saved state.
+function M.desktopSaved(part, revision)
+  local d = M.desktop
+  if not d or type(revision) ~= "string" then return end
+  if part == "userdirs" then
+    d.userdirs.original, d.userdirs.revision = deepCopy(d.userdirs.values), revision
+  else
+    d.apps.originalRoles, d.apps.originalMimes = deepCopy(d.apps.roles), deepCopy(d.apps.mimes)
+    d.apps.revision = revision
+  end
 end
 
 -- ------------------------------------------------------------------ drafts
@@ -508,20 +577,8 @@ function M.saveDraft()
   if encoded then noctalia.writeFile(path, encoded) end
 end
 
--- Re-apply a draft after the first `read`; returns a message or nil. Desktop edits don't depend on the
--- config and are applied when the desktop files load.
-function M.restoreDraft()
-  local path = draftPath()
-  if not path or not noctalia.fileExists(path) or not M.state then return nil end
-  local raw = noctalia.readFile(path)
-  local draft = raw and noctalia.json.decode(raw)
-  noctalia.removeFile(path)
-  if type(draft) ~= "table" then return nil end
-  local desktopNote = nil
-  if type(draft.desktop) == "table" then
-    if M.desktop then desktopNote = applyDesktopDraft(draft.desktop) else M.desktopDraft = draft.desktop end
-  end
-  if draft.path ~= M.state.path then return desktopNote end
+-- Config edits of a draft, applied through the setters; returns how many survived.
+local function applyConfigDraft(draft)
   local restored = 0
   for fid, change in pairs(draft.fields or {}) do
     if M.meta.fields[fid] and type(change) == "table" then
@@ -539,9 +596,60 @@ function M.restoreDraft()
     if draft.keybinds then resetKeybinds(draft.keybinds); M.keybindsDirty = true; restored = restored + 1 end
   end
   M.history = {}  -- the restored draft is where undo stops
+  return restored
+end
+
+local function hasConfigEdits(draft)
+  return next(draft.fields or {}) ~= nil or #(draft.entryOps or {}) > 0 or #(draft.mapOps or {}) > 0
+    or draft.keybinds ~= nil
+end
+
+local function parkedPath()
+  local dir = noctalia.pluginDataDir()
+  return dir and (dir .. "/draft-other-config.json") or nil
+end
+
+-- Re-apply a draft after the first `read`; returns a message or nil. Desktop edits don't depend on the
+-- config and are applied when the desktop files load. Config edits for another file than the one that
+-- opened are parked (restoreParked brings them back when that file is opened), never dropped.
+function M.restoreDraft()
+  local path = draftPath()
+  if not path or not noctalia.fileExists(path) or not M.state then return nil end
+  local raw = noctalia.readFile(path)
+  local draft = raw and noctalia.json.decode(raw)
+  noctalia.removeFile(path)
+  if type(draft) ~= "table" then return nil end
+  local desktopNote = nil
+  if type(draft.desktop) == "table" then
+    if M.desktop then desktopNote = applyDesktopDraft(draft.desktop) else M.desktopDraft = draft.desktop end
+  end
+  if draft.path ~= M.state.path then
+    local parked = parkedPath()
+    if type(draft.path) ~= "string" or not parked or not hasConfigEdits(draft) then return desktopNote end
+    draft.desktop = nil
+    local encoded = noctalia.json.encode(draft)
+    if encoded then noctalia.writeFile(parked, encoded) end
+    local note = "Unsaved edits for " .. draft.path .. " were kept; open that config to get them back."
+    return desktopNote and (note .. " " .. desktopNote) or note
+  end
+  local restored = applyConfigDraft(draft)
   if restored == 0 then return desktopNote end
   local note = "Restored " .. restored .. " unsaved change(s) from last time."
   return desktopNote and (note .. " " .. desktopNote) or note
+end
+
+-- After a config loads: put back parked edits that belong to it (only while it has no edits of its own).
+function M.restoreParked()
+  local parked = parkedPath()
+  if not parked or not M.state or M.hasConfigChanges() or not noctalia.fileExists(parked) then return nil end
+  local raw = noctalia.readFile(parked)
+  local draft = raw and noctalia.json.decode(raw)
+  if type(draft) ~= "table" then noctalia.removeFile(parked) return nil end
+  if draft.path ~= M.state.path then return nil end
+  noctalia.removeFile(parked)
+  local restored = applyConfigDraft(draft)
+  if restored == 0 then return nil end
+  return "Restored " .. restored .. " unsaved change(s) from last time."
 end
 
 return M

@@ -45,7 +45,7 @@ function M.header(ctx, title, subtitle, actions)
                                    onClick = function() ctx.back() end }))
   end
   local titles = { M.title(title) }
-  if subtitle and subtitle ~= "" then table.insert(titles, M.muted(subtitle, { maxLines = 1 })) end
+  if subtitle and subtitle ~= "" then table.insert(titles, M.muted(subtitle, { maxLines = 2 })) end
   table.insert(left, ui.column({ gap = 0, flexGrow = 1 }, titles))
   for _, action in ipairs(actions or {}) do table.insert(left, action) end
   if not ctx.isApp then
@@ -85,7 +85,7 @@ function M.navRow(props)
   if props.subtitle and props.subtitle ~= "" then
     table.insert(text, M.muted(props.subtitle, { maxLines = props.subtitleLines or 1 }))
   end
-  local children = {}
+  local children = { props.leading }
   if props.image then
     table.insert(children, ui.image({ path = props.image, width = 24, height = 24, fit = "contain" }))
   elseif props.glyph then
@@ -99,8 +99,9 @@ function M.navRow(props)
                 children)
 end
 
+-- Section heading in its own case: string.upper is byte-wise and would leave "Bézier" as "BéZIER".
 function M.section(text, key)
-  return ui.label({ key = key or ("section-" .. text), text = string.upper(text), fontSize = 11,
+  return ui.label({ key = key or ("section-" .. text), text = text, fontSize = 12,
                     fontWeight = "bold", color = M.MUTED })
 end
 

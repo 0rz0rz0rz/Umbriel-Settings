@@ -56,13 +56,16 @@ class QtScheduler(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+        # commands that wait on the user or the session (folder chooser, `umbriel outputs`): they must not
+        # use up the threads that saves and file reads need
+        self.slow_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         self._deliver.connect(lambda function: function())
 
     def post(self, function):
         QTimer.singleShot(0, function)
 
-    def background(self, work, done, on_error=None):
-        """work() on a pool thread, then done(result) on the GUI thread.
+    def background(self, work, done, on_error=None, slow=False):
+        """work() on a pool thread (`slow`: a separate pool), then done(result) on the GUI thread.
 
         If work() raises, done(on_error(error)) runs instead, so a Lua callback waiting on the result is never
         left hanging; without on_error the traceback is printed and done is skipped.
@@ -76,4 +79,4 @@ class QtScheduler(QObject):
                     return
                 result = on_error(error)
             self._deliver.emit(lambda: done(result))
-        self.pool.submit(run)
+        (self.slow_pool if slow else self.pool).submit(run)

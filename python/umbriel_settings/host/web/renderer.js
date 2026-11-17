@@ -151,11 +151,18 @@ function create(node) {
     inner.className = "inner";
     el.appendChild(inner);
     el.__host = inner;
+  } else if (kind === "dragSource") {
+    el = document.createElement("div");
+    el.className = "drag-source";
+    setupDragSource(el);  // dragdrop.js
+  } else if (kind === "dropZone") {
+    el = document.createElement("div");
+    el.className = "drop-zone";
   } else {
     el = document.createElement("div"); // column, row, box, separator, spacer
   }
   el.__kind = kind;
-  if (["column", "row", "scroll", "box", "image", "button"].includes(kind)) withTooltip(el);
+  if (["column", "row", "scroll", "box", "image", "button", "dragSource"].includes(kind)) withTooltip(el);
   if (["column", "row", "box", "image"].includes(kind)) {
     el.addEventListener("click", (e) => {
       if (!el.__props.onClick) return;
@@ -185,13 +192,16 @@ function setPicker(el, value) {
 }
 
 // ------------------------------------------------------------------ props
+const CONTAINERS = ["column", "row", "scroll", "box", "dragSource", "dropZone"];
 function layout(el, p, kind) {
   const s = el.style;
-  if (["column", "row", "scroll", "box"].includes(kind)) {
+  if (CONTAINERS.includes(kind)) {
     if (kind !== "box") {
+      // a drop zone is a column unless direction = "row"; our drag sources wrap one grip, laid out as a row
+      const isRow = kind === "row" || kind === "dragSource" || (kind === "dropZone" && p.direction === "row");
       el.classList.add("flex");
-      el.classList.toggle("col", kind !== "row");
-      el.classList.toggle("rowdir", kind === "row");
+      el.classList.toggle("col", !isRow);
+      el.classList.toggle("rowdir", isRow);
       const target = el.__host || el;
       target.style.gap = px(p.gap);
       target.style.alignItems = ALIGN[p.align] || "stretch";
@@ -229,6 +239,7 @@ function apply(el, node) {
     attr(el, "role", p.onClick ? "button" : null);
     attr(el, "aria-label", p.onClick ? p.tooltip : null);
   }
+  if (kind === "dragSource") attr(el, "aria-label", p.tooltip);
   if (kind === "label" || kind === "fillLabel") {
     el.textContent = p.text == null ? "" : String(p.text);
     el.style.fontSize = px(p.fontSize);
@@ -254,6 +265,8 @@ function apply(el, node) {
     icon.style.fontSize = px(p.glyphSize || (p.controlSize === "sm" ? 16 : 18));
     text.textContent = p.text || "";
     text.style.display = p.text ? "" : "none";
+    if (p.selected !== undefined) el.setAttribute("aria-pressed", p.selected ? "true" : "false");
+    else el.removeAttribute("aria-pressed");
     attr(el, "aria-label", p.text ? null : p.tooltip);
     attr(el, "aria-pressed", p.selected ? "true" : null);
     if (p.fontSize) text.style.fontSize = px(p.fontSize);
@@ -360,7 +373,7 @@ function patchChildren(host, children) {
 
 function patch(el, node) {
   apply(el, node);
-  if (["column", "row", "scroll", "box"].includes(node.kind)) patchChildren(el.__host || el, node.children || []);
+  if (CONTAINERS.includes(node.kind)) patchChildren(el.__host || el, node.children || []);
   if (node.kind === "scroll") {
     const reveal = node.props.revealKey;
     if (reveal && reveal !== el.__revealed) {

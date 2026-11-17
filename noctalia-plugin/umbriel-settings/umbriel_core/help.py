@@ -1,5 +1,6 @@
 """Help text and contextual descriptions for settings pages."""
 
+import re
 import textwrap
 
 FIELD_HELP = {
@@ -267,6 +268,94 @@ GROUP_HELP = {
 }
 
 
+# Titles used on several pages: the page decides what the group is about.
+PAGE_GROUP_HELP = {
+    ("Colors", "General"): "Set colors used by the interface and its components.",
+    ("Colors", "Overview"): "Choose the colors of the workspace overview.",
+    ("Colors", "Tab bar"): "Choose tab-bar colors for active, inactive and urgent tabs.",
+    ("Colors", "Title bar"): "Choose title-bar and title-bar button colors.",
+    ("Input", "General"): "Set behavior shared by all input devices.",
+    ("Workspaces", "Overview"): "Configure the workspace overview layout and behavior.",
+    ("Animation", "Overview"): "Animate opening and closing the workspace overview.",
+    ("Workspace rules", "Tab groups"): "Override tab-group behavior for this workspace.",
+    ("Scratchpads", "Scratchpad"): "Name the scratchpad and choose what it launches and matches.",
+    ("Layer rules", "Layer rule"): "Match layer-shell surfaces by namespace and set their blur.",
+    ("Security rules", "Security context rule"): "Choose which sandboxed apps may use which protocol globals.",
+    ("Input devices", "Device override"): "Name a device and override its keyboard, pointer or touchpad settings.",
+}
+
+
+def group_help(page, title):
+    """Help for a settings group; titles shared by several pages are looked up per page."""
+    if title.startswith("Hot corner:"):
+        return f"Choose what happens when the pointer reaches the {title.split(':', 1)[1].strip()} corner."
+    return PAGE_GROUP_HELP.get((page, title)) or GROUP_HELP.get(title, "")
+
+
+# Choice values whose readable form isn't just "snake_case" → "Snake case".
+CHOICE_LABELS = {
+    "popin": "Pop-in", "srgb": "sRGB", "gamma22": "Gamma 2.2", "clickfinger": "Click finger",
+    "vrr": "VRR", "hdr": "HDR", "on_overflow": "On overflow",
+    "left_right_middle": "Left, right, middle", "left_middle_right": "Left, middle, right",
+}
+
+
+def choice_label(value):
+    """Readable label for a fixed choice value: `two_finger` → "Two finger", `MouseLeft` → "Mouse left",
+    `flipped-90` → "Flipped 90°"."""
+    text = str(value)
+    if text in CHOICE_LABELS:
+        return CHOICE_LABELS[text]
+    if text.isdigit():
+        return f"{text}°"
+    words = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text).replace("_", " ").replace("-", " ").split()
+    words = [f"{word}°" if word.isdigit() else word.lower() for word in words]
+    return " ".join(words)[:1].upper() + " ".join(words)[1:] if words else text
+
+
+# Bracket notes in field labels become structured meta (see split_label), so a row reads "Delay" with an
+# "ms" unit instead of "Delay (ms)".
+UNITS = {"ms", "px", "px/s", "s", "Hz", "cd/m2", "viewports"}
+SPECIAL_NOTES = {  # note -> (value, label of the switch that writes it)
+    "-1 automatic": (-1, "Automatic"), "-1 follows window": (-1, "Follow window"),
+    "-1 follows layout": (-1, "Follow layout"), "0 = none": (0, "No limit"), "0 = all": (0, "All"),
+    "0 = never": (0, "Never"),
+}
+DROPPED_NOTES = {"restart", "comma separated", "pick or type", "or custom ..."}
+LABEL_WORDS = {"id": "ID", "xdg": "XDG"}
+HINT_TEXT = {"regex or [array]": "regex or list of regexes", "name or [array]": "name or list of names",
+             "popin": "pop-in style", "TOML": "TOML value"}
+
+
+def split_label(label):
+    """Split "Hide after inactivity (ms, 0 = never)" into ("Hide after inactivity", {"unit": "ms",
+    "special": {"value": 0, "label": "Never"}}). Other notes become a short "hint"; raw TOML keys used as
+    labels (`app_id`) read as words ("App ID")."""
+    match = re.fullmatch(r"(.*?)\s*\((.*)\)", label)
+    if not match:
+        return words_label(label), {}
+    base, notes = match.group(1), match.group(2)
+    extra, hints = {}, []
+    for note in [part.strip() for part in re.split(r"[,;]\s*(?=(?:-?\d+ |ms\b|0 ))", notes)]:
+        if note in UNITS:
+            extra["unit"] = note
+        elif note in SPECIAL_NOTES:
+            value, text = SPECIAL_NOTES[note]
+            extra["special"] = {"value": value, "label": text}
+        elif note not in DROPPED_NOTES:
+            hints.append(note)
+    if hints:
+        extra["hint"] = ", ".join(HINT_TEXT.get(hint, hint) for hint in hints)
+    return words_label(base), extra
+
+
+def words_label(label):
+    """A raw TOML key used as a label (`content_type`) as words ("Content type")."""
+    if not re.fullmatch(r"[a-z_]+", label):
+        return label
+    text = " ".join(LABEL_WORDS.get(word, word) for word in label.split("_"))
+    return text[:1].upper() + text[1:]
+
 
 CATEGORY_HELP = {
     "Basics": "Core session preferences, user folders, and default applications.",
@@ -287,7 +376,7 @@ CATEGORY_HELP = {
     "Workspaces": "Configure workspace navigation, overview, and hot-corner actions.",
     "Keybinds": "Add, edit, and organize keyboard shortcuts.",
     "Environment": "Set environment variables passed to the session and applications.",
-    "Outputs": "Configure each display's mode, position, scale, workspaces, and display features. Use Inspect connected outputs to read live modes from `umbriel outputs --json`. A monitor identity follows the same display between ports; a connector name targets a physical port. This command needs Umbriel running in the session you want to configure.",
+    "Outputs": "Configure each display's mode, position, scale, workspaces, and display features.",
     "Window rules": "Match windows by their properties and override placement, appearance, or behavior.",
     "Layer rules": "Match layer-shell surfaces and configure their blur behavior.",
     "Workspace rules": "Set names, outputs, and layout overrides for selected workspaces.",

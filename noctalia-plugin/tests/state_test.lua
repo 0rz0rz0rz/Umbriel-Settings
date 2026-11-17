@@ -83,7 +83,7 @@ assert(hasText("DP-7"), "outputs listed after a retry: " .. screen())
 -- duplicating a keybind shows the copy's empty shortcut, not the original's
 goHome()
 clickText("Keybinds")
-clickText(store.keybinds.rows[1].key)
+H.clickShortcut(store.keybinds.rows[1].key)
 local keyInput = input("^kb%-key%-")
 assert(keyInput.props.value ~= "", "the original shows its key")
 clickText("Duplicate")
@@ -113,7 +113,7 @@ entry.onKey("ctrl+z", true)
 assert(#store.entryItems("window_rule") == rules and #store.entryOps == 0, "the added rule is gone")
 clickText("Keybinds")
 local firstKey = store.keybinds.rows[1].key
-clickText(firstKey)
+H.clickShortcut(firstKey)
 input("^kb%-key%-").props.onChange("F12")
 input("^kb%-key%-").props.onChange("F11")
 assert(store.keybindsDirty and store.keybinds.rows[1].key ~= firstKey, "the shortcut was edited")
@@ -138,6 +138,68 @@ clickText("Save")
 flushReads()
 assert(hasText("Saved."), screen())
 assert(files["/data/draft.json"] == nil, "the stale draft is gone after saving")
+
+-- an edit made while a save runs stays pending afterwards (the save only clears what it wrote)
+goHome()
+store.discardAll()
+store.setField("appearance.border_width", 11)
+local held
+local plainRunAsync = noctalia.runAsync
+noctalia.runAsync = function(argv, callback)
+  if argv[4] == "save" then held = function() plainRunAsync(argv, callback) end; return true end
+  return plainRunAsync(argv, callback)
+end
+entry.onKey("ctrl+s", true)
+flushReads()
+clickText("Save")
+assert(held, "the save started")
+store.setField("appearance.border_width", 7)
+noctalia.runAsync = plainRunAsync
+held()
+flushReads()
+assert(store.fieldChanges["appearance.border_width"] and store.fieldChanges["appearance.border_width"].value == 7,
+       "the edit made while saving survived")
+assert(hasText("Saved. Edits made while saving are still unsaved."), screen())
+store.discardAll()
+
+-- a draft for another config is parked, not deleted, and comes back when that config opens
+files["/data/draft.json"] = json.encode({ path = "/other/config.toml", revision = {},
+                                          fields = { ["appearance.border_width"] = { value = 3 } } })
+local note = store.restoreDraft()
+assert(note and note:find("/other/config.toml", 1, true), tostring(note))
+assert(files["/data/draft-other-config.json"] and next(store.fieldChanges) == nil, "parked, not applied")
+local ownPath = store.state.path
+store.state.path = "/other/config.toml"
+assert(store.restoreParked() == "Restored 1 unsaved change(s) from last time.", "parked edits restored")
+assert(store.fieldChanges["appearance.border_width"].value == 3 and files["/data/draft-other-config.json"] == nil)
+store.state.path = ownPath
+store.discardAll()
+
+-- a desktop part that saved keeps its new revision when the other part fails; undo can't revert saved values
+goHome()
+store.setDesktop("userdirs", "MUSIC", "/tmp/music-test")
+store.setDesktop("roles", "Web browser", "test-browser.desktop")
+replies["desktop-save"] = function()
+  return true, json.encode({ userdirs = { values = {}, revision = "saved-rev" },
+                             errors = { apps = "Default applications changed externally." } })
+end
+entry.onKey("ctrl+s", true)
+flushReads()
+clickText("Save")
+flushReads()
+local pending = store.desktopChanges()
+assert(store.desktop.userdirs.revision == "saved-rev" and pending and not pending.userdirs and pending.apps,
+       "only the failed part stays pending")
+assert(hasText("Desktop settings were not saved: Default applications changed externally."), screen())
+replies["desktop-save"] = nil
+store.discardAll()
+goHome()
+store.setDesktop("userdirs", "MUSIC", "/tmp/music-test-2")
+entry.onKey("ctrl+s", true)
+flushReads()
+clickText("Save")
+flushReads()
+assert(not store.canUndo(), "no undo step after a desktop-only save")
 
 H.checkBudget("state", 0.025)
 print("state ok")

@@ -17,8 +17,15 @@ end
 
 -- Calls cb(err, data); err is { error = text, code = text } or nil. Callbacks from a previous panel
 -- session are dropped unless opts.always is set (used to report saves that finish after closing).
+-- Writers may wait up to 20 s for the write lock (another window saving), longer than runAsync's 5 s default.
+local WRITE_COMMANDS = { save = true, ["set-config"] = true, restore = true, ["delete-backups"] = true,
+                         ["desktop-save"] = true, ["set-editor"] = true, ["palette-template"] = true,
+                         ["titlebar-follow"] = true }
+M.WRITE_TIMEOUT = 60000
+
 function M.call(command, request, cb, opts)
   opts = opts or {}
+  if opts.timeout == nil and WRITE_COMMANDS[command] then opts.timeout = M.WRITE_TIMEOUT end
   local pluginDir = noctalia.pluginDir()
   local dataDir, dirError = noctalia.pluginDataDir()
   if not pluginDir or not dataDir then

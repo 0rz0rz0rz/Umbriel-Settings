@@ -13,6 +13,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
+from umbriel_core import mimeapps, xdg_dirs
 from umbriel_core.paths import atomic_write
 
 from .host.api import NoctaliaApi
@@ -138,7 +139,8 @@ class AppWindow(QMainWindow):
         self.theme.changed.connect(self.bridge.themeCss.emit)
 
         self.scheduler = QtScheduler(self)
-        self.host = LuaHost(shared_ui_dir(), on_render=self.bridge.send_tree)
+        self.host = LuaHost(shared_ui_dir(), on_render=self.bridge.send_tree, on_error=self.on_lua_error)
+        self._recovering = False
         self.api = NoctaliaApi(
             self.host, self.scheduler, self.data_dir, colors=self.theme.color,
             icon_path=lambda app_id, size=None: icon_file(app_id, size, os.path.join(self.data_dir, "icons")),
@@ -154,13 +156,30 @@ class AppWindow(QMainWindow):
         self.watcher = QFileSystemWatcher(self)
         self.watch_timer = QTimer(self, singleShot=True, interval=400)
         self.watch_timer.timeout.connect(self.on_external_change)
-        self.watcher.fileChanged.connect(self.watch_timer.start)
+        self.watcher.fileChanged.connect(self.on_file_change)
         self.watcher.directoryChanged.connect(self.on_directory_change)
+        # user-dirs.dirs and mimeapps.list (both in $XDG_CONFIG_HOME); their folder brings back lost watches
+        self.desktop_files = [str(xdg_dirs.config_path()), str(mimeapps.config_path())]
+        self.desktop_timer = QTimer(self, singleShot=True, interval=400)
+        self.desktop_timer.timeout.connect(self.on_desktop_change)
+        self.watch_desktop_files()
 
         self.view.load(Page.HOME)
         # The status bar only appears while a notification (noctalia.notify) is shown.
         self.statusBar().hide()
         self.statusBar().messageChanged.connect(lambda text: self.statusBar().setVisible(bool(text)))
+
+    def on_lua_error(self, error):
+        """A UI error: report it where the user sees it, then let the shell clear busy flags it left set."""
+        self.host._print_error(error)
+        first = str(error).strip().splitlines()[0] if str(error).strip() else type(error).__name__
+        self.show_notice(f"Something went wrong: {first}")
+        if not self._recovering:  # an error inside onRecover must not recurse
+            self._recovering = True
+            try:
+                self.host.call("onRecover")
+            finally:
+                self._recovering = False
 
     def show_notice(self, text):
         self.statusBar().show()
@@ -211,11 +230,31 @@ class AppWindow(QMainWindow):
                 self.watcher.addPaths([self.config_path, os.path.dirname(self.config_path)])
                 self.setWindowFilePath(self.config_path)
 
+    def watch_desktop_files(self):
+        """Watch the desktop files that exist and are not watched yet; returns True when one was added."""
+        directory = os.path.dirname(self.desktop_files[0])
+        if os.path.isdir(directory) and directory not in self.watcher.directories():
+            self.watcher.addPath(directory)
+        watched = self.watcher.files()
+        missing = [path for path in self.desktop_files if path not in watched and os.path.exists(path)]
+        if missing:
+            self.watcher.addPaths(missing)
+        return bool(missing)
+
+    def on_file_change(self, path):
+        (self.desktop_timer if path in self.desktop_files else self.watch_timer).start()
+
     def on_directory_change(self, _path):
         """The config appeared, or came back after its watch was lost: watch it again and reload."""
         if self.config_path and self.config_path not in self.watcher.files() and os.path.exists(self.config_path):
             self.watcher.addPath(self.config_path)
             self.watch_timer.start()
+        if self.watch_desktop_files():  # replaced atomically (xdg-mime, xdg-user-dirs-update) or created
+            self.desktop_timer.start()
+
+    def on_desktop_change(self):
+        self.watch_desktop_files()
+        self.host.call("onExternalChange", "desktop")
 
     def on_external_change(self):
         # editors replace the file, which drops the watch; re-add it before reloading

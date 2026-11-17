@@ -161,6 +161,31 @@ class HelpCoverageTests(unittest.TestCase):
         self.assertEqual(sorted(set(FIELD_HELP) - labels), [])
         self.assertEqual(sorted(set(GROUP_HELP) - groups), [])
 
+    def test_labels_carry_no_bracket_notes(self):
+        from umbriel_core.help import split_label
+        from umbriel_core.meta import build_meta
+        meta = build_meta({})
+        self.assertEqual([f["label"] for f in meta["fields"].values() if "(" in f["label"]], [])
+        self.assertEqual([g["title"] for page in meta["pages"].values() for g in page.get("groups", [])
+                          if "(restart)" in g["title"]], [])
+        self.assertEqual(split_label("Hide after inactivity (ms, 0 = never)"),
+                         ("Hide after inactivity", {"unit": "ms", "special": {"value": 0, "label": "Never"}}))
+        self.assertEqual(split_label("app_id (regex or [array])"),
+                         ("App ID", {"hint": "regex or list of regexes"}))
+        self.assertEqual(split_label("Buttons (comma separated)"), ("Buttons", {}))
+        self.assertTrue(meta["fields"]["general.autostart"]["restart"])
+
+    def test_every_group_has_help_that_fits_its_page(self):
+        from umbriel_core.meta import build_meta
+        meta = build_meta({})
+        missing = [(page, group["title"]) for page, info in meta["pages"].items()
+                   for group in info.get("groups", []) if not group["help"]]
+        missing += [(editor["page"], group["title"]) for editor in meta["editors"].values()
+                    for group in editor["groups"] if not group["help"]]
+        self.assertEqual(missing, [])
+        input_general = next(g for g in meta["pages"]["Input"]["groups"] if g["title"] == "General")
+        self.assertNotIn("color", input_general["help"])
+
 
 class KeybindCheckTests(unittest.TestCase):
     def test_duplicate_shortcuts_are_rejected_ignoring_case_and_spaces(self):

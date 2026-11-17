@@ -151,9 +151,20 @@ local frameTick = false
 
 ui = {}
 for _, kind in ipairs({ "column", "row", "scroll", "label", "input", "button", "select", "separator", "toggle",
-                        "slider", "colorPicker", "glyph", "box", "spacer", "markdown", "image" }) do
+                        "slider", "colorPicker", "glyph", "box", "spacer", "markdown", "image", "dragSource",
+                        "dropZone" }) do
   ui[kind] = function(props, children)
     assert(type(props) == "table", "ui." .. kind .. " needs props")
+    -- Noctalia disables a drag source or drop zone whose required props are missing, empty or too long.
+    local function required(name, limit)
+      local value = props[name]
+      assert(type(value) == "string" and value ~= "" and #value <= limit, "ui." .. kind .. " needs a " .. name)
+    end
+    if kind == "dragSource" then required("dragType", 256); required("payload", 16384) end
+    if kind == "dropZone" then
+      required("value", 256); required("onDrop", 256)
+      assert(type(props.accepts) == "table" and #props.accepts <= 16, "ui.dropZone needs accepts")
+    end
     for key, value in pairs(props) do
       if type(value) == "function" and key:match("^on") then
         props[key] = timed(kind .. "." .. key .. " " .. tostring(props.key or props.text or ""), value)
@@ -226,7 +237,7 @@ entry.require = makeRequire(pluginDir)
 function H.start(name, app)
   entry.APP = app
   assert(loadfile(pluginDir .. "/" .. name, "t", entry))()
-  for _, global in ipairs({ "onOpen", "onClose", "onFrameTick", "onKey", "onMenu", "onExternalChange" }) do
+  for _, global in ipairs({ "onOpen", "onClose", "onFrameTick", "onKey", "onMenu", "onDrop", "onExternalChange" }) do
     if type(rawget(entry, global)) == "function" then entry[global] = timed(global, rawget(entry, global)) end
   end
   return entry
@@ -277,6 +288,17 @@ local function clickText(text)
   node.props.onClick()
   flushReads()
 end
+-- The keybind list shows shortcuts as key caps: open the row of the shortcut whose key is `key`.
+local function clickShortcut(key)
+  local suffix = "-" .. key
+  local node = walk(tree, function(n)
+    local k = tostring(n.props.key or "")
+    return n.props.onClick and k:match("^kb%-%d+%-") and k:sub(-#suffix) == suffix
+  end)
+  assert(node, "no shortcut row for " .. key .. "\nScreen: " .. texts(tree))
+  node.props.onClick()
+  flushReads()
+end
 local function lastCall(command)
   for i = #calls, 1, -1 do if calls[i].command == command then return calls[i] end end
 end
@@ -287,6 +309,19 @@ H.json, H.fixtures, H.files, H.calls, H.replies, H.loaded, H.pluginDir = json, f
 H.flushReads, H.texts, H.hasText, H.find, H.clickText, H.lastCall, H.screen =
   flushReads, texts, hasText, find, clickText, lastCall, screen
 H.tree = function() return tree end
+H.walk = walk
+H.clickShortcut = clickShortcut
+-- Drops the drag source keyed `sourceKey` on the zone keyed `zoneKey`, like a completed pointer drag:
+-- Noctalia calls the global the zone names with (payload, value) when the zone accepts the source's type.
+function H.drag(sourceKey, zoneKey)
+  local source = find("dragSource", function(n) return n.props.key == sourceKey end, "no drag source " .. sourceKey)
+  local zone = find("dropZone", function(n) return n.props.key == zoneKey end, "no drop zone " .. zoneKey)
+  local accepted = false
+  for _, kind in ipairs(zone.props.accepts) do if kind == source.props.dragType then accepted = true end end
+  assert(accepted, zoneKey .. " does not accept " .. source.props.dragType)
+  entry[zone.props.onDrop](source.props.payload, zone.props.value)
+  flushReads()
+end
 -- Moves a slider like the pointer does (press, drag, release later); `wheel` = a mouse-wheel notch, which Noctalia
 -- reports as one change and an immediate drag end.
 function H.slide(node, value, wheel)

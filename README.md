@@ -15,14 +15,20 @@ same core and interface code, so they look and behave alike; the app adds a side
   workspaces and keybinds, plus window, layer, workspace and security rules, outputs, scratchpads, input
   devices and environment variables.
 - **Search** (Ctrl+F) over setting names, help text, config keys (`border_width`), rule names and shortcuts.
-- **Clear rows**: control, default value, ⓘ help with the config key, ↶ undo, and an eraser that removes
-  the key so Umbriel's default applies. **Only customized** hides settings at their default, and
-  **Customized** on Home lists every setting that differs from Umbriel's default.
+- **Clear rows**: control, default value (“Customized · default 2” once it differs), ⓘ help with the config
+  key, ↶ undo, and an eraser that removes the key so Umbriel's default applies. Units sit next to the number,
+  special values such as “Automatic” (-1) have their own switch, and a ↻ glyph marks settings that need an
+  Umbriel restart. **Only customized** hides settings at their default.
+- **Home** (app) shows the config file, the settings that differ from Umbriel's defaults and the latest
+  backups; the sidebar keeps **Customized**, **Backups** and **About** at hand and shrinks to icons in a
+  narrow window (widen it again to use the search box).
 - **Undo** (Ctrl+Z or the save bar) steps back through unsaved edits, one setting, rule or shortcut at a time.
 - **Lists** for rules, outputs, devices and effects: edit, name, reorder, duplicate, delete.
   **Inspect connected outputs** adds a monitor with one of its real modes.
 - **Keybinds** in groups: build shortcuts from modifier chips, pick actions from a searchable catalog, set
-  repeat/locked options, and lock shortcuts against accidental changes.
+  repeat/locked options, and lock shortcuts against accidental changes. Drag groups and shortcuts by their
+  grip to reorder them, or move them into another group (↑/↓ buttons do the same without a mouse); the
+  `[keybinds]` table is saved in that order.
 - **User folders and default apps** with folder pickers, a searchable app list and per-MIME-type choices.
 - **Follows your theme** (Noctalia or qt6ct/KDE colors, see [Theming](#theming)) and your locale's decimal
   separator.
@@ -40,13 +46,17 @@ Nothing is written until you press **Review & save** (Ctrl+S):
   links to its setting. Skipped when `umbriel` isn't installed.
 - **Tidy file layout** regroups the file in canonical order with section banners (may move comments). It is
   on by default only for files that already have banners; `--no-rebuild` turns it off.
-- Every save or restore makes a timestamped backup (newest 10 kept). **Backups** on the home page compares,
-  restores and deletes them. User folders, default apps and Noctalia's config get their own backups.
+- Every save or restore makes a timestamped backup (newest 10 kept). **Backups** compares, restores and
+  deletes them; a restore is checked with Umbriel too and warns about problems. User folders, default apps
+  and Noctalia's config get their own backups.
+- Edits made while a save runs stay unsaved instead of being lost. If user folders save but default apps
+  fail (or the other way round), only the part that failed stays pending.
 - Unsaved edits are kept as a draft when you close (also on Ctrl+C or logout) and restored next time, unless the
-  file changed meanwhile.
+  file changed meanwhile. Edits for another config file are kept until you open that file again.
 - The window size (and maximized state) is remembered between runs.
 - If the config changes on disk, it is reloaded: setting edits are kept, rule and keybind edits are dropped
-  with a note.
+  with a note. The app also notices changes to `user-dirs.dirs` and `mimeapps.list`.
+- An unexpected UI error is shown in the status bar, and the app clears any stuck “Saving…” or loading state.
 - Symlinked files are refused; open the link's target instead.
 - The app and the Noctalia plugin save one at a time, and a save is refused if the file changed since it was
   loaded.

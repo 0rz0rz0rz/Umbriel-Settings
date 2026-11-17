@@ -4,7 +4,7 @@ from . import CORE_VERSION, entry_ops
 from .actions import ACTION_CATEGORIES, ACTION_INFO, ARG_HELP, REQUIRED_ARG_ACTIONS
 from .cursor_themes import installed_cursor_themes
 from .fields import ACTION_TEMPLATES, NAV_SECTIONS, OPACITY_SLIDERS, TABS
-from .help import CATEGORY_HELP, GROUP_HELP, setting_help_text
+from .help import CATEGORY_HELP, choice_label, group_help, setting_help_text, split_label
 from .keybinds import BIND_BOOL_OPTIONS
 from .schema import field_schema_option
 from .values import to_ui
@@ -37,8 +37,9 @@ def describe_field(field, category, group, schema_options, schema_path, cursor_t
     else:
         default = None  # rule fields have no default: an absent key means "any" or "unchanged"
     kind = field.kind
+    label, notes = split_label(field.label)
     info = {
-        "label": field.label,
+        "label": label,
         "kind": kind,
         "path": ".".join(field.path),
         "opt": bool(field.opt),
@@ -54,6 +55,8 @@ def describe_field(field, category, group, schema_options, schema_path, cursor_t
         if field.path == ("input", "cursor", "theme"):
             choices = cursor_themes
         info["choices"] = [str(c) for c in choices]
+        if kind == "choice":  # combo values (layouts, theme names) are names: shown as they are
+            info["choice_labels"] = [choice_label(c) for c in choices]
     if kind in ("int", "float"):
         low, high = None, None
         if isinstance(field.extra, (list, tuple)) and len(field.extra) == 2:
@@ -67,8 +70,22 @@ def describe_field(field, category, group, schema_options, schema_path, cursor_t
         info["opacity"] = True
     if option is not None and option.get("format") == "effect":
         info["placeholder"] = "Effect preset name"
+    info.update(notes)
+    # with nothing better to show in an empty box, the hint goes there (and not on the status line too)
+    if ("hint" in notes and kind in ("str", "strorlist", "raw", "combo") and not info.get("placeholder")
+            and info["default"] is None and info["initial"] is None):
+        hint = info.pop("hint")
+        info["placeholder"] = hint[5:] if hint.startswith("e.g. ") else hint
     info["help"] = setting_help_text(field, group)
     info["search"] = " ".join([field.label, info["path"], group, category, info["help"]]).casefold()
+    return info
+
+
+def group_info(page, title, ids):
+    """A settings group; "(restart)" leaves the title and becomes a flag (shown as a glyph)."""
+    info = {"title": title.replace(" (restart)", ""), "help": group_help(page, title), "fields": ids}
+    if "(restart)" in title:
+        info["restart"] = True
     return info
 
 
@@ -84,7 +101,7 @@ def build_meta(schema_options, schema_info=None, plugin_version=""):
                 fid = ".".join(field.path)
                 fields[fid] = describe_field(field, page, title, schema_options, fid, themes)
                 ids.append(fid)
-            page_groups.append({"title": title, "help": GROUP_HELP.get(title, ""), "fields": ids})
+            page_groups.append(group_info(page, title, ids))
         pages[page] = {"kind": "form", "groups": page_groups}
     editors = {}
     for eid, (page, title, path, mode, groups, _) in entry_ops.ENTRY_EDITORS.items():
@@ -97,7 +114,7 @@ def build_meta(schema_options, schema_info=None, plugin_version=""):
                 fields[f"{eid}:{fpath}"] = describe_field(
                     field, page, group_title, schema_options, f"{prefix}.{fpath}", themes, entry=True)
                 ids.append(f"{eid}:{fpath}")
-            editor_groups.append({"title": group_title, "help": GROUP_HELP.get(group_title, ""), "fields": ids})
+            editor_groups.append(group_info(page, group_title, ids))
         editors[eid] = {"page": page, "title": title, "path": path, "mode": mode, "groups": editor_groups}
         pages.setdefault(page, {"kind": "entries", "editors": []})["editors"].append(eid)
     maps = {

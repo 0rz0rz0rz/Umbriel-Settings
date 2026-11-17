@@ -18,6 +18,9 @@ import traceback
 from umbriel_core.launch import child_env
 from umbriel_core.paths import atomic_write
 
+# Helper commands that wait on the user or the session; they run on the scheduler's separate slow pool.
+SLOW_HELPER_COMMANDS = {"pick-folder", "outputs", "launch-app", "open-config"}
+
 
 class ManualScheduler:
     """Runs posted work when asked (tests). The Qt window uses QtScheduler with the same interface."""
@@ -28,7 +31,7 @@ class ManualScheduler:
     def post(self, function):
         self.queue.append(function)
 
-    def background(self, work, done, on_error=None):
+    def background(self, work, done, on_error=None, slow=False):
         """Run work() off the GUI thread, then done(result) on it; here both run on the next drain."""
         def run():
             try:
@@ -209,6 +212,7 @@ class NoctaliaApi:
         args = [str(argv[i]) for i in range(1, len(argv) + 1)] if self.host.is_table(argv) else [str(argv)]
         seconds = (timeout or 5000) / 1000
         in_process = len(args) >= 3 and os.path.basename(args[2]) == "umbriel_settings.py"
+        slow = not in_process or (len(args) > 3 and args[3] in SLOW_HELPER_COMMANDS)
 
         def work():
             if in_process:
@@ -234,7 +238,8 @@ class NoctaliaApi:
                 result.update(stdoutTruncated=False, stderrTruncated=False)
                 self.host.guard(callback, self.host.to_lua(result))
         self.scheduler.background(work, done, lambda error: {
-            "exitCode": 1, "stdout": "", "stderr": "".join(traceback.format_exception(error)), "timedOut": False})
+            "exitCode": 1, "stdout": "", "stderr": "".join(traceback.format_exception(error)), "timedOut": False},
+            slow=slow)
         return True
 
     # ------------------------------------------------------------------ misc

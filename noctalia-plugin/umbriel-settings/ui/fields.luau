@@ -45,7 +45,10 @@ end
 function M.format(field, value)
   if value == nil then return "not set" end
   local kind = field.kind
-  if kind == "bool" then return value and "on" or "off" end
+  if kind == "bool" then return value and "On" or "Off" end
+  if type(value) == "number" and field.special and value == field.special.value then
+    return string.lower(field.special.label)
+  end
   if type(value) == "number" then return M.number(value) end
   if type(value) == "table" then
     if kind == "table" then
@@ -61,6 +64,11 @@ function M.format(field, value)
   end
   local text = tostring(value)
   if text == "" then return "empty" end
+  if field.choice_labels then
+    for i, choice in ipairs(field.choices or {}) do
+      if choice == text then return field.choice_labels[i] or text end
+    end
+  end
   return text
 end
 
@@ -144,17 +152,54 @@ local function sliding(ctx, key)
   return gesture and gesture.value
 end
 
+-- A switch for a number's special value (-1 = automatic, 0 = never, ...): on writes that value; off goes back
+-- to the last other value, else the default or the initial value.
+local function specialChip(ctx, spec, effective)
+  local field, view, key = spec.field, ctx.view, spec.key
+  local special = field.special
+  local active = effective == special.value
+  return ui.button({
+    key = key .. ":special", text = special.label, controlSize = "sm", selected = active,
+    variant = active and "primary" or "outline",
+    tooltip = active and ("Uses " .. string.lower(special.label) .. "; click to choose a number")
+      or ("Use " .. string.lower(special.label)),
+    onClick = function()
+      if active then
+        local back = view.lastNumber[key]
+        if back == nil and field.default ~= nil and field.default ~= special.value then back = field.default end
+        if back == nil and field.initial ~= nil and field.initial ~= special.value then back = field.initial end
+        if back == nil then back = math.max(field.min or 0, special.value + 1) end
+        spec.onSet(back)
+      else
+        if type(effective) == "number" then view.lastNumber[key] = effective end
+        spec.onSet(special.value)
+      end
+      bump(view, key)
+      ctx.render()
+    end,
+  })
+end
+
 local function numberControl(ctx, spec, effective)
   local field, view, key = spec.field, ctx.view, spec.key
   local integer = field.kind == "int"
   local controls = {}
-  local hasRange = field.min ~= nil and field.max ~= nil and field.max - field.min <= 100000
+  local special = field.special
+  local isSpecial = special ~= nil and effective == special.value
+  local low = field.min
+  -- the special value has its own switch, so the slider starts above it
+  if special and low ~= nil and low <= special.value then low = special.value + 1 end
+  local hasRange = low ~= nil and field.max ~= nil and field.max > low and field.max - low <= 100000
+  if special then table.insert(controls, specialChip(ctx, spec, effective)) end
   if hasRange then
-    local step = integer and 1 or ((field.max - field.min) <= 2 and 0.01 or (field.max - field.min) <= 20 and 0.05 or 0.5)
+    local step = integer and 1 or ((field.max - low) <= 2 and 0.01 or (field.max - low) <= 20 and 0.05 or 0.5)
     local function whole(number) return integer and math.floor(number + 0.5) or number end
+    local shown = effective
+    if shown == nil or isSpecial then shown = view.lastNumber[key] or field.initial or low end
+    if special and shown == special.value then shown = low end
     table.insert(controls, slider(ctx, {
-      key = key .. ":slider", min = field.min, max = field.max, step = step,
-      value = effective or field.initial or field.min, flexGrow = 1, controlSize = "sm",
+      key = key .. ":slider", min = low, max = field.max, step = step, value = shown, flexGrow = 1,
+      controlSize = "sm", opacity = isSpecial and 0.4 or nil,
     }, function() bump(view, key) end, function(number)
       spec.onSet(whole(number))
       bump(view, key)
@@ -164,6 +209,7 @@ local function numberControl(ctx, spec, effective)
   local preview = sliding(ctx, key .. ":slider")
   if preview ~= nil then preview = integer and math.floor(preview + 0.5) or preview end
   local boxValue = preview ~= nil and preview or effective
+  if isSpecial and preview == nil then boxValue = nil end  -- the switch says it; the box stays empty
   table.insert(controls, ui.input({
     key = key .. ":num:" .. gen(view, key), value = boxValue ~= nil and M.format(field, boxValue) or "",
     width = hasRange and 84 or nil, flexGrow = (not hasRange) and 1 or nil, controlSize = "sm",
@@ -187,6 +233,7 @@ local function numberControl(ctx, spec, effective)
       ctx.render()
     end,
   }))
+  if field.unit then table.insert(controls, kit.muted(field.unit, { fontSize = 11 })) end
   return controls
 end
 
@@ -240,7 +287,8 @@ local function choiceControl(ctx, spec, effective)
   local options, offset = {}, 0
   local unsettable = spec.onUnset ~= nil and not hasDefault(field)
   if unsettable then table.insert(options, unsetLabel(field)); offset = 1 end
-  for _, choice in ipairs(choices) do table.insert(options, choice) end
+  local labels = field.choice_labels or choices
+  for i, choice in ipairs(choices) do table.insert(options, labels[i] or choice) end
   local index = indexOf(choices, effective)
   local custom = field.kind == "combo" and (view.custom[key] or (effective ~= nil and index == nil))
   if field.kind == "combo" then table.insert(options, "Custom…") end
@@ -285,9 +333,11 @@ local function triControl(ctx, spec)
   local current = spec.set and (spec.value and 2 or 3) or 1
   local controls = {}
   for index, label in ipairs({ unsetLabel(field), "On", "Off" }) do
+    -- "Any" (no key) is the quiet state: selected, but only a chosen On/Off is filled
+    local selected = current == index
     table.insert(controls, ui.button({
-      key = key .. ":tri:" .. index, text = label, controlSize = "sm", flexGrow = 1, selected = current == index,
-      variant = current == index and "primary" or "outline",
+      key = key .. ":tri:" .. index, text = label, controlSize = "sm", flexGrow = 1, selected = selected,
+      variant = not selected and "ghost" or (index == 1 and "secondary" or "primary"),
       onClick = function()
         if index == 1 then spec.onUnset() else spec.onSet(index == 2) end
         ctx.render()
@@ -458,23 +508,26 @@ function M.row(ctx, spec)
     controls = textControl(ctx, spec, spec.set and spec.value or nil, placeholder)
   end
 
-  local badges = {}
-  if spec.changed then table.insert(badges, kit.badge("changed", "primary", key .. ":b1")) end
-  if field.restart then table.insert(badges, kit.badge("restart", "tertiary", key .. ":b2")) end
-  local labelRow = { ui.label({ text = field.label, fontSize = 13, maxLines = 2, flexGrow = 1 }) }
-  for _, badge in ipairs(badges) do table.insert(labelRow, badge) end
-  local status
+  local labelRow = { ui.label({ text = field.label, fontSize = 13, maxLines = 2 }) }
+  if field.restart then
+    table.insert(labelRow, ui.glyph({ name = "refresh-alert", size = 14, color = "tertiary",
+                                      tooltip = "Takes effect after restarting Umbriel" }))
+  end
+  table.insert(labelRow, ui.row({ flexGrow = 1 }, {}))
+  if spec.changed then table.insert(labelRow, kit.badge("unsaved", "primary", key .. ":b1")) end
+  -- One quiet line: a hint, then "Default 2" or, once the key differs from it, "Customized · default 2".
   local defaultText = hasDefault(field) and M.format(field, field.default) or nil
   if defaultText == "empty" then defaultText = nil end
+  local customized = spec.set and (defaultText == nil or ctx.store.differs(field, spec.value))
+  local status
   if follow then
     status = "Follows Noctalia · " .. (follow.source == "kde" and "KDE" or "KDE header")
+  elseif customized then
+    status = "Customized" .. (defaultText and (" · default " .. defaultText) or "")
   elseif defaultText then
-    status = (spec.set and "Default " or "Not set · uses default ") .. defaultText
-  elseif spec.set then
-    status = "Set"
-  else
-    status = unsetLabel(field) == "Any" and "Not set · matches anything" or "Not set"
+    status = "Default " .. defaultText
   end
+  if field.hint and not follow then status = status and (field.hint .. " · " .. status) or field.hint end
 
   local actions = {}
   if spec.onRevert then
@@ -499,7 +552,7 @@ function M.row(ctx, spec)
     ui.row({ key = key .. ":main", gap = 12, align = "center" }, {
       ui.column({ gap = 2, flexGrow = 1, tooltip = field.help }, {
         ui.row({ gap = 6, align = "center" }, labelRow),
-        kit.muted(status, { maxLines = 1 }),
+        status and kit.muted(status, { maxLines = 1, color = customized and "primary" or nil }) or nil,
       }),
       ui.row({ width = M.EDITOR_WIDTH, gap = 6, align = "center", opacity = spec.set and 1 or 0.75 }, controls),
       ui.row({ width = 96, gap = 0, justify = "end", align = "center" }, actions),

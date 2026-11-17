@@ -42,6 +42,8 @@ button.ghost:hover, button.outline:hover, button.default:hover { background: col
 button.primary:hover { filter: brightness(1.08); }
 button.destructive { background: var(--error); color: var(--on_error); }
 button.selected { background: var(--primary); color: var(--on_primary); border-color: transparent; }
+button.secondary.selected { background: var(--surface_container_highest); color: var(--on_surface);
+  border-color: var(--outline_variant); }
 button:disabled { opacity: 0.45; cursor: default; filter: none; }
 button.start { justify-content: flex-start; }
 
@@ -108,3 +110,21 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px;
 .tooltip { position: fixed; z-index: 10; pointer-events: none; background: var(--surface_container_highest);
   color: var(--on_surface); border: 1px solid var(--outline_variant); border-radius: 8px; padding: 6px 9px;
   font-size: 12px; max-width: 360px; white-space: pre-line; box-shadow: 0 4px 14px rgba(0,0,0,0.3); }
+
+/* Narrow app windows: the sidebar shows icons only; each item keeps its name as tooltip and aria-label. */
+@media (max-width: 899px) {
+  [data-key="sidebar"] { width: 60px !important; padding-left: 6px !important; padding-right: 6px !important; }
+  [data-key="sidebar"] .label, [data-key="sidebar"] input, [data-key^="navsec-"], [data-key^="navb-"] { display: none; }
+  [data-key="sidebar"] [data-key^="nav-"] { justify-content: center; }
+}
+
+/* drag and drop (dragdrop.js) */
+.drag-source { cursor: grab; touch-action: none; }
+body.dragging, body.dragging * { cursor: grabbing !important; }
+.drop-zone { flex-shrink: 0; border-radius: calc(8px * var(--radius-scale, 1)); transition: height 120ms ease-out; }
+.drop-zone.drop-over { background: color-mix(in srgb, var(--primary) 18%, transparent);
+  box-shadow: inset 0 0 0 2px var(--primary); }
+.drag-lifted { display: none !important; }
+.drag-dimmed { opacity: 0.4; }
+.drag-ghost { position: fixed; z-index: 1000; pointer-events: none; opacity: 0.9; margin: 0;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35); border-radius: calc(10px * var(--radius-scale, 1)); }

@@ -52,10 +52,10 @@ local function editorList(ctx, eid, filter, multiple)
   if multiple then table.insert(rows, kit.section(editor.title)) end
   local shown = 0
   for index, item in ipairs(items) do
-    local title, automatic = store.entryTitle(eid, index, item)
+    local title = store.entryTitle(eid, index, item)
     local count = 0
     for _ in pairs(item.values) do count = count + 1 end
-    local subtitle = (automatic and "Automatic name · " or "") .. kit.plural(count, "setting")
+    local subtitle = kit.plural(count, "setting")
     if filter == "" or string.find(string.lower(title), filter, 1, true) then
       shown = shown + 1
       table.insert(rows, kit.navRow({ key = "entry-" .. eid .. "-" .. index, title = title, subtitle = subtitle,
@@ -96,12 +96,15 @@ local function listPage(ctx, route)
                                    placeholder = "Filter by name",
                                    onChange = function(text) view[filterKey] = text; ctx.render() end }))
   if route.page == "Outputs" then
-    table.insert(content, ui.row({ key = "inspect", gap = 6 }, {
+    table.insert(content, ui.row({ key = "inspect", gap = 10, align = "center" }, {
       ui.button({ text = "Inspect connected outputs", glyph = "device-desktop", controlSize = "sm", variant = "outline",
+                  tooltip = "Reads live modes from `umbriel outputs --json`; needs Umbriel running in this session",
                   onClick = function()
                     view.outputs = nil  -- ask again: monitors may have been plugged in since
                     ctx.go({ name = "outputs" })
                   end }),
+      kit.muted("A monitor name follows the display between ports; a connector name (DP-1) targets a port.",
+                { flexGrow = 1, maxLines = 2 }),
     }))
   end
   local filter = string.lower(noctalia.string.trim(view[filterKey] or ""))

@@ -101,6 +101,20 @@ clickText("Add")
 entry.onKey("Escape", true)
 assert(exists("input", "filter-Window rules") and not exists("button", "back"), "back to the rule list")
 entry.onKey("Escape", true)
-assert(exists("row", "tools"), "Home after Escape on a root page: " .. screen())
+assert(exists("column", "home-config"), "Home after Escape on a root page: " .. screen())
+-- the app's Home is a dashboard (the sidebar lists the pages); the sidebar's tools sit on top of Home
+assert(hasText("Customized settings") and hasText("Recent backups") and not exists("row", "tools"), screen())
+assert(lastCall("backups"), "recent backups are asked for")
+clickText("Backups")
+assert(hasText("A copy is taken before every save and restore; the newest 10 are kept"), screen())
+entry.onKey("Escape", true)
+assert(exists("column", "home-config"), "Escape from a sidebar tool goes Home: " .. screen())
+
+-- the sidebar's Keybinds page sorts by drag and drop through the app's own onDrop global
+clickText("Keybinds")
+local kb = loaded[pluginDir .. "/lib/store.luau"].keybinds
+local second = kb.rows[2].key
+H.drag("kbgrip-2", "kbgap-1")
+assert(kb.rows[1].key == second, "dragged before the first shortcut")
 H.checkBudget("app", 0.025)
 print("app ok")

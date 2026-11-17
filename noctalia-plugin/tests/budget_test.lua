@@ -54,7 +54,14 @@ assert(click("Customized"), "Customized button\nScreen: " .. H.screen())
 search("")
 assert(click("Keybinds"), "Keybinds card")
 local store = H.loaded[H.pluginDir .. "/lib/store.luau"]
-assert(click(store.keybinds.rows[1].key), "first shortcut")
+-- the full list with a grip and a drop gap per shortcut; a drop reorders and redraws all of it
+local last = store.keybinds.rows[#store.keybinds.rows].key
+H.drag("kbgrip-" .. #store.keybinds.rows, "kbgap-1")
+assert(store.keybinds.rows[1].key == last, "dropped first")
+entry.onKey("ctrl+z", true)
+-- shortcuts show as key caps in sections; filtering opens the section that holds the first one
+find("input", function(n) return n.props.key == "kb-filter" end).props.onChange(store.keybinds.rows[1].key)
+find("row", function(n) return tostring(n.props.key):match("^kb%-1%-") and n.props.onClick end).props.onClick()
 local keyInput = function() return find("input", function(n) return tostring(n.props.key):match("^kb%-key%-") end) end
 keyInput().props.onChange("F12")
 keyInput().props.onChange("F11")

@@ -23,7 +23,13 @@ from .layout import (
     move_new_keybinds,
     rebuild_config,
 )
-from .paths import config_gui_data_dir, labels_file, load_all_entry_labels, write_text_file
+from .paths import (
+    config_gui_data_dir,
+    labels_file,
+    load_all_entry_labels,
+    remove_stale_temp_files,
+    write_text_file,
+)
 from .schema import field_schema_option
 from .tomlops import MISSING, getp, py, same_data, totext
 
@@ -55,10 +61,18 @@ class ConfigSession:
     """One config file plus its GUI sidecars (labels, keybind locks) under the shared GUI data directory."""
 
     def __init__(self, config_path, data_dir, schema_options=None):
+        """`schema_options` is a dict or a function returning one; a function runs on first use, so reading a
+        config never waits for `umbriel config schema`."""
         self.path = os.path.abspath(os.path.expanduser(config_path))
         self.data_dir = data_dir
         self.config_dir = config_gui_data_dir(self.path, data_dir)
-        self.options = schema_options or {}
+        self._options = schema_options
+
+    @property
+    def options(self):
+        if callable(self._options):
+            self._options = self._options()
+        return self._options or {}
 
     # ------------------------------------------------------------------ reading
     def lock_path(self):
@@ -82,7 +96,10 @@ class ConfigSession:
             raise ValueError(
                 f"{self.path} does not exist. Copy /usr/share/umbriel/config.toml there first."
             ) from error
-        text = data.decode("utf-8")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ValueError(f"{self.path} is not UTF-8 text ({error.reason} at byte {error.start}).") from None
         try:
             doc = tomlkit.parse(text)
         except tomlkit.exceptions.TOMLKitError as error:
@@ -328,18 +345,28 @@ class ConfigSession:
         return report
 
     def validate(self, text):
-        """Run `umbriel config validate` on a temporary copy next to the config (so includes resolve)."""
+        """Run `umbriel config validate` on a temporary copy next to the config (so includes resolve).
+
+        A read-only config directory falls back to the GUI data directory; relative includes may then not
+        resolve, which is still better than not validating at all."""
         executable = shutil.which("umbriel")
         if not executable:
             return {"ran": False, "reason": "The umbriel command was not found; the config was not validated."}
         name = None
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", dir=os.path.dirname(self.path), prefix=".umbriel-settings-",
-                suffix=".toml", delete=False,
-            ) as handle:
-                name = handle.name
-                handle.write(text)
+            for directory in (os.path.dirname(self.path), self.config_dir):
+                try:
+                    os.makedirs(directory, exist_ok=True)
+                    with tempfile.NamedTemporaryFile(
+                        mode="w", encoding="utf-8", dir=directory, prefix=".umbriel-settings-",
+                        suffix=".toml", delete=False,
+                    ) as handle:
+                        name = handle.name
+                        handle.write(text)
+                    break
+                except OSError:  # read-only (EROFS) or not writable (EACCES)
+                    if directory == self.config_dir:
+                        raise
             try:
                 result = subprocess.run(
                     [executable, "config", "validate", "-c", name, "--json"],
@@ -380,7 +407,12 @@ class ConfigSession:
         return {"ran": True, "valid": valid, "diagnostics": diagnostics}
 
     def save(self, changes, validate=True, backup=None):
-        """Apply, validate (refusing invalid configs), back up and write atomically; return the report."""
+        """Apply, validate (refusing invalid configs), back up and write atomically; return the report.
+
+        Once the config is written, failures of the GUI's own sidecars (labels, keybind locks) no longer fail
+        the save; they are listed in report["warnings"].
+        """
+        remove_stale_temp_files(os.path.dirname(self.path), os.path.basename(self.path))
         old, new, labels_all, locks, summary = self.apply(changes)
         report = self._report(old, new, summary, validate)
         if validate and report["validation"].get("ran") and not report["validation"].get("valid"):
@@ -394,11 +426,20 @@ class ConfigSession:
             if os.path.islink(self.path) or self.revision() != changes.get("revision"):
                 raise ValueError("The config changed while saving. Reload before retrying.")
             write_text_file(self.path, new)
-        if labels_all is not None:
-            kept = {key: labels for key, labels in labels_all.items() if any(labels)}
-            write_text_file(labels_file(self.path, self.config_dir), json.dumps(kept, indent=2))
-        if locks is not None and sorted(keybinds.load_locked(self.path, self.config_dir)) != locks:
-            keybinds.save_locked(locks, self.config_dir)
+        warnings = []
+        try:
+            if labels_all is not None:
+                kept = {key: labels for key, labels in labels_all.items() if any(labels)}
+                write_text_file(labels_file(self.path, self.config_dir), json.dumps(kept, indent=2))
+        except OSError as error:
+            warnings.append(f"Rule names could not be saved: {error}.")
+        try:
+            if locks is not None and sorted(keybinds.load_locked(self.path, self.config_dir)) != locks:
+                keybinds.save_locked(locks, self.config_dir)
+        except OSError as error:
+            warnings.append(f"Keybind locks could not be saved: {error}.")
+        if warnings:
+            report["warnings"] = warnings
         report["saved"] = True
         return report
 

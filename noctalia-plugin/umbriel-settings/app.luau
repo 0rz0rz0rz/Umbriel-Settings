@@ -25,5 +25,7 @@ function onClose() handlers.onClose() end
 function onFrameTick() handlers.onFrameTick() end
 function onKey(chord, pressed) handlers.onKey(chord, pressed) end
 function onMenu(action, context) handlers.onMenu(action, context) end
-function onExternalChange() handlers.onExternalChange() end
+function onDrop(payload, value) handlers.onDrop(payload, value) end
+function onExternalChange(kind) handlers.onExternalChange(kind) end
+function onRecover() handlers.onRecover() end
 function onRelaunch(path) handlers.onRelaunch(path) end

@@ -55,10 +55,16 @@ end
 
 local function appName(apps, id)
   if not id or id == "" then return nil end
-  for _, app in ipairs(apps) do
+  for _, app in ipairs(apps.apps) do
     if app.id == id then return app.name end
   end
-  return id
+  return apps.names and apps.names[id] or id
+end
+
+-- "Name  ·  id", or just the id when no name is known (never the id twice)
+local function appLine(apps, id)
+  local name = appName(apps, id)
+  return name == id and id or (name .. "  ·  " .. id)
 end
 
 local function validFolder(value)
@@ -137,7 +143,7 @@ local function appsPage(ctx)
   for _, role in ipairs(ROLE_ORDER) do
     local value = apps.roles[role] or ""
     local subtitle = value == "<multiple>" and "Different apps for different file types"
-      or (value ~= "" and (appName(apps.apps, value) .. "  ·  " .. value)) or "Not set"
+      or (value ~= "" and appLine(apps, value)) or "Not set"
     local badges = {}
     if value ~= (apps.originalRoles[role] or "") then table.insert(badges, kit.badge("changed", "primary", "rb-" .. role)) end
     local icon = icons.icon(value)
@@ -181,6 +187,7 @@ local function appsPage(ctx)
   for mime in pairs(apps.mimes) do table.insert(names, mime) end
   table.sort(names)
   local appNames = {}
+  for id, name in pairs(apps.names or {}) do appNames[id] = name end
   for _, app in ipairs(apps.apps) do appNames[app.id] = app.name end
   local extensions = apps.extensions or {}
   local listStart = #content + 1
@@ -196,7 +203,7 @@ local function appsPage(ctx)
                                      radius = 10, fill = "surface_container" }, {
         ui.column({ gap = 2, flexGrow = 1 }, {
           ui.label({ text = exts ~= "" and (mime .. "  ·  " .. exts) or mime, fontSize = 13 }),
-          kit.muted(name and (name .. "  ·  " .. value) or "Removed when you save"),
+          kit.muted(name and (name == value and value or (name .. "  ·  " .. value)) or "Removed when you save"),
         }),
         ui.button({ text = "Change", controlSize = "sm", variant = "outline",
                     onClick = function() ctx.go({ name = "appPicker", kind = "mime", target = mime }) end }),

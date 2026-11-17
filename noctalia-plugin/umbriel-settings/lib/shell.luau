@@ -18,7 +18,7 @@ local M = {}
 function M.create(layout, options)
   options = options or {}
   local stack = { { name = "home" } }
-  local view = { gen = {}, invalid = {}, custom = {}, help = {}, expanded = {}, query = "" }
+  local view = { gen = {}, invalid = {}, custom = {}, help = {}, expanded = {}, lastNumber = {}, query = "" }
   local loading = { meta = false, config = false, desktop = false }
   local notices = {}
   local draftChecked = false
@@ -76,6 +76,7 @@ function M.create(layout, options)
 
   function ctx.render()
     local current = route()
+    ctx.dropHandler = nil  -- set again by a page that draws drop zones
     local parts = body(current)
     local noticeNodes = {}
     for index, notice in ipairs(notices) do
@@ -201,9 +202,10 @@ function M.create(layout, options)
     if path then request.config = path elseif store.state then request.config = store.state.path end
     helper.call((path and remember ~= false) and "set-config" or "read", request, function(err, state)
       loading.config = false
-      if ctx.changedDuringLoad then  -- the file changed while it was read: read it again
+      if ctx.changedDuringLoad then  -- the file changed while it was read (maybe half-written): read it again
         ctx.changedDuringLoad = false
-        if not err then ctx.reload() end
+        ctx.reload()
+        return
       end
       if err then
         ctx.configError = err.error
@@ -218,6 +220,8 @@ function M.create(layout, options)
         local restored = store.restoreDraft()
         if restored then table.insert(notices, { text = restored, kind = "info" }) end
       end
+      local parked = store.restoreParked()
+      if parked then table.insert(notices, { text = parked, kind = "info" }) end
       ctx.render()
     end)
   end
@@ -243,6 +247,10 @@ function M.create(layout, options)
         ctx.desktopError = nil
         local note = store.loadDesktop(data)
         if note then table.insert(notices, { text = note, kind = "info" }) end
+        for _, part in ipairs({ data.userdirs, data.apps }) do  -- unreadable file: its edits can't be saved
+          if part.error then table.insert(notices, { text = part.error .. " Fix the file, then reopen this page.",
+                                                     kind = "error" }) end
+        end
       end
       ctx.render()
     end)
@@ -259,11 +267,16 @@ function M.create(layout, options)
     end)
   end
 
+  -- Called while rendering, so a failed request is retried only after 30 s, never in a render loop.
+  local kdeFailedAt = nil
   function ctx.loadKde()
+    local now = noctalia.nowMs and noctalia.nowMs() or nil
+    if ctx.kde == false and kdeFailedAt and now and now - kdeFailedAt > 30000 then ctx.kde = nil end
     if ctx.kde ~= nil then return end
     ctx.kde = false
     helper.call("kde-colors", {}, function(err, data)
       ctx.kde = (not err and data.available) and data or false
+      kdeFailedAt = err and (noctalia.nowMs and noctalia.nowMs() or nil) or nil
       ctx.render()
     end)
   end
@@ -356,10 +369,47 @@ function M.create(layout, options)
     if handler then handler(action) end
   end
 
+  -- Drop zones name a global too (Noctalia validates onDrop as a string); the page that drew them owns it.
+  function handlers.onDrop(payload, value)
+    if ctx.dropHandler then ctx.dropHandler(tostring(payload or ""), tostring(value or "")) end
+  end
+
   -- The app re-reads the config when it changes on disk; unsaved edits are rebased by store.load.
-  function handlers.onExternalChange()
+  -- The app's file watch. kind "desktop": user-dirs.dirs or mimeapps.list; otherwise the config. While a save
+  -- runs the change is most likely that save itself: re-read once it is done (ctx.savingDone).
+  function handlers.onExternalChange(kind)
+    if kind == "desktop" then
+      if not store.desktop or loading.desktop then return end
+      if store.desktopChanges() then
+        ctx.flash("User folders or default apps changed on disk. Discard your folder and app edits to see the "
+          .. "new version.", "warning")
+      elseif not ctx.saving then
+        ctx.loadDesktop(true)
+      end
+      return
+    end
     if not (store.meta and store.state) then return end
-    if loading.config then ctx.changedDuringLoad = true else ctx.reload() end
+    if ctx.saving then ctx.changedDuringSave = true
+    elseif loading.config then ctx.changedDuringLoad = true
+    else ctx.reload() end
+  end
+
+  function ctx.savingDone()
+    ctx.saving = false
+    if ctx.changedDuringSave then
+      ctx.changedDuringSave = false
+      ctx.reload()
+    end
+  end
+
+  -- The app host calls this after a Lua error, which may have left a request's busy flag set forever.
+  function handlers.onRecover()
+    for name in pairs(loading) do loading[name] = false end
+    ctx.saving, ctx.changedDuringSave = false, false
+    for _, entry in ipairs(stack) do
+      if type(entry.state) == "table" then entry.state.saving, entry.state.loading = false, false end
+    end
+    ctx.render()
   end
 
   -- The app was started again (single instance) with a config path: open it unless unsaved edits of the

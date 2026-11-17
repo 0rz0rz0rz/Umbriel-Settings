@@ -45,11 +45,15 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
 - **Home** has a search over setting names, help text, config keys (`border_width`), rule names and
   shortcuts, cards for every page with customized/unsaved counts, and **Customized**, a list of every
   setting that differs from Umbriel's default.
-- **Setting rows** show the control, the default, ⓘ help with the config key, undo, and an eraser that
-  removes the key so Umbriel's default applies. **Only customized** hides settings at their default.
+- **Setting rows** show the control, the default (“Customized · default 2” once it differs), ⓘ help with
+  the config key, undo, and an eraser that removes the key so Umbriel's default applies. Units sit next to
+  the number, special values such as “Automatic” (-1) have their own switch, and ↻ marks settings that need
+  an Umbriel restart. **Only customized** hides settings at their default.
 - **Rules, outputs, devices and effects** are lists: edit, name, reorder, duplicate, delete.
 - **Keybinds** are grouped: build shortcuts from modifier chips, pick actions from a searchable catalog,
-  lock shortcuts against accidental changes.
+  lock shortcuts against accidental changes. Drag groups and shortcuts by their grip to reorder them or
+  move a shortcut into another group (↑/↓ buttons on the group list and a shortcut's page do the same);
+  the `[keybinds]` table is saved in that order.
 - **User folders** and **Default apps** edit `user-dirs.dirs` and `mimeapps.list`.
 - **Title-bar colors**: on Colors → Title bar, **KDE** / **KDE header** make a background follow Noctalia's
   palette at the chosen opacity; after one save, palette changes update it even with the panel closed. A
@@ -59,7 +63,8 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
 Nothing is written until **Review & save** (Ctrl+S): the review lists every change, shows the diff and runs
 `umbriel config validate` first; if Umbriel rejects the file, nothing is written and each problem links to
 its setting. Unsaved edits (including folders and default apps) survive closing the panel and restarting
-Noctalia as a draft.
+Noctalia as a draft; edits for another config file wait until that file is open again. Edits made while a
+save runs stay unsaved instead of being lost.
 
 Keys: Ctrl+F search, Ctrl+S review, Ctrl+Z undo the last unsaved edit (also **Undo** in the save bar),
 Alt+Left back, Esc close. Scrolling the mouse wheel over a slider doesn't change it; drag it or type in the

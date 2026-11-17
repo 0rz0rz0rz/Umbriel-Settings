@@ -132,6 +132,17 @@ class DefaultAppsPluginTests(unittest.TestCase):
             {"id": "system.desktop", "name": "System"},
         ])
 
+    def test_hidden_default_apps_still_get_their_names(self):
+        appdir = self.root / "data" / "applications"
+        appdir.mkdir(parents=True)
+        (appdir / "userapp-Mail-ABC.desktop").write_text("[Desktop Entry]\nName=Mail\nNoDisplay=true\n")
+        self.path.parent.mkdir(parents=True)
+        self.path.write_text("[Default Applications]\nx-scheme-handler/mailto=userapp-Mail-ABC.desktop\n"
+                             "text/x-example=gone.desktop\n")
+        apps = self.helper("read")
+        self.assertNotIn("userapp-Mail-ABC.desktop", [app["id"] for app in apps["apps"]])
+        self.assertEqual(apps["names"], {"userapp-Mail-ABC.desktop": "Mail"})
+
     def test_app_names_follow_the_locale_and_desktop_filters_apply(self):
         appdir = self.root / "data" / "applications"
         appdir.mkdir(parents=True)

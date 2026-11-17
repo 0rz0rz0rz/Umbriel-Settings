@@ -118,11 +118,12 @@ def atomic_write(path, data, mode=None):
 
 
 @contextlib.contextmanager
-def write_lock(directory, timeout=40.0):
+def write_lock(directory, timeout=20.0):
     """Hold `<directory>/write.lock` so one writer at a time edits the config, its sidecars and desktop files.
 
     The plugin's helper processes and the app's worker threads all take it (flock also excludes other open
-    files in the same process). Raises TimeoutError when another writer keeps it longer than `timeout` seconds.
+    files in the same process). Raises TimeoutError when another writer keeps it longer than `timeout` seconds;
+    20 s + schema (5 s) + validation (30 s) stays under the plugin's 60 s write timeout.
     """
     os.makedirs(directory, mode=0o700, exist_ok=True)
     handle = open(os.path.join(directory, "write.lock"), "a+b")  # closed in finally
@@ -140,6 +141,26 @@ def write_lock(directory, timeout=40.0):
         yield
     finally:
         handle.close()  # also releases the lock
+
+
+def remove_stale_temp_files(directory, target_name, max_age=600.0):
+    """Remove temporary files a killed writer left in `directory`: `atomic_write` copies of `target_name`
+    and validation copies, once they are older than `max_age` seconds."""
+    prefixes = (f".{target_name}.", ".umbriel-settings-")
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return
+    cutoff = time.time() - max_age
+    for name in names:
+        if not name.startswith(prefixes) or not name.endswith((".tmp", ".toml")):
+            continue
+        full = os.path.join(directory, name)
+        try:
+            if os.path.isfile(full) and not os.path.islink(full) and os.path.getmtime(full) < cutoff:
+                os.unlink(full)
+        except OSError:
+            pass
 
 
 def write_text_file(path, text):

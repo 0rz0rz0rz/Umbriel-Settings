@@ -64,8 +64,12 @@ function M.groups(ctx, pageKey, groups, spec, counts, defaultOpen)
       table.insert(badges, kit.badge(customized .. " customized", "secondary", "go-" .. group.title))
     end
     if not onlyCustomized or customized > 0 or changed > 0 then
+      if group.restart then
+        table.insert(badges, 1, ui.glyph({ key = "gr-" .. group.title, name = "refresh-alert", size = 14,
+                                           color = "tertiary", tooltip = "Takes effect after restarting Umbriel" }))
+      end
       table.insert(content, kit.navRow({
-        key = "group-" .. group.title, title = group.title, subtitle = not isOpen and group.help or nil,
+        key = "group-" .. group.title, title = group.title, subtitle = group.help,
         bold = true, badges = badges, trailing = isOpen and "chevron-up" or "chevron-down",
         fill = isOpen and "surface_container_high" or "surface_container",
         onClick = function()
@@ -76,11 +80,13 @@ function M.groups(ctx, pageKey, groups, spec, counts, defaultOpen)
     end
     if isOpen then
       local rows = {}
-      if group.help and group.help ~= "" then table.insert(rows, kit.muted(group.help, { maxLines = 4 })) end
       local shown = 0
       for _, fid in ipairs(group.fields) do
         local row = spec(fid)
         if not onlyCustomized or row.changed or (row.set and ctx.store.differs(row.field, row.value)) then
+          if shown > 0 then
+            table.insert(rows, ui.separator({ key = "sep-" .. fid, thickness = 1, opacity = 0.5 }))
+          end
           table.insert(rows, fields.row(ctx, row))
           shown = shown + 1
         end

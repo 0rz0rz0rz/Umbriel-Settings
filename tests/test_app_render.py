@@ -59,6 +59,7 @@ class AppRenderTests(unittest.TestCase):
         self.win.close()
         # Let background helper calls finish before the temp dir goes: they still write to app-ui/run.
         self.win.scheduler.pool.shutdown(wait=True)
+        self.win.scheduler.slow_pool.shutdown(wait=True)
         self.win.deleteLater()
         # Delete the page before Python tears down QApplication, or QtWebEngine crashes at exit.
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
@@ -161,6 +162,46 @@ class AppRenderTests(unittest.TestCase):
                                  "document.querySelector('#root input[type=range]').max)"), "true")
         self.assertEqual(self.win.host.errors, [])
 
+    def test_a_shortcut_is_dragged_into_a_group(self):
+        self.wait_for_text("Home", "Keybinds")
+        self.click("Keybinds")
+        self.wait_for_text("Mod+Return", "Groups")
+        self.js("const i = document.querySelector('#root input[placeholder^=\"New group name\"]'); i.value = 'Apps';"
+                "i.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'})); 'ok'")
+        group = "document.querySelector('[data-key=\"kbgl-Apps\"]')"
+        self.wait_until(f"{group} ? {group}.textContent : ''", "Apps  ·  0")
+        # A press without movement neither drags nor opens the row around the grip.
+        pointer = ("(el, type, x, y) => el.dispatchEvent(new PointerEvent(type, {bubbles: true, button: 0,"
+                   " pointerId: 7, clientX: x, clientY: y}))")
+        grip = "document.querySelector('[data-key=\"kbgrip-1\"]')"
+        self.js(f"(() => {{ const p = {pointer}, g = {grip}, r = g.getBoundingClientRect();"
+                "p(g, 'pointerdown', r.x + 5, r.y + 5); p(g, 'pointerup', r.x + 5, r.y + 5); g.click(); return 'ok'; })()")
+        self.pause(300)
+        self.assertEqual(self.js("String(!!document.querySelector('[data-key=\"kb-filter\"]'))"), "true",
+                         "still on the list, not the shortcut's page")
+        # Drag past the threshold onto the group's header: the shortcut moves into the group.
+        self.js(f"(() => {{ const p = {pointer}, g = {grip}, r = g.getBoundingClientRect();"
+                " const t = document.querySelector('[data-key^=\"kbgroup-1-Apps\"]').getBoundingClientRect();"
+                " p(g, 'pointerdown', r.x + 5, r.y + 5); p(g, 'pointermove', r.x + 15, r.y + 15);"
+                " const ghost = !!document.querySelector('.drag-ghost');"
+                " p(g, 'pointermove', t.x + 40, t.y + 6); p(g, 'pointerup', t.x + 40, t.y + 6);"
+                " return String(ghost); })()")
+        self.wait_until(f"{group} ? {group}.textContent : ''", "Apps  ·  1")
+        self.assertEqual(self.js("String(!document.querySelector('.drag-ghost, .drag-lifted, .drop-over'))"), "true")
+        self.assertEqual(self.win.view.page().console_errors, [])
+        self.assertEqual(self.win.host.errors, [])
+
+    def wait_until(self, script, expected, timeout=10.0):
+        deadline = time.monotonic() + timeout
+        value = None
+        while time.monotonic() < deadline:
+            self.app.processEvents()
+            value = self.js(script)
+            if value == expected:
+                return
+            self.pause(50)
+        self.fail(f"{script} is {value!r}, not {expected!r}")
+
     def test_notifications_show_the_status_bar_only_while_they_last(self):
         bar = self.win.statusBar()
         self.assertTrue(bar.isHidden())
@@ -169,6 +210,23 @@ class AppRenderTests(unittest.TestCase):
         self.assertEqual(bar.currentMessage(), "Umbriel Settings: Saved after the panel closed.")
         bar.clearMessage()
         self.assertTrue(bar.isHidden())
+
+    def test_ui_errors_are_shown_and_the_ui_recovers(self):
+        self.wait_for_text("Home", "Appearance")
+        errors = len(self.win.host.errors)
+        with patch("sys.stderr"):
+            self.win.on_lua_error(RuntimeError("boom\nstack traceback: ..."))
+        self.assertEqual(self.win.statusBar().currentMessage(), "Something went wrong: boom")
+        self.assertEqual(len(self.win.host.errors), errors, "onRecover ran without a new error")
+
+    def test_desktop_files_are_watched(self):
+        xdg = Path(os.environ["XDG_CONFIG_HOME"])
+        xdg.mkdir(exist_ok=True)
+        dirs = xdg / "user-dirs.dirs"
+        dirs.write_text('XDG_DESKTOP_DIR="$HOME/Desktop"\n')
+        self.win.on_directory_change(str(xdg))
+        self.assertIn(str(dirs), self.win.watcher.files())
+        self.assertTrue(self.win.desktop_timer.isActive(), "a new desktop file reloads the desktop page")
 
     def test_a_config_that_is_deleted_and_written_again_is_watched_again(self):
         self.wait_for_text("Home", "Appearance")

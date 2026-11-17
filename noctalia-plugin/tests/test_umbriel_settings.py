@@ -205,6 +205,27 @@ class SaveTests(HelperTestCase):
         self.assertTrue(report["saved"])
         self.assertFalse(writer.is_alive(), "the save waited until the other writer was done")
 
+    def test_failures_after_the_write_are_warnings(self):
+        state = self.read()
+        remembered = self.root / "data" / "umbriel-settings" / "gui-config-path"
+        remembered.mkdir(parents=True)  # a directory where the remembered path goes: that write fails
+        report = self.ok("save", {"config": str(self.config), "remember_path": True,
+                                  "changes": {"revision": state["revision"],
+                                              "fields": {"general.mod_key": {"value": "Alt"}}}})
+        self.assertTrue(report["saved"])
+        self.assertIn("could not be remembered", report["warnings"][0])
+        self.assertEqual(report["state"]["fields"]["general.mod_key"], "Alt")
+
+    def test_save_removes_stale_temporary_files(self):
+        old = self.config.parent / ".config.toml.abc123.tmp"
+        fresh = self.config.parent / ".umbriel-settings-xyz.toml"
+        for path in (old, fresh):
+            path.write_text("x")
+        os.utime(old, (time.time() - 3600, time.time() - 3600))
+        self.save(self.read(), fields={"general.mod_key": {"value": "Alt"}})
+        self.assertFalse(old.exists())
+        self.assertTrue(fresh.exists(), "a recent one may belong to a running save")
+
     def test_preview_does_not_write(self):
         state = self.read()
         report = self.ok("preview", {"config": str(self.config), "changes": {
@@ -294,6 +315,20 @@ class SaveTests(HelperTestCase):
             "revision": state["revision"],
             "keybinds": {"rows": [{"key": "super+a", "action": "spawn"}], "groups": [], "locks": []}}})
         self.assertIn("command after", reply["error"])
+
+    def test_sorted_keybinds_are_written_in_list_order(self):
+        """The keybinds page sends rows in display order (groups in order); the file follows, comments stay."""
+        state = self.read()
+        rows = [{"key": "super+q", "action": "window-close", "group": "Windows"},
+                {"key": "super+Return", "action": "spawn kitty", "group": "Apps"}]
+        report = self.save(state, keybinds={"rows": rows, "groups": ["Windows", "Apps"], "locks": []})
+        text = self.config.read_text()
+        section = text[text.index("[keybinds]"):text.index("[[window_rule]]")]
+        self.assertLess(section.index('"super+q"'), section.index('"super+Return"'), section)
+        self.assertIn("# launchers", section)
+        self.assertIn('"groups":["Windows","Apps"]', section)
+        self.assertEqual([row["key"] for row in report["state"]["keybinds"]["rows"]], ["super+q", "super+Return"])
+        self.assertEqual(report["state"]["keybinds"]["groups"], ["Windows", "Apps"])
 
 
 class ConfigPathTests(HelperTestCase):
@@ -391,6 +426,44 @@ class BackupAndDesktopTests(HelperTestCase):
         self.assertEqual(result["userdirs"]["values"]["DESKTOP"], "$HOME/Schreibtisch")
         self.assertIn("# keep", (xdg / "user-dirs.dirs").read_text())
         self.assertEqual(self.ok("extension", {"extension": "pdf"})["mime"], "application/pdf")
+
+    def test_desktop_save_keeps_the_part_that_was_written(self):
+        xdg = self.root / "xdg-config"
+        xdg.mkdir()
+        (xdg / "user-dirs.dirs").write_text('XDG_DESKTOP_DIR="$HOME/Desktop"\n')
+        target = self.root / "real-mimeapps.list"
+        target.write_text("[Default Applications]\n")
+        (xdg / "mimeapps.list").symlink_to(target)
+        state = self.ok("desktop")
+        result = self.ok("desktop-save", {
+            "userdirs": {"revision": state["userdirs"]["revision"], "changes": {"DESKTOP": "$HOME/Tisch"}},
+            "apps": {"revision": state["apps"]["revision"],
+                     "changes": [{"kind": "mime", "key": "application/example", "value": "a.desktop"}]}})
+        self.assertIn("symlink", result["errors"]["apps"])
+        self.assertEqual(result["userdirs"]["values"]["DESKTOP"], "$HOME/Tisch")
+        self.assertIn("Tisch", (xdg / "user-dirs.dirs").read_text())
+        self.assertEqual(target.read_text(), "[Default Applications]\n")
+
+    def test_unreadable_user_dirs_do_not_hide_default_apps(self):
+        xdg = self.root / "xdg-config"
+        xdg.mkdir()
+        (xdg / "user-dirs.dirs").write_bytes(b'XDG_DESKTOP_DIR="\xff"\n')
+        state = self.ok("desktop")
+        self.assertIn("user-dirs.dirs is not UTF-8", state["userdirs"]["error"])
+        self.assertIn("roles", state["apps"])
+
+    def test_restore_reports_an_invalid_backup_but_restores_it(self):
+        state = self.read()
+        report = self.save(state, fields={"general.mod_key": {"value": "Alt"}})
+        request = self.root / "r.json"
+        request.write_text(json.dumps({"config": str(self.config), "snapshot": report["backup"],
+                                       "revision": report["state"]["revision"]}))
+        out = subprocess.run([sys.executable, "-B", str(HELPER), "restore", "--request", str(request)],
+                             env={**self.env, "VALID": "no"}, capture_output=True, text=True, check=True)
+        restored = json.loads(out.stdout)["result"]
+        self.assertIn("Umbriel reports problems", restored["warnings"][0])
+        self.assertEqual(self.config.read_text(), CONFIG)
+        self.assertIsNotNone(restored["state"])
 
     def test_wrongly_shaped_desktop_requests_are_rejected(self):
         for request in ({"userdirs": "x"}, {"apps": ["x"]}):

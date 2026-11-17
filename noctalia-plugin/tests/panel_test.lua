@@ -24,7 +24,8 @@ local alt
 for i, option in ipairs(select.props.options) do if option == "Alt" then alt = i - 1 end end
 select.props.onChange(tostring(alt))
 assert(hasText("1 unsaved change"), "save bar counts the edit")
-assert(hasText("changed"), "row shows the changed badge")
+assert(hasText("unsaved"), "row shows the unsaved badge")
+assert(hasText("Customized · default Super"), "the status line names the default: " .. screen())
 
 -- the toggle of a bool field and undo
 local toggle = find("toggle", function(n) return n.props.key == "f:general.show_cheatsheet:toggle" end)
@@ -91,10 +92,62 @@ assert(table.concat(ops, ",") == "add,label", "typing coalesces label edits: " .
 entry.onKey("ctrl+f", true)
 clickText("Keybinds")
 local first = store.keybinds.rows[1]
-clickText(first.key)
+H.clickShortcut(first.key)
 find("button", function(n) return n.props.key == "mod-Shift" end).props.onClick()
 assert(store.keybinds.rows[1].key:find("Shift"), "Shift added: " .. store.keybinds.rows[1].key)
 assert(store.keybindsDirty)
+
+-- keybinds: reorder shortcuts and groups by drag and drop, and with the buttons
+local walk = H.walk
+local function order()
+  local keys = {}
+  for _, row in ipairs(store.keybinds.rows) do table.insert(keys, row.key .. "@" .. (row.group or "")) end
+  return table.concat(store.keybinds.groups, ",") .. " / " .. table.concat(keys, ",")
+end
+local function newGroup(name)
+  find("input", function(n) return tostring(n.props.key):match("^grp%-new%-") end).props.onSubmit(name)
+end
+local launcher, closer = store.keybinds.rows[1].key, store.keybinds.rows[2].key
+entry.onKey("alt+Left", true)
+newGroup("Apps")
+newGroup("Windows")
+assert(order() == "Apps,Windows / " .. launcher .. "@," .. closer .. "@", order())
+assert(hasText("Ungrouped  ·  2") and hasText("Apps  ·  0"), "empty groups stay as drop targets: " .. screen())
+H.drag("kbgrip-2", "kbgap-1")  -- before the first row of its group
+assert(order() == "Apps,Windows / " .. closer .. "@," .. launcher .. "@", order())
+H.drag("kbgrip-1", "kbgroup-2-Windows")  -- onto a group: appended to it
+H.drag("kbgrip-2", "kbgroup-1-Apps")
+assert(order() == "Apps,Windows / " .. launcher .. "@Apps," .. closer .. "@Windows", "rows follow the groups: " .. order())
+local beforeGroupMove = order()
+H.drag("kbggrip-2", "kbggap-1-Apps")  -- a whole group before another one; its rows move with it
+assert(order() == "Windows,Apps / " .. closer .. "@Windows," .. launcher .. "@Apps", order())
+H.drag("kbggrip-1", "kbggap-1-Windows")  -- onto its own gap: nothing to record
+entry.onKey("ctrl+z", true)
+assert(order() == beforeGroupMove, "one drag is one undo step: " .. order())
+entry.onDrop("r|1|no-such-shortcut", "g|0|")  -- the list changed since the drag began
+entry.onDrop("g|2|Windows", "r|1|" .. launcher)  -- a group only lands on groups
+assert(order() == beforeGroupMove, "stale or mismatched drops are ignored: " .. order())
+-- the buttons: group order, and a shortcut's place within its group
+find("button", function(n) return n.props.key == "grp-down-1" end).props.onClick()
+assert(table.concat(store.keybinds.groups, ",") == "Windows,Apps", order())
+find("button", function(n) return n.props.key == "grp-up-2" end).props.onClick()
+H.drag("kbgrip-2", "kbgroup-1-Apps")
+assert(order() == "Apps,Windows / " .. launcher .. "@Apps," .. closer .. "@Apps", order())
+H.clickShortcut(closer)
+assert(find("button", function(n) return n.props.key == "kb-down" end).props.enabled == false, "last in its group")
+find("button", function(n) return n.props.key == "kb-up" end).props.onClick()
+assert(store.keybinds.rows[1].key == closer and hasText(closer), "moved up and still on its page: " .. order())
+entry.onKey("alt+Left", true)
+-- locked shortcuts have no grip; a filter turns sorting off
+store.keybinds.rows[1].locked = true
+find("input", function(n) return n.props.key == "kb-filter" end).props.onChange("")
+assert(not walk(H.tree(), function(n) return n.props.key == "kbgrip-1" end) and
+       walk(H.tree(), function(n) return n.props.key == "kbgrip-2" end), "only unlocked rows drag")
+store.keybinds.rows[1].locked = nil
+find("input", function(n) return n.props.key == "kb-filter" end).props.onChange("super")
+assert(not walk(H.tree(), function(n) return n.kind == "dragSource" or n.kind == "dropZone" end)
+       and hasText("Clear the filter to reorder shortcuts and groups."), screen())
+find("input", function(n) return n.props.key == "kb-filter" end).props.onChange("")
 
 -- helper errors are shown, not swallowed
 replies.backups = function() return false, "disk on fire" end
@@ -356,6 +409,25 @@ assert(not hasText("Show keybind cheatsheet at start"), "a value equal to its de
 clickText("Border width")
 assert(hasText("Appearance") and find("input", function(n) return tostring(n.props.key):match("^f:appearance%.border_width") end),
        "the setting's page opens at the setting: " .. screen())
+
+-- a special value (-1 = automatic) has its own switch: on writes it, off goes back to a number
+goHome()
+clickText("Appearance")
+clickText("Title bar")
+local fid = "appearance.title_bar.button_size"
+local function chip()
+  return find("button", function(n) return n.props.key == "f:" .. fid .. ":special" end, "no Automatic switch")
+end
+assert(chip().props.text == "Automatic", "the switch is named after the special value")
+assert(store.meta.fields[fid].label == "Button size", "the note left the label")
+find("input", function(n) return tostring(n.props.key):match("^f:appearance%.title_bar%.button_size:num") end)
+  .props.onChange("5")
+assert(store.value(fid) == 5 and not chip().props.selected, "a number is set")
+local number = store.value(fid)
+chip().props.onClick()
+assert(store.value(fid) == -1 and chip().props.selected, "on writes -1")
+chip().props.onClick()
+assert(store.value(fid) == number, "off brings the last number back")
 
 -- closing keeps a draft of unsaved edits for the next start
 entry.onClose()

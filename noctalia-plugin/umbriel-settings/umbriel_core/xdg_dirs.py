@@ -21,7 +21,11 @@ def read_document(path):
         contents = path.read_bytes()
     except FileNotFoundError:
         return "", "missing"
-    return contents.decode("utf-8"), hashlib.sha256(contents).hexdigest()
+    try:
+        text = contents.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path} is not UTF-8 text ({error.reason} at byte {error.start}).") from None
+    return text, hashlib.sha256(contents).hexdigest()
 
 
 def snapshot(text, revision):

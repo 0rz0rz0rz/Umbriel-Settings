@@ -36,7 +36,8 @@ ID and re-add the bar widget. Drafts start fresh; config backups are kept (they 
 The panel writes a JSON request file, runs `python3 -Xpycache_prefix=<data>/pycache umbriel_settings.py <command> --request F --response G`
 and reads the response file (helper output and argv are size-limited); the app calls the same commands
 in-process. Commands that write (save, restore, desktop-save, …) hold `write.lock` in the shared data
-directory, so the plugin and the app never write at the same time. Shared UI code must parse as both Luau and Lua 5.4 (the app runs it with lupa), stay within
+directory, so the plugin and the app never write at the same time (a writer waits up to 20 s for it; write
+commands get a 60 s timeout, and once a file is written, later failures are reported as `warnings`). Shared UI code must parse as both Luau and Lua 5.4 (the app runs it with lupa), stay within
 Noctalia's 25 ms per-callback CPU budget, and use only the API the app host implements
 (`python/umbriel_settings/host/api.py`).
 

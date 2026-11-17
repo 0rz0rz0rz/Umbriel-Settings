@@ -84,8 +84,7 @@ def schema_state(coverage=False):
 def session(request):
     need_tomlkit()
     from umbriel_core.session import ConfigSession
-    options, _ = schema_state()
-    return ConfigSession(config_path(request), data_dir(), options)
+    return ConfigSession(config_path(request), data_dir(), lambda: schema_state()[0])
 
 
 # ------------------------------------------------------------------ commands
@@ -120,11 +119,28 @@ def cmd_preview(request):
 def cmd_save(request):
     current = session(request)
     report = current.save(request.get("changes"), bool(request.get("validate", True)))
-    if report.get("saved") and request.get("remember_path"):
-        paths.write_text_file(saved_config_file(), current.path)
-    if report.get("saved"):
-        report["state"] = current.read()
+    if not report.get("saved"):
+        return report
+    # the config is written: from here on a failure is a warning, or the UI would offer to save it again
+    warnings = report.setdefault("warnings", [])
+    if request.get("remember_path"):
+        try:
+            paths.write_text_file(saved_config_file(), current.path)
+        except OSError as error:
+            warnings.append(f"The config path could not be remembered: {error}.")
+    report["state"] = read_after_write(current, warnings)
+    if not warnings:
+        del report["warnings"]
     return report
+
+
+def read_after_write(current, warnings):
+    """Re-read a config this command just wrote; None (plus a warning) when that fails."""
+    try:
+        return current.read()
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError) as error:
+        warnings.append(f"The file was written but could not be read back: {error}")
+        return None
 
 
 def cmd_set_config(request):
@@ -192,9 +208,17 @@ def cmd_restore(request):
         raise HelperError(f"The backup is not valid TOML: {error}") from error
     if os.path.islink(current.path):
         raise HelperError("The config is a symlink; edit its target directly.")
+    validation = current.validate(text) if request.get("validate", True) else {"ran": False}
     backups.create_backup_snapshot(current.path, current.config_dir, protect=snapshot)
     paths.write_text_file(current.path, text)
-    return {"state": current.read(), "backups": backup_listing(current.path)}
+    warnings = []
+    if validation.get("ran") and not validation.get("valid"):
+        problems = [item["message"] for item in validation.get("diagnostics", []) if item.get("severity") == "error"]
+        warnings.append("Umbriel reports problems in the restored config: " + "; ".join(problems[:3]))
+    result = {"state": read_after_write(current, warnings), "backups": backup_listing(current.path)}
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def cmd_delete_backups(request):
@@ -209,17 +233,29 @@ def cmd_delete_backups(request):
 
 def cmd_desktop(request):
     from umbriel_core import mimeapps, xdg_dirs
-    dirs_text, dirs_revision = xdg_dirs.read_document(xdg_dirs.config_path())
-    apps_text, apps_revision = mimeapps.read_document(mimeapps.config_path())
-    return {
-        "userdirs": xdg_dirs.snapshot(dirs_text, dirs_revision),
-        "apps": mimeapps.snapshot(apps_text, apps_revision, mimeapps.installed_apps()),
-        "roles": mimeapps.ROLES,
-    }
+    result = {"roles": mimeapps.ROLES}
+    # each file on its own: an unreadable user-dirs.dirs must not hide the default apps, and the other way round
+    try:
+        result["userdirs"] = xdg_dirs.snapshot(*xdg_dirs.read_document(xdg_dirs.config_path()))
+    except (OSError, ValueError) as error:
+        result["userdirs"] = {"values": {}, "revision": "unreadable", "error": str(error)}
+    apps = mimeapps.installed_apps()
+    try:
+        result["apps"] = mimeapps.snapshot(*mimeapps.read_document(mimeapps.config_path()), apps)
+    except (OSError, ValueError) as error:
+        result["apps"] = {**mimeapps.snapshot("", "unreadable", apps), "error": str(error)}
+    listed = {app["id"] for app in apps}
+    assigned = {value for part in ("roles", "mimes") for value in result["apps"][part].values()}
+    result["apps"]["names"] = mimeapps.app_names(sorted(assigned - listed - {"", "<multiple>"}))
+    return result
 
 
 def cmd_desktop_save(request):
-    """Save user folders and default apps; each part checks its own revision."""
+    """Save user folders and default apps; each part checks its own revision.
+
+    The parts are saved independently: when one fails after the other was written, the reply still succeeds
+    and names the failed part in `errors`, so the caller can take the written part's new revision.
+    """
     from pathlib import Path
 
     from umbriel_core import mimeapps, xdg_dirs
@@ -228,12 +264,22 @@ def cmd_desktop_save(request):
     folders, apps = request.get("userdirs"), request.get("apps")
     if any(part is not None and not isinstance(part, dict) for part in (folders, apps)):
         raise HelperError("Desktop changes must be objects.")
-    if folders:
-        result["userdirs"] = xdg_dirs.save(
-            xdg_dirs.config_path(), backup_dir, folders.get("revision"), folders.get("changes"))
-    if apps:
-        result["apps"] = mimeapps.save(
-            mimeapps.config_path(), backup_dir, apps.get("revision"), apps.get("changes"))
+    errors = {}
+    parts = (("userdirs", folders, lambda: xdg_dirs.save(
+                 xdg_dirs.config_path(), backup_dir, folders.get("revision"), folders.get("changes"))),
+             ("apps", apps, lambda: mimeapps.save(
+                 mimeapps.config_path(), backup_dir, apps.get("revision"), apps.get("changes"))))
+    for name, part, save in parts:
+        if not part:
+            continue
+        try:
+            result[name] = save()
+        except (ValueError, OSError, UnicodeError) as error:
+            errors[name] = str(error)
+    if errors and not result:
+        raise HelperError(" ".join(errors.values()))
+    if errors:
+        result["errors"] = errors
     return result
 
 
@@ -480,6 +526,10 @@ def run(argv):
 
 
 def main(argv):
+    # Noctalia ends a helper that runs past its timeout with SIGTERM; exiting through SystemExit runs the
+    # `finally` blocks that remove temporary files (the app calls run() in-process and keeps its handlers).
+    import signal
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     print(run(argv))
     return 0
 

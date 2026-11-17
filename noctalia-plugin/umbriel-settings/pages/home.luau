@@ -129,11 +129,11 @@ end
 
 -- Every page setting that differs from Umbriel's default, page by page; rows open the setting.
 local CUSTOMIZED_LIMIT = 40
-function M.renderCustomized(ctx)
+-- Rows for settings that differ from Umbriel's defaults, in sidebar order: (rows, shown, total).
+-- `sections` adds a page heading before each page's first row; else the subtitle names the page.
+local function customizedRows(ctx, limit, sections)
   local store = ctx.store
-  local header = { kit.header(ctx, "Customized settings", "Settings that differ from Umbriel's defaults") }
-  if not store.state then return { header = header, content = { kit.empty("Loading config…", "loader") } } end
-  local content, shown, total = {}, 0, 0
+  local rows, shown, total = {}, 0, 0
   for _, section in ipairs(store.meta.nav) do
     for _, name in ipairs(section.pages) do
       local page = store.meta.pages[name]
@@ -142,15 +142,17 @@ function M.renderCustomized(ctx)
         for _, fid in ipairs(group.fields) do
           if store.isOverridden(fid) then
             total = total + 1
-            if shown < CUSTOMIZED_LIMIT then
+            if shown < limit then
               shown = shown + 1
-              if first then table.insert(content, kit.section(name, "cs-" .. name)); first = false end
+              if first and sections then table.insert(rows, kit.section(name, "cs-" .. name)) end
+              first = false
               local field = store.meta.fields[fid]
               local value = store.value(fid)
               local badges = { kit.badge(fields.format(field, value), "secondary", "cv-" .. fid) }
-              if store.isChanged(fid) then table.insert(badges, 1, kit.badge("changed", "primary", "cc-" .. fid)) end
-              table.insert(content, kit.navRow({ key = "cust-" .. fid, glyph = page.glyph, title = field.label,
-                subtitle = group.title .. (field.default ~= nil and ("  ·  default " .. fields.format(field, field.default)) or ""),
+              if store.isChanged(fid) then table.insert(badges, 1, kit.badge("unsaved", "primary", "cc-" .. fid)) end
+              local where = sections and group.title or (name .. " › " .. group.title)
+              table.insert(rows, kit.navRow({ key = "cust-" .. fid, glyph = page.glyph, title = field.label,
+                subtitle = where .. (field.default ~= nil and ("  ·  default " .. fields.format(field, field.default)) or ""),
                 badges = badges, tooltip = field.help, onClick = function()
                   ctx.openPage(name, { group = group.title, focus = fid, reveal = "f:" .. fid })
                 end }))
@@ -160,6 +162,14 @@ function M.renderCustomized(ctx)
       end
     end
   end
+  return rows, shown, total
+end
+
+function M.renderCustomized(ctx)
+  local store = ctx.store
+  local header = { kit.header(ctx, "Customized settings", "Settings that differ from Umbriel's defaults") }
+  if not store.state then return { header = header, content = { kit.empty("Loading config…", "loader") } } end
+  local content, shown, total = customizedRows(ctx, CUSTOMIZED_LIMIT, true)
   if total == 0 then
     table.insert(content, kit.empty("Every setting uses Umbriel's default.", "adjustments-check"))
   elseif total > shown then
@@ -169,22 +179,31 @@ function M.renderCustomized(ctx)
   return { header = header, content = content }
 end
 
+local function openInEditor(ctx, path)
+  ctx.helper.call("open-config", { config = path }, function(err)
+    if err then ctx.flash(err.error, "error") end
+  end)
+end
+M.openInEditor = openInEditor
+
+local function pathRow(ctx, path)
+  local view = ctx.view
+  return ui.row({ key = "path-row", gap = 8, align = "center" }, {
+    ui.input({ key = "path:" .. tostring(view.gen.path or 0), value = path, flexGrow = 1, controlSize = "sm",
+               placeholder = "~/.config/umbriel/config.toml",
+               onChange = function(text) view.pathDraft = text end,
+               onSubmit = function(text) view.pathDraft = text; ctx.switchConfig() end }),
+    ui.button({ text = "Open", controlSize = "sm", tooltip = "Load this config file", enabled = not ctx.loading.config,
+                onClick = function() ctx.switchConfig() end }),
+    ui.button({ glyph = "refresh", variant = "ghost", controlSize = "sm", tooltip = "Reload from disk",
+                enabled = not ctx.loading.config, onClick = function() ctx.reload() end }),
+  })
+end
+
 local function footer(ctx)
-  local store, view = ctx.store, ctx.view
+  local store = ctx.store
   local path = store.state and store.state.path or ""
-  local rows = {
-    kit.section("Config file"),
-    ui.row({ key = "path-row", gap = 8, align = "center" }, {
-      ui.input({ key = "path:" .. tostring(view.gen.path or 0), value = path, flexGrow = 1, controlSize = "sm",
-                 placeholder = "~/.config/umbriel/config.toml",
-                 onChange = function(text) view.pathDraft = text end,
-                 onSubmit = function(text) view.pathDraft = text; ctx.switchConfig() end }),
-      ui.button({ text = "Open", controlSize = "sm", tooltip = "Load this config file", enabled = not ctx.loading.config,
-                  onClick = function() ctx.switchConfig() end }),
-      ui.button({ glyph = "refresh", variant = "ghost", controlSize = "sm", tooltip = "Reload from disk",
-                  enabled = not ctx.loading.config, onClick = function() ctx.reload() end }),
-    }),
-  }
+  local rows = { kit.section("Config file"), pathRow(ctx, path) }
   local tools = {
     ui.button({ text = "Customized", glyph = "adjustments-check", controlSize = "sm", variant = "outline",
                 tooltip = "Settings that differ from Umbriel's defaults",
@@ -193,11 +212,7 @@ local function footer(ctx)
                 onClick = function() ctx.go({ name = "backups" }) end }),
     ui.button({ text = "Edit file", glyph = "file-text", controlSize = "sm", variant = "outline",
                 tooltip = "Open the config in your editor (set under About)",
-                onClick = function()
-                  ctx.helper.call("open-config", { config = path }, function(err)
-                    if err then ctx.flash(err.error, "error") end
-                  end)
-                end }),
+                onClick = function() openInEditor(ctx, path) end }),
   }
   if not ctx.isApp then  -- the app is the standalone app
     table.insert(tools, ui.button({ text = "Standalone app", glyph = "external-link", controlSize = "sm",
@@ -211,6 +226,71 @@ local function footer(ctx)
                                   onClick = function() ctx.go({ name = "about" }) end }))
   table.insert(rows, ui.row({ key = "tools", gap = 8 }, tools))
   return rows
+end
+
+-- The app's Home (its sidebar already lists the pages): the config file, what is customized, recent backups.
+local DASHBOARD_ROWS, DASHBOARD_BACKUPS = 8, 3
+
+local function card(key, title, glyph, actions, children)
+  local head = { ui.glyph({ name = glyph, size = 18, color = "primary" }),
+                 ui.label({ text = title, fontSize = 14, fontWeight = "bold", flexGrow = 1 }) }
+  for _, action in ipairs(actions or {}) do table.insert(head, action) end
+  local body = { ui.row({ key = key .. "-head", gap = 8, align = "center" }, head) }
+  for _, child in ipairs(children) do table.insert(body, child) end
+  return kit.card({ key = key }, body)
+end
+
+local function recentBackups(ctx, path)
+  local view = ctx.view
+  local revision = ctx.store.state.revision and ctx.store.state.revision.config or ""
+  local cache = view.homeBackups
+  if not cache or cache.path ~= path or cache.revision ~= revision then  -- again after every save or restore
+    cache = { path = path, revision = revision, loading = true }
+    view.homeBackups = cache
+    ctx.helper.call("backups", { config = path }, function(err, data)
+      cache.loading = false
+      if err then cache.error = err.error else cache.list = data.backups end
+      ctx.render()
+    end)
+  end
+  if cache.error then return { kit.notice(cache.error, "error", nil, "home-bk-error") } end
+  if cache.loading then return { kit.muted("Loading…") } end
+  local rows = {}
+  for index, item in ipairs(cache.list or {}) do
+    if index > DASHBOARD_BACKUPS then break end
+    table.insert(rows, ui.row({ key = "home-bk-" .. index, gap = 8, align = "center", paddingH = 4 }, {
+      ui.glyph({ name = "history", size = 16, color = kit.MUTED }),
+      kit.label(item.time, { flexGrow = 1 }),
+      kit.muted(string.format("%.1f KB", item.size / 1024)),
+    }))
+  end
+  if #rows == 0 then table.insert(rows, kit.muted("No backups yet; one is taken before every save.")) end
+  return rows
+end
+
+local function dashboard(ctx, content)
+  local store = ctx.store
+  local path = store.state.path
+  local pending = store.pendingCount()
+  table.insert(content, card("home-config", "Config file", "file-settings", {
+    ui.button({ text = "Edit file", glyph = "file-text", controlSize = "sm", variant = "ghost",
+                tooltip = "Open the config in your editor (set under About)",
+                onClick = function() openInEditor(ctx, path) end }),
+  }, {
+    pathRow(ctx, path),
+    kit.muted(pending > 0 and (kit.plural(pending, "unsaved change") .. " — review them with Ctrl+S.")
+      or "No unsaved changes."),
+  }))
+  local rows, shown, total = customizedRows(ctx, DASHBOARD_ROWS, false)
+  if total == 0 then rows = { kit.muted("Every setting uses Umbriel's default.") } end
+  table.insert(content, card("home-custom", "Customized settings", "adjustments-check",
+    total > shown and { ui.button({ text = "Show all " .. total, controlSize = "sm", variant = "ghost",
+                                    onClick = function() ctx.go({ name = "customized" }) end }) } or nil,
+    rows))
+  table.insert(content, card("home-backups", "Recent backups", "history", {
+    ui.button({ text = "All backups", controlSize = "sm", variant = "ghost",
+                onClick = function() ctx.go({ name = "backups" }) end }),
+  }, recentBackups(ctx, path)))
 end
 
 function M.render(ctx)
@@ -231,6 +311,10 @@ function M.render(ctx)
   local content = {}
   if ctx.configError then
     table.insert(content, kit.notice(ctx.configError, "error", nil, "config-error"))
+    table.insert(content, ui.row({ key = "config-retry", gap = 8 }, {
+      ui.button({ text = "Try again", glyph = "refresh", controlSize = "sm", variant = "outline",
+                  enabled = not ctx.loading.config, onClick = function() ctx.reload() end }),
+    }))
   end
   local query = noctalia.string.trim(view.query or "")
   if query ~= "" then
@@ -239,6 +323,9 @@ function M.render(ctx)
   end
   if not store.state then
     if not ctx.configError then table.insert(content, kit.empty("Loading config…", "loader")) end
+  elseif ctx.isApp then
+    dashboard(ctx, content)
+    return { header = header, content = content }
   else
     for _, section in ipairs(store.meta.nav) do
       table.insert(content, kit.section(section.title))

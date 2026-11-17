@@ -75,6 +75,110 @@ end
 -- step names a typed edit (repeats are one undo step); nil makes every call its own step.
 local function changed(store, step) store.keybindsChanged(step) end
 
+-- ------------------------------------------------------------------ order
+-- Rows are kept in display order (groups in order, Ungrouped last), which is also the order the file gets.
+local function normalize(kb)
+  local rank, buckets = {}, {}
+  for i, name in ipairs(kb.groups) do rank[name] = i end
+  for i = 1, #kb.groups + 1 do buckets[i] = {} end
+  for _, row in ipairs(kb.rows) do
+    local bucket = buckets[rank[row.group or ""] or (#kb.groups + 1)]
+    bucket[#bucket + 1] = row
+  end
+  local i = 0
+  for _, bucket in ipairs(buckets) do
+    for _, row in ipairs(bucket) do i = i + 1; kb.rows[i] = row end
+  end
+end
+
+-- Moves row `from` into `group`, before row `before` (an index of the list as it was) or at the group's end.
+function M._moveRow(kb, from, group, before)
+  local row = table.remove(kb.rows, from)
+  if (row.group or "") ~= group then row.group = group end
+  if before then
+    if before > from then before = before - 1 end
+    table.insert(kb.rows, before, row)
+  else
+    local at = #kb.rows
+    for i, other in ipairs(kb.rows) do if (other.group or "") == group then at = i end end
+    table.insert(kb.rows, at + 1, row)
+  end
+  normalize(kb)
+end
+
+-- Moves group `from` before group `before` (an index of the list as it was), or last when nil.
+function M._moveGroup(kb, from, before)
+  local name = table.remove(kb.groups, from)
+  if before then
+    if before > from then before = before - 1 end
+    table.insert(kb.groups, before, name)
+  else
+    table.insert(kb.groups, name)
+  end
+  normalize(kb)
+end
+
+local function signature(kb)
+  local parts = { table.concat(kb.groups, "\0") }
+  for _, row in ipairs(kb.rows) do parts[#parts + 1] = row.key .. "\0" .. (row.group or "") end
+  return table.concat(parts, "\1")
+end
+
+-- Payloads and zone values are "r|<row index>|<key>" or "g|<group index>|<name>" (0 = Ungrouped); the name
+-- guards against a list that changed since the drag began (undo, a reload).
+local function parseDrag(text)
+  local kind, index, name = string.match(text, "^([rg])|(%d+)|(.*)$")
+  return kind, tonumber(index), name
+end
+
+-- A row onto a row: before it, in its group. A row onto a group: at its end. A group onto a group: before
+-- it (Ungrouped: last).
+local function drop(ctx, payload, value)
+  local kb = ctx.store.keybinds
+  local kind, index, name = parseDrag(payload)
+  local target, targetIndex, targetName = parseDrag(value)
+  if not (kb and kind and target) then return end
+  local before = signature(kb)
+  local function groupAt(i)
+    if i == 0 then return "" end
+    return kb.groups[i] == targetName and kb.groups[i] or nil
+  end
+  if kind == "r" then
+    local row = kb.rows[index]
+    if not row or row.key ~= name or row.locked then ctx.render(); return end
+    if target == "r" then
+      local anchor = kb.rows[targetIndex]
+      if not anchor or anchor.key ~= targetName then ctx.render(); return end
+      M._moveRow(kb, index, anchor.group or "", targetIndex)
+    else
+      local group = groupAt(targetIndex)
+      if not group then ctx.render(); return end
+      M._moveRow(kb, index, group, nil)
+    end
+  else
+    if index == 0 or kb.groups[index] ~= name or target ~= "g" then ctx.render(); return end
+    if targetIndex > 0 and not groupAt(targetIndex) then ctx.render(); return end
+    M._moveGroup(kb, index, targetIndex > 0 and targetIndex or nil)
+  end
+  if signature(kb) ~= before then changed(ctx.store) end
+  ctx.render()
+end
+
+local GAP = 10       -- the list's spacing; between rows it is an insertion zone while sorting is possible
+local SLOP = 32      -- drag-only reach of a gap: about half a row, so the nearest gap follows the pointer
+
+local function gapZone(key, accepts, value, height)
+  return ui.dropZone({ key = key, accepts = { accepts }, value = value, onDrop = "onDrop", height = height,
+                       expandOnDrag = true, hitSlop = SLOP })
+end
+
+local function grip(key, dragType, payload, ancestors, tooltip)
+  return ui.dragSource({ key = key, dragType = dragType, payload = payload, previewAncestor = ancestors,
+                         liftFromLayout = true, tooltip = tooltip, width = 20, height = 24, align = "center",
+                         justify = "center" },
+                       { ui.glyph({ name = "grip-vertical", size = 16, color = kit.MUTED }) })
+end
+
 -- ------------------------------------------------------------------ list
 local function listPage(ctx)
   local store, view = ctx.store, ctx.view
@@ -92,38 +196,67 @@ local function listPage(ctx)
                onChange = function(text) view.kbFilter = text; ctx.render() end }),
   }
   local filter = string.lower(noctalia.string.trim(view.kbFilter or ""))
+  -- Sorting needs every row of a group on screen: a gap between filtered rows would be ambiguous.
+  local sortable = filter == ""
+  if sortable then
+    ctx.dropHandler = function(payload, value) drop(ctx, payload, value) end
+  elseif #store.keybinds.rows > 1 then
+    table.insert(content, kit.muted("Clear the filter to reorder shortcuts and groups."))
+  end
   local groups = {}
   for _, name in ipairs(store.keybinds.groups) do table.insert(groups, name) end
   table.insert(groups, "")
   view.kbCollapsed = view.kbCollapsed or {}
   local others = store.state and store.state.keybinds.other or {}
-  for _, group in ipairs(groups) do
-    local rows = {}
+  for position, group in ipairs(groups) do
+    local groupIndex = position < #groups and position or 0
+    local groupRef = "g|" .. groupIndex .. "|" .. group
+    local name = group == "" and "Ungrouped" or group
+    local collapsed = view.kbCollapsed[name] and filter == ""
+    local rows, count = {}, 0
     for index, row in ipairs(store.keybinds.rows) do
       local inGroup = (row.group or "") == group
-      local text = string.lower(row.key .. " " .. row.action)
-      if inGroup and (filter == "" or string.find(text, filter, 1, true)) then
-        local desc = describe(store.meta, row.action)
-        local badges = {}
-        if row.locked then table.insert(badges, ui.glyph({ name = "lock", size = 14, color = kit.MUTED })) end
-        table.insert(rows, kit.navRow({ key = "kb-" .. index .. "-" .. row.key, title = row.key, subtitle = row.action
-          .. (desc and ("  ·  " .. desc) or ""), badges = badges, onClick = function()
-            ctx.go({ name = "keybind", index = index })
-          end }))
+      if inGroup and (filter == "" or string.find(string.lower(row.key .. " " .. row.action), filter, 1, true)) then
+        count = count + 1
+        if not collapsed then
+          local desc = describe(store.meta, row.action)
+          local badges = {}
+          if row.locked then table.insert(badges, ui.glyph({ name = "lock", size = 14, color = kit.MUTED })) end
+          local open = function() ctx.go({ name = "keybind", index = index }) end
+          local ref = "r|" .. index .. "|" .. row.key
+          if sortable then table.insert(rows, gapZone("kbgap-" .. index, "kbrow", ref, GAP)) end
+          table.insert(rows, kit.navRow({ key = "kb-" .. index .. "-" .. row.key, title = row.key,
+            subtitle = row.action .. (desc and ("  ·  " .. desc) or ""), badges = badges, onClick = open,
+            leading = sortable and (row.locked and ui.box({ width = 20 })
+              or grip("kbgrip-" .. index, "kbrow", ref, 1, "Drag to move this shortcut")) or nil }))
+        end
       end
     end
-    local name = group == "" and "Ungrouped" or group
-    if #rows > 0 or (group ~= "" and filter == "") then
-      local collapsed = view.kbCollapsed[name] and filter == ""
-      table.insert(content, ui.row({ key = "kbg-" .. name, gap = 8, align = "center", onClick = function()
+    -- An empty group, and Ungrouped once groups exist, stay visible while sorting: they are drop targets.
+    local shown = count > 0 or (filter == "" and (group ~= "" or (sortable and #groups > 1)))
+    if shown then
+      local headerChildren = {}
+      if sortable then  -- Ungrouped stays last: a blank in place of the grip keeps the headers aligned
+        table.insert(headerChildren, group == "" and ui.box({ width = 20 })
+          or grip("kbggrip-" .. groupIndex, "kbgroup", groupRef, 2, "Drag to reorder this group"))
+      end
+      table.insert(headerChildren, ui.glyph({ name = collapsed and "chevron-right" or "chevron-down", size = 14,
+                                              color = kit.MUTED }))
+      table.insert(headerChildren, kit.section(name .. "  ·  " .. count, "kbgl-" .. name))
+      local children = { ui.row({ key = "kbg-" .. name, gap = 8, align = "center", onClick = function()
         view.kbCollapsed[name] = not view.kbCollapsed[name]
         ctx.render()
-      end }, {
-        ui.glyph({ name = collapsed and "chevron-right" or "chevron-down", size = 14, color = kit.MUTED }),
-        kit.section(name .. "  ·  " .. #rows, "kbgl-" .. name),
-      }))
-      if not collapsed then
-        for _, row in ipairs(rows) do table.insert(content, row) end
+      end }, headerChildren) }
+      for _, row in ipairs(rows) do table.insert(children, row) end
+      local key = groupIndex .. "-" .. name
+      if sortable then
+        if not collapsed and count > 0 then table.insert(children, gapZone("kbgend-" .. key, "kbrow", groupRef, 4)) end
+        table.insert(content, gapZone("kbggap-" .. key, "kbgroup", groupRef, 4))
+        -- the whole group takes rows (appended) and groups (placed before it)
+        table.insert(content, ui.dropZone({ key = "kbgroup-" .. key, accepts = { "kbrow", "kbgroup" }, value = groupRef,
+                                            onDrop = "onDrop", gap = 0 }, children))
+      else
+        table.insert(content, ui.column({ key = "kbgroup-" .. key, gap = GAP }, children))
       end
     end
   end
@@ -147,6 +280,19 @@ local function listPage(ctx)
                    changed(store)
                    ctx.render()
                  end }),
+      -- the keyboard way to reorder groups (dragging is pointer-only)
+      ui.button({ key = "grp-up-" .. index, glyph = "arrow-up", variant = "ghost", controlSize = "sm",
+                  tooltip = "Move group up", enabled = index > 1, onClick = function()
+                    M._moveGroup(store.keybinds, index, index - 1)
+                    changed(store)
+                    ctx.render()
+                  end }),
+      ui.button({ key = "grp-down-" .. index, glyph = "arrow-down", variant = "ghost", controlSize = "sm",
+                  tooltip = "Move group down", enabled = index < #store.keybinds.groups, onClick = function()
+                    M._moveGroup(store.keybinds, index + 1, index)
+                    changed(store)
+                    ctx.render()
+                  end }),
       ui.button({ glyph = "trash", variant = "ghost", controlSize = "sm",
                   tooltip = "Delete group (its shortcuts move to Ungrouped)", onClick = function()
                     table.remove(store.keybinds.groups, index)
@@ -182,7 +328,32 @@ local function detailPage(ctx, route)
   if not row then return { header = { kit.header(ctx, "Keybind") }, content = { kit.empty("This shortcut no longer exists.") } } end
   local locked = row.locked == true
   local function edit(step) if not isNew then changed(store, step and (step .. ":" .. route.index)) end end
-  local header = { kit.header(ctx, isNew and "New shortcut" or row.key, row.action) }
+  -- the keyboard way to reorder shortcuts (dragging is pointer-only): swap with the neighbor in the group
+  local moves = {}
+  if not isNew then
+    local above, below
+    for i, other in ipairs(store.keybinds.rows) do
+      if (other.group or "") == (row.group or "") then
+        if i < route.index then above = i elseif i > route.index and not below then below = i end
+      end
+    end
+    local function move(from, before)
+      M._moveRow(store.keybinds, from, row.group or "", before)
+      changed(store)
+      for i, other in ipairs(store.keybinds.rows) do
+        if other == row then ctx.replace({ name = "keybind", index = i }); return end
+      end
+    end
+    moves = {
+      ui.button({ key = "kb-up", glyph = "arrow-up", variant = "ghost", controlSize = "sm",
+                  tooltip = "Move up in its group", enabled = not locked and above ~= nil,
+                  onClick = function() move(route.index, above) end }),
+      ui.button({ key = "kb-down", glyph = "arrow-down", variant = "ghost", controlSize = "sm",
+                  tooltip = "Move down in its group", enabled = not locked and below ~= nil,
+                  onClick = function() move(below, route.index) end }),
+    }
+  end
+  local header = { kit.header(ctx, isNew and "New shortcut" or row.key, row.action, moves) }
   local content = {}
   if locked then
     table.insert(content, kit.notice("This shortcut is locked. Unlock it to change or delete it.", "info", nil, "locked"))

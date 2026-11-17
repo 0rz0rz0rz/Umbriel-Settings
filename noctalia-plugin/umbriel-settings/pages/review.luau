@@ -58,26 +58,36 @@ local function requestPreview(ctx, state)
 end
 
 local function finishSave(ctx, state, message)
-  state.saving = false
+  state.saving = false; ctx.savingDone()
   ctx.diagnostics = nil
   ctx.resetInputs()
   ctx.store.saveDraft()  -- drops a draft from an earlier close that held what was just saved
-  ctx.back()
-  ctx.flash(message, "info")
+  if ctx.route().name == "review" then ctx.back() end  -- the user may have moved on while it saved
+  ctx.flash(message, (state.newer or state.warnings) and "warning" or "info")
 end
 
 local function saveDesktop(ctx, state, message)
   local store = ctx.store
   local desktop = store.desktopChanges()
   if not desktop then finishSave(ctx, state, message); return end
-  ctx.helper.call("desktop-save", desktop, function(err)
-    if err then
-      state.saving = false
-      state.error = (message ~= "" and (message .. " ") or "") .. "Desktop settings were not saved: " .. err.error
+  ctx.helper.call("desktop-save", desktop, function(err, result)
+    local failed = err and err.error or nil
+    if not err and result.errors then  -- one part was written: keep only the other one pending
+      for _, part in ipairs({ "userdirs", "apps" }) do
+        if result[part] then store.desktopSaved(part, result[part].revision) end
+      end
+      local texts = {}
+      for _, text in pairs(result.errors) do table.insert(texts, text) end
+      failed = table.concat(texts, " ")
+    end
+    if failed then
+      state.saving = false; ctx.savingDone()
+      state.error = (message ~= "" and (message .. " ") or "") .. "Desktop settings were not saved: " .. failed
       ctx.render()
       return
     end
     store.desktop = nil
+    store.history = {}  -- desktop undo steps would revert what was just saved
     ctx.loadDesktop(true)
     finishSave(ctx, state, (message ~= "" and (message .. " ") or "") .. "Desktop settings saved; restart apps to use them.")
   end)
@@ -85,44 +95,60 @@ end
 
 local function save(ctx, state)
   local store = ctx.store
-  state.saving, state.error = true, nil
+  state.saving, state.error, state.newer, state.warnings = true, nil, false, nil
+  ctx.saving = true  -- external file changes wait until the save is done (shell.onExternalChange)
   ctx.render()
   if not store.hasConfigChanges() then saveDesktop(ctx, state, ""); return end
   local generation = ctx.helper.generation
+  local mark, path = store.saveMark(), store.state.path
+  -- clears what this save wrote; edits made meanwhile stay pending (false when another config is open now)
+  local function saved(report)
+    if not store.state or store.state.path ~= path then return false end
+    if not report.state then ctx.reload() return false end  -- written but not read back: read it again
+    local newer = store.markSaved(report.state, mark)
+    store.saveDraft()
+    return newer
+  end
+  local function extra(report, newer)
+    local text = ""
+    if report.warnings and #report.warnings > 0 then text = text .. " " .. table.concat(report.warnings, " ") end
+    if newer then text = text .. " Edits made while saving are still unsaved." end
+    return text
+  end
   ctx.helper.call("save", { config = store.state.path, changes = store.changeSet(), validate = state.validate },
     function(err, report)
       if generation ~= ctx.helper.generation then
-        local saved = "Saved after the panel closed."
-        if store.desktopChanges() then saved = saved .. " Folder and app changes are still unsaved." end
-        noctalia.notify("Umbriel Settings", err and ("Saving failed: " .. err.error)
-          or (report.saved and saved or "Not saved: Umbriel rejected the config."))
-        if not err and report.saved then
-          store.fieldChanges, store.entryOps, store.mapOps, store.keybindsDirty, store.history = {}, {}, {}, false, {}
-          store.load(report.state)
-          store.saveDraft()  -- the draft written on close still held these edits
+        ctx.savingDone()
+        local note = "Saved after the panel closed."
+        if not err and report.saved then  -- saved() also rewrites the draft written on close
+          note = note .. extra(report, saved(report))
         end
+        if store.desktopChanges() then note = note .. " Folder and app changes are still unsaved." end
+        noctalia.notify("Umbriel Settings", err and ("Saving failed: " .. err.error)
+          or (report.saved and note or "Not saved: Umbriel rejected the config."))
         return
       end
       if err then
-        state.saving, state.error = false, err.error
+        state.saving, state.error = false, err.error; ctx.savingDone()
         ctx.render()
         return
       end
       if not report.saved then
-        state.saving = false
+        state.saving = false; ctx.savingDone()
         state.preview = report
         setDiagnostics(ctx, report)
         state.error = "Umbriel rejected the new config, so nothing was written. Fix the problems below."
         ctx.render()
         return
       end
-      store.fieldChanges, store.entryOps, store.mapOps, store.keybindsDirty, store.history = {}, {}, {}, false, {}
-      store.load(report.state)
+      local newer = saved(report)
+      state.newer, state.warnings = newer, report.warnings and #report.warnings > 0 or nil
       local warnings = 0
       for _, item in ipairs(report.validation.diagnostics or {}) do
         if item.severity ~= "error" then warnings = warnings + 1 end
       end
       local message = "Saved" .. (warnings > 0 and (" with " .. kit.plural(warnings, "warning")) or "") .. "."
+        .. extra(report, newer)
       saveDesktop(ctx, state, message)
     end, { timeout = 60000, always = true })
 end
@@ -251,7 +277,8 @@ local function backupsPage(ctx, route)
     state.loading = true
     ctx.helper.call("backups", { config = path }, function(err, data)
       state.loading = false
-      if err then state.error = err.error else state.list = data.backups; state.error = nil end
+      -- never leave the list nil without an error, or every render would ask again
+      if err then state.error = err.error else state.list = data.backups or {}; state.error = nil end
       ctx.render()
     end)
   end
@@ -321,9 +348,10 @@ local function backupsPage(ctx, route)
         ctx.helper.call("restore", { config = path, snapshot = item.path, revision = store.state.revision },
           function(err, data)
             if err then ctx.flash(err.error, "error") return end
-            store.load(data.state)
+            if data.state then store.load(data.state) else ctx.reload() end
             state.list = data.backups.backups
-            ctx.flash("Backup restored. The previous file was backed up first.", "info")
+            ctx.flash("Backup restored. The previous file was backed up first."
+              .. (data.warnings and (" " .. table.concat(data.warnings, " ")) or ""), data.warnings and "warning" or "info")
           end)
       end }),
     }))
