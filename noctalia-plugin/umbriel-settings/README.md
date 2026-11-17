@@ -45,8 +45,9 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
 - **Home** has a search over setting names, help text, config keys (`border_width`), rule names and
   shortcuts, cards for every page with customized/unsaved counts, and **Customized**, a list of every
   setting that differs from Umbriel's default.
-- **Setting rows** show the control, the default (“Customized · default 2” once it differs), ⓘ help with
-  the config key, undo, and an eraser that removes the key so Umbriel's default applies. Units sit next to
+- **Setting rows** show the control, the default (“Default 2”), ⓘ help with the config key and undo. Like
+  Noctalia's settings, a key that differs from the default shows an **Override** badge, and **Reset** (click
+  twice to confirm) removes the key so Umbriel's default applies. Units sit next to
   the number, special values such as “Automatic” (-1) have their own switch, and ↻ marks settings that need
   an Umbriel restart. **Only customized** hides settings at their default.
 - **Rules, outputs, devices and effects** are lists: edit, name, reorder, duplicate, delete.

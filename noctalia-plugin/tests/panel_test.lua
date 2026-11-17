@@ -37,7 +37,10 @@ for i, option in ipairs(select.props.options) do if option == "Alt" then alt = i
 select.props.onChange(tostring(alt))
 assert(hasText("1 unsaved change"), "save bar counts the edit")
 assert(hasText("unsaved"), "row shows the unsaved badge")
-assert(hasText("Customized · default Super"), "the status line names the default: " .. screen())
+assert(hasText("Default Super"), "the status line names the default: " .. screen())
+local function byKey(key) return H.walk(H.tree(), function(n) return n.props.key == key end) end
+local function overrideBadge() return byKey("f:general.mod_key:override") end
+assert(overrideBadge() and hasText("Override"), "an overridden key shows the Override badge")
 
 -- the toggle of a bool field and undo
 local toggle = find("toggle", function(n) return n.props.key == "f:general.show_cheatsheet:toggle" end)
@@ -45,6 +48,22 @@ toggle.props.onChange(tostring(not toggle.props.checked))
 assert(hasText("2 unsaved changes"))
 find("button", function(n) return n.props.key == "f:general.show_cheatsheet:undo" end).props.onClick()
 assert(hasText("1 unsaved change"), "undo restores the loaded value")
+
+-- Reset asks to confirm like Noctalia; an edit in between cancels the confirmation
+local function resetButton() return byKey("f:general.mod_key:reset") end
+assert(resetButton().props.text == "Reset" and resetButton().props.variant == "ghost", "Reset is a ghost button")
+resetButton().props.onClick()
+assert(resetButton().props.text == "Confirm Reset" and resetButton().props.variant == "destructive", "asks first")
+assert(overrideBadge(), "the first click keeps the key")
+toggle = find("toggle", function(n) return n.props.key == "f:general.show_cheatsheet:toggle" end)
+toggle.props.onChange(tostring(not toggle.props.checked))
+assert(resetButton().props.text == "Reset", "another edit cancels the confirmation")
+find("button", function(n) return n.props.key == "f:general.show_cheatsheet:undo" end).props.onClick()
+resetButton().props.onClick()
+resetButton().props.onClick()
+assert(not overrideBadge() and not resetButton(), "confirmed reset removes the key: " .. screen())
+clickText("Undo")
+assert(overrideBadge() and hasText("1 unsaved change"), "undo brings the override back: " .. screen())
 
 -- review sends the change set and shows the readable summary
 replies.preview = function(request)

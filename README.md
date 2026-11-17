@@ -15,8 +15,9 @@ same core and interface code, so they look and behave alike; the app adds a side
   workspaces and keybinds, plus window, layer, workspace and security rules, outputs, scratchpads, input
   devices and environment variables.
 - **Search** (Ctrl+F) over setting names, help text, config keys (`border_width`), rule names and shortcuts.
-- **Clear rows**: control, default value (“Customized · default 2” once it differs), ⓘ help with the config
-  key, ↶ undo, and an eraser that removes the key so Umbriel's default applies. Units sit next to the number,
+- **Clear rows**: control, default value (“Default 2”), ⓘ help with the config key and ↶ undo. Like Noctalia's
+  settings, a key that differs from the default shows an **Override** badge, and **Reset** (click twice to
+  confirm) removes the key so Umbriel's default applies. Units sit next to the number,
   special values such as “Automatic” (-1) have their own switch, and a ↻ glyph marks settings that need an
   Umbriel restart. **Only customized** hides settings at their default.
 - **Home** (app) shows the config file, the settings that differ from Umbriel's defaults and the latest

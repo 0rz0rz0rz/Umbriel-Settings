@@ -29,6 +29,14 @@ function M.badge(text, color, key)
   })
 end
 
+-- Noctalia's settings badge for a key that differs from the default.
+function M.overrideBadge(key)
+  return ui.row({ key = key, paddingH = 8, paddingV = 2, radius = 6, fill = "primary_container", align = "center",
+                  tooltip = "Set in your config; differs from Umbriel's default" }, {
+    ui.label({ text = "Override", fontSize = 11, color = "on_primary_container", fontWeight = "bold" }),
+  })
+end
+
 -- Cards carry a thin outline so they stand out from the page; their padding is that much smaller to keep the height.
 M.CARD_BORDER, M.CARD_BORDER_WIDTH = "outline_variant", 1
 

@@ -1,9 +1,10 @@
--- One settings row per field: label, help, default, a compact control, and undo/reset buttons.
+-- One settings row per field: label, default, Override badge + Reset, a compact control, undo and help.
 local kit = require("./kit.luau")
 
 local M = {}
 
 M.EDITOR_WIDTH = 320
+M.ACTIONS_WIDTH = 64  -- two small icon buttons: undo, help
 
 -- Numbers follow the system's numeric locale (LC_ALL > LC_NUMERIC > LANG): "0,75" in German.
 -- The config file always stores a dot; only display and typing change.
@@ -472,7 +473,7 @@ local function opacityRow(ctx, spec, effective)
         return string.format("%.2f · %02X", shown, math.floor(shown * 255 + 0.5))
       end)(), fontSize = 12 }),
     }),
-    ui.row({ width = 96 }, {}),
+    ui.row({ width = M.ACTIONS_WIDTH }, {}),
   })
 end
 
@@ -513,15 +514,13 @@ function M.row(ctx, spec)
     table.insert(labelRow, ui.glyph({ name = "refresh-alert", size = 14, color = "tertiary",
                                       tooltip = "Takes effect after restarting Umbriel" }))
   end
-  -- One quiet line: a hint, then "Default 2" or, once the key differs from it, "Customized · default 2".
+  -- One quiet line: a hint, then "Default 2"; an overridden key gets the Override badge instead of a color.
   local defaultText = hasDefault(field) and M.format(field, field.default) or nil
   if defaultText == "empty" then defaultText = nil end
   local customized = spec.set and (defaultText == nil or ctx.store.differs(field, spec.value))
   local status
   if follow then
     status = "Follows Noctalia · " .. (follow.source == "kde" and "KDE" or "KDE header")
-  elseif customized then
-    status = "Customized" .. (defaultText and (" · default " .. defaultText) or "")
   elseif defaultText then
     status = "Default " .. defaultText
   end
@@ -532,16 +531,6 @@ function M.row(ctx, spec)
     table.insert(actions, ui.button({ key = key .. ":undo", glyph = "arrow-back-up", variant = "ghost", controlSize = "sm",
       tooltip = "Undo this change", onClick = function() spec.onRevert(); bump(view, key); ctx.render() end }))
   end
-  if spec.onUnset and spec.set then
-    table.insert(actions, ui.button({ key = key .. ":reset", glyph = "eraser", variant = "ghost", controlSize = "sm",
-      tooltip = "Remove the key and use the default", onClick = function()
-        spec.onUnset(); bump(view, key); view.custom[key] = nil; ctx.render()
-      end }))
-  end
-  if follow then
-    table.insert(actions, ui.button({ key = key .. ":unfollow", glyph = "link-off", variant = "ghost", controlSize = "sm",
-      tooltip = "Stop following Noctalia", onClick = function() spec.onFollow(nil); bump(view, key); ctx.render() end }))
-  end
   table.insert(actions, ui.button({ key = key .. ":help", glyph = "info-circle", variant = "ghost", controlSize = "sm",
     tooltip = "Show help", selected = view.help[key] == true,
     onClick = function() view.help[key] = not view.help[key] or nil; ctx.render() end }))
@@ -549,14 +538,37 @@ function M.row(ctx, spec)
   local main = {
     ui.column({ gap = 2, flexGrow = 1, tooltip = field.help }, {
       ui.row({ gap = 6, align = "center" }, labelRow),
-      status and kit.muted(status, { maxLines = 1, color = customized and "primary" or nil }) or nil,
+      status and kit.muted(status, { maxLines = 1 }) or nil,
     }),
   }
   -- centered on the whole row like the control, not on the label's line
   if spec.changed then table.insert(main, kit.badge("unsaved", "primary", key .. ":b1")) end
+  if follow then
+    table.insert(main, ui.button({ key = key .. ":unfollow", text = "Stop following", variant = "ghost",
+      controlSize = "sm", tooltip = "Stop following Noctalia",
+      onClick = function() spec.onFollow(nil); bump(view, key); ctx.render() end }))
+  else
+    if customized then table.insert(main, kit.overrideBadge(key .. ":override")) end
+    -- Like Noctalia: the first click asks to confirm; any edit or leaving the page cancels that.
+    if spec.onUnset and spec.set then
+      local pending = view.confirmReset
+      pending = pending ~= nil and pending.key == key and pending.serial == ctx.store.serial
+      table.insert(main, ui.button({ key = key .. ":reset", text = pending and "Confirm Reset" or "Reset",
+        variant = pending and "destructive" or "ghost", controlSize = "sm",
+        tooltip = "Remove the key and use Umbriel's default", onClick = function()
+          if not pending then
+            view.confirmReset = { key = key, serial = ctx.store.serial }
+            ctx.render()
+            return
+          end
+          view.confirmReset = nil
+          spec.onUnset(); bump(view, key); view.custom[key] = nil; ctx.render()
+        end }))
+    end
+  end
   table.insert(main, ui.row({ width = M.EDITOR_WIDTH, gap = 6, align = "center", opacity = spec.set and 1 or 0.75 },
                             controls))
-  table.insert(main, ui.row({ width = 96, gap = 0, justify = "end", align = "center" }, actions))
+  table.insert(main, ui.row({ width = M.ACTIONS_WIDTH, gap = 0, justify = "end", align = "center" }, actions))
   local children = { ui.row({ key = key .. ":main", gap = 12, align = "center" }, main) }
   if below then
     table.insert(children, ui.column({ key = key .. ":list", gap = 4, paddingH = 8 }, below))

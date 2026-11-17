@@ -131,21 +131,25 @@ function M.create(layout, options)
   function ctx.renderSoon() panel.setNeedsFrameTick(true) end
 
   function ctx.go(next)
+    view.confirmReset = nil
     table.insert(stack, next)
     notices = {}
     ctx.render()
   end
   function ctx.replace(next)
+    view.confirmReset = nil
     stack[#stack] = next
     ctx.render()
   end
   function ctx.canGoBack() return #stack > 1 end
   function ctx.back()
+    view.confirmReset = nil
     if #stack > 1 then table.remove(stack) end
     notices = {}
     ctx.render()
   end
   function ctx.home()
+    view.confirmReset = nil
     stack = { { name = "home" } }
     notices = {}
     ctx.render()
