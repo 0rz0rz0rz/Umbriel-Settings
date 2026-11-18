@@ -25,14 +25,14 @@ local function kdeSources(ctx, path, follows)
   return #sources > 0 and sources or nil
 end
 
-function M.pageFieldSpec(ctx, fid)
+local function pageFieldSpec(ctx, fid)
   local store = ctx.store
   local field = store.meta.fields[fid]
   local value, set = store.value(fid)
   local changed = store.isChanged(fid)
   local follows = field.opacity and field.kind == "color"  -- title-bar backgrounds can follow Noctalia
   return {
-    key = "f:" .. fid, field = field, value = value, set = set, changed = changed,
+    key = fields.rowKey(fid), field = field, value = value, set = set, changed = changed,
     onSet = function(v)
       store.setField(fid, v)
       if follows and titlebar.following(ctx, fid) then titlebar.follow(ctx, fid, nil) end  -- a fixed color stops following
@@ -47,10 +47,10 @@ function M.pageFieldSpec(ctx, fid)
 end
 
 -- groups: { { title, help, fields = { ids } } }; spec(fid) builds the row spec; counts(fids) -> changed, customized
-function M.groups(ctx, pageKey, groups, spec, counts, defaultOpen)
+function M.groups(ctx, pageKey, groups, spec, counts)
   local view = ctx.view
   if view.expanded[pageKey] == nil then
-    view.expanded[pageKey] = defaultOpen or (not ctx.isApp and groups[1] and groups[1].title) or false
+    view.expanded[pageKey] = (not ctx.isApp and groups[1] and groups[1].title) or false
   end
   local open = view.expanded[pageKey]
   local onlyCustomized = view.onlyCustomized
@@ -101,7 +101,7 @@ function M.groups(ctx, pageKey, groups, spec, counts, defaultOpen)
   return content
 end
 
-function M.onlyCustomizedToggle(ctx)
+local function onlyCustomizedToggle(ctx)
   return ui.row({ key = "only", gap = 6, align = "center", tooltip = "Show only settings that differ from the default" }, {
     kit.muted("Only customized"),
     ui.toggle({ checked = ctx.view.onlyCustomized == true, onChange = function(value)
@@ -118,9 +118,9 @@ function M.render(ctx, route)
     ctx.view.expanded[route.page] = route.group
     route.opened = true
   end
-  local header = { kit.header(ctx, route.page, page.help, { M.onlyCustomizedToggle(ctx) }) }
+  local header = { kit.header(ctx, route.page, page.help, { onlyCustomizedToggle(ctx) }) }
   if not store.state then return { header = header, content = { kit.empty("Loading config…", "loader") } } end
-  local content = M.groups(ctx, route.page, page.groups, function(fid) return M.pageFieldSpec(ctx, fid) end,
+  local content = M.groups(ctx, route.page, page.groups, function(fid) return pageFieldSpec(ctx, fid) end,
     store.groupCounts)
   return { header = header, content = content }
 end

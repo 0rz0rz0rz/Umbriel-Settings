@@ -7,13 +7,8 @@ local json, replies, loaded, pluginDir = H.json, H.replies, H.loaded, H.pluginDi
 local flushReads, hasText, find, clickText, lastCall, screen = H.flushReads, H.hasText, H.find, H.clickText, H.lastCall, H.screen
 
 local function exists(kind, key)
-  local found = false
-  local function walk(node)
-    if node.kind == kind and node.props.key == key then found = true end
-    for _, child in ipairs(node.children or {}) do walk(child) end
-  end
-  walk(H.tree())
-  return found
+  local node = H.byKey(key)
+  return node ~= nil and node.kind == kind
 end
 
 entry.onOpen()
@@ -29,7 +24,7 @@ assert(not exists("button", "close"), "the app has no close button")
 assert(hasText("Home") and hasText("Appearance") and hasText("Window rules"), screen())
 
 -- the sidebar search shows results on Home; results open pages as roots (no back button)
-local search = find("input", function(n) return tostring(n.props.key):match("^search:") end)
+local search = H.input("^search:")
 search.props.onChange("modifier")
 flushReads()
 assert(hasText("Mod key"), "search results: " .. screen())
@@ -90,11 +85,11 @@ assert(lastCall("palette-template"), "template set up")
 assert(screen():find("next theme change", 1, true), "status after setup: " .. screen())
 
 -- Escape clears the search first, then leaves a drill-down, then a root page goes Home
-find("input", function(n) return tostring(n.props.key):match("^search:") end).props.onChange("blur")
+H.input("^search:").props.onChange("blur")
 flushReads()
 assert(hasText("Appearance › Blur"), "search results also show from a page above Home: " .. screen())
 entry.onKey("Escape", true)
-local cleared = find("input", function(n) return tostring(n.props.key):match("^search:") end)
+local cleared = H.input("^search:")
 assert(cleared.props.value == "", "the search is cleared: " .. tostring(cleared.props.value))
 clickText("Window rules")
 clickText("Add")

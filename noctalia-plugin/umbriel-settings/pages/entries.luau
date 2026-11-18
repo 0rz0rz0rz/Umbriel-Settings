@@ -17,19 +17,10 @@ local function fieldSpec(ctx, eid, index, fid)
   }
 end
 
-local function confirmButton(ctx, key, text, action)
-  local armed = ctx.view.confirm == key
-  return ui.button({ key = key, text = armed and "Click again to delete" or text, glyph = "trash",
-                     variant = armed and "destructive" or "outline", controlSize = "sm",
-                     onClick = function()
-                       if armed then ctx.view.confirm = nil; action() else ctx.view.confirm = key; ctx.render() end
-                     end })
-end
-
 local function nameForm(ctx, key, placeholder, buttonText, onAccept)
   local view = ctx.view
   return ui.row({ key = key, gap = 6, align = "center" }, {
-    ui.input({ key = key .. ":" .. tostring(view.gen[key] or 0), value = "", flexGrow = 1, controlSize = "sm",
+    ui.input({ key = key .. ":" .. ctx.gen(key), value = "", flexGrow = 1, controlSize = "sm",
                placeholder = placeholder, onChange = function(text) view[key] = text end,
                onSubmit = function(text) view[key] = text; onAccept(noctalia.string.trim(text)) end }),
     ui.button({ text = buttonText, glyph = "plus", controlSize = "sm", variant = "outline",
@@ -78,7 +69,7 @@ local function editorList(ctx, eid, filter, multiple)
       if name == "" then ctx.flash("Enter a name first.", "warning"); return end
       if nameTaken(store, eid, name) then ctx.flash("“" .. name .. "” already exists.", "warning"); return end
       store.entryOp(eid, { op = "add", name = name })
-      view.gen["new-" .. eid] = (view.gen["new-" .. eid] or 0) + 1
+      ctx.bump("new-" .. eid)
       ctx.go({ name = "entry", editor = eid, index = #store.entryItems(eid) })
     end))
   end
@@ -156,7 +147,9 @@ local function entryPage(ctx, route)
       end }))
   end
   table.insert(actions, ui.spacer({ flexGrow = 1 }))
-  table.insert(actions, confirmButton(ctx, "delete-" .. eid .. "-" .. index, "Delete", function()
+  table.insert(actions, kit.confirmButton(ctx, { key = "delete-" .. eid .. "-" .. index, text = "Delete",
+                                               armedText = "Click again to delete", glyph = "trash",
+                                               controlSize = "sm" }, function()
     store.entryOp(eid, { op = "remove", index = index - 1 })
     ctx.back()
   end))

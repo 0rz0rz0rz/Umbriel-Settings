@@ -17,7 +17,8 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
+
+from _render_common import close_window, open_window, temp_home
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 SAMPLE = "/usr/share/umbriel/config.toml"
@@ -50,20 +51,13 @@ if not args.layout:
         print(plugin_copy)
     sys.exit(1 if failed else 0)
 
-tmp = tempfile.mkdtemp(prefix="umbriel-docs-")
-data = os.path.join(tmp, "data")
-os.environ["XDG_DATA_HOME"] = data
-config = os.path.join(tmp, "config.toml")
-shutil.copy(SAMPLE, config)
+tmp, config = temp_home(SAMPLE, "umbriel-docs-")
+data = os.environ["XDG_DATA_HOME"]
 # The panel opens the config remembered in its data dir (the app takes initialConfig).
 os.makedirs(os.path.join(data, "umbriel-settings"))
 with open(os.path.join(data, "umbriel-settings", "gui-config-path"), "w", encoding="utf-8") as handle:
     handle.write(config)
 
-from PySide6.QtCore import QCoreApplication, QEvent, QTimer  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
-
-from umbriel_settings.app_window import AppWindow  # noqa: E402
 from umbriel_settings.host import runtime  # noqa: E402
 
 if args.layout == "panel":
@@ -75,10 +69,9 @@ if args.layout == "panel":
 
     runtime.LuaHost.start = panel_start
 
-app = QApplication([])
-win = AppWindow({"initialConfig": config})
-win.resize(*(tuple(int(v) for v in args.size.split("x")) if args.size else SIZES[args.layout]))
-win.show()
+app, win = open_window(config, tuple(int(v) for v in args.size.split("x")) if args.size else SIZES[args.layout])
+
+from PySide6.QtCore import QTimer  # noqa: E402
 
 # Show the temporary config path as the usual one; give the panel the margin Noctalia draws around it.
 JS = """
@@ -94,15 +87,8 @@ def finish():
     os.makedirs(os.path.dirname(os.path.abspath(args.file)), exist_ok=True)
     ok = win.view.grab().save(args.file)
     print(args.file if ok else f"could not write {args.file}")
-    if win.host.errors:
-        print("Lua errors:", *win.host.errors, sep="\n  ", file=sys.stderr)
-    # Close and delete the page before Qt shuts down, or QtWebEngine can crash at exit.
-    win.closing_confirmed = True
-    win.close()
-    win.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    shutil.rmtree(tmp, ignore_errors=True)
-    app.exit(0 if ok and not win.host.errors else 1)
+    clean = close_window(win, tmp)
+    app.exit(0 if ok and clean else 1)
 
 
 def prepare():

@@ -102,7 +102,7 @@ local function foldersPage(ctx)
         ui.row({ gap = 4 }, badges),
       }),
       ui.row({ gap = 6, align = "center" }, {
-        ui.input({ key = "fold-" .. key .. "-" .. tostring(view.gen["fold-" .. key] or 0), value = value, flexGrow = 1,
+        ui.input({ key = "fold-" .. key .. "-" .. ctx.gen("fold-" .. key), value = value, flexGrow = 1,
                    controlSize = "sm", placeholder = "Not set",
                    onChange = function(text) store.setDesktop("userdirs", key, text); ctx.render() end }),
         ui.button({ text = "Browse…", glyph = "folder-open", controlSize = "sm", variant = "outline",
@@ -114,7 +114,7 @@ local function foldersPage(ctx)
                         if err then ctx.flash(err.error, "error")
                         elseif data.path then
                           store.setDesktop("userdirs", key, data.path)
-                          view.gen["fold-" .. key] = (view.gen["fold-" .. key] or 0) + 1
+                          ctx.bump("fold-" .. key)
                         end
                         ctx.render()
                       end, { timeout = 60000 })
@@ -157,7 +157,7 @@ local function appsPage(ctx)
   table.insert(content, ui.input({ key = "mime-filter", value = view.mimeFilter or "", controlSize = "sm",
                                    placeholder = "Filter file types or apps",
                                    onChange = function(text) view.mimeFilter = text; ctx.render() end }))
-  local addKey = "mime-add-" .. tostring(view.gen.mimeAdd or 0)
+  local addKey = "mime-add-" .. ctx.gen("mimeAdd")
   local function addMime(mime)
     mime = noctalia.string.trim(mime or "")
     for _, managed in ipairs(apps.roleMimes or {}) do
@@ -165,8 +165,9 @@ local function appsPage(ctx)
         ctx.flash("That type is set through a common role above.", "warning"); return
       end
     end
-    if apps.mimes[mime] == nil then apps.mimes[mime] = "" end
-    view.gen.mimeAdd = (view.gen.mimeAdd or 0) + 1
+    view.addedMimes = view.addedMimes or {}
+    view.addedMimes[mime] = true  -- listed while unassigned; only picking an app is an edit
+    ctx.bump("mimeAdd")
     ctx.go({ name = "appPicker", kind = "mime", target = mime })
   end
   table.insert(content, ui.row({ key = "mime-add", gap = 6, align = "center" }, {
@@ -185,6 +186,9 @@ local function appsPage(ctx)
   local filter = string.lower(noctalia.string.trim(view.mimeFilter or ""))
   local names = {}
   for mime in pairs(apps.mimes) do table.insert(names, mime) end
+  for mime in pairs(view.addedMimes or {}) do
+    if apps.mimes[mime] == nil then table.insert(names, mime) end
+  end
   table.sort(names)
   local appNames = {}
   for id, name in pairs(apps.names or {}) do appNames[id] = name end
@@ -193,7 +197,7 @@ local function appsPage(ctx)
   local listStart = #content + 1
   local shown = 0
   for _, mime in ipairs(names) do
-    local value = apps.mimes[mime]
+    local value = apps.mimes[mime] or ""
     local name = value ~= "" and (appNames[value] or value) or nil
     local exts = extensions[mime] or ""
     local haystack = filter ~= "" and string.lower(table.concat({ mime, exts, value, name or "" }, " "))

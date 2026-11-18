@@ -5,43 +5,12 @@ user did and the helper can replay it on a fresh parse of the config, keeping co
 """
 
 import copy
+import re
 
 import tomlkit
 
-from .fields import (
-    EFFECT_POOL_GROUPS,
-    EFFECT_PRESET_GROUPS,
-    INPUT_DEVICE,
-    LAYER_RULE,
-    OUTPUT_GROUPS,
-    SCRATCHPAD,
-    SECURITY_RULE,
-    WINDOW_RULE_GROUPS,
-    WORKSPACE_RULE_GROUPS,
-)
-from .tomlops import ENV_NAME_RE, MISSING, RESERVED_ENV, ensure_table, getp, parse_toml_value, putp, py
-
-# id: (page, title, TOML path, mode, groups, collapsible)
-ENTRY_EDITORS = {
-    "output": ("Outputs", "Outputs (connector or monitor)", "output", "map", OUTPUT_GROUPS, True),
-    "window_rule": ("Window rules", "[[window_rule]]", "window_rule", "aot", WINDOW_RULE_GROUPS, True),
-    "layer_rule": ("Layer rules", "[[layer_rule]]", "layer_rule", "aot", [("Layer rule", LAYER_RULE)], False),
-    "workspace": ("Workspace rules", "[[workspace]]", "workspace", "aot", WORKSPACE_RULE_GROUPS, True),
-    "security_context_rule": ("Security rules", "[[security_context_rule]]", "security_context_rule", "aot",
-                              [("Security context rule", SECURITY_RULE)], False),
-    "scratchpad": ("Scratchpads", "[[scratchpad]]", "scratchpad", "aot", [("Scratchpad", SCRATCHPAD)], False),
-    "input_device": ("Input devices", "[[input.device]]", "input.device", "aot",
-                     [("Device override", INPUT_DEVICE)], False),
-    "effect_preset": ("Effects", "Effect presets", "effects.preset", "map", EFFECT_PRESET_GROUPS, True),
-    "effect_pool": ("Effects", "Effect pools", "effects.pool", "map", EFFECT_POOL_GROUPS, True),
-}
-
-# id: (page, title, TOML path, value kind: "string" | "array" | "table")
-MAP_EDITORS = {
-    "environment": ("Environment", "Environment variables", "environment", "string"),
-    "beziers": ("Animation curves", "Named Bézier curves", "animation.beziers", "array"),
-    "springs": ("Animation curves", "Named spring curves", "animation.springs", "table"),
-}
+from .fields import ENTRY_EDITORS, MAP_EDITORS, schema_prefix  # noqa: F401 (schema_prefix: entry_ops API)
+from .tomlops import ENV_NAME_RE, MISSING, RESERVED_ENV, ensure_table, getp, parse_toml_value, putp, py, totext
 
 
 def editor_path(editor_id):
@@ -49,12 +18,6 @@ def editor_path(editor_id):
     if spec is None:
         raise ValueError(f"Unknown editor: {editor_id}")
     return tuple(spec[2].split("."))
-
-
-def schema_prefix(editor_id):
-    """Schema path prefix of an entry editor's fields, e.g. 'window_rule[]' or 'output.<name>'."""
-    _, _, path, mode, _, _ = ENTRY_EDITORS[editor_id]
-    return path + (".<name>" if mode == "map" else "[]")
 
 
 def editor_fields(editor_id):
@@ -235,3 +198,62 @@ def apply_map_op(doc, editor_id, op):
     if name in table and py(table[name]) == py(value):
         return
     table[name] = value
+
+
+# ------------------------------------------------------------------ readable entry names
+def readable_pattern(value):
+    """Drop regex anchors and escaped dots so a match pattern reads like a name."""
+    text = str(value)
+    if text.startswith("^"):
+        text = text[1:]
+    if text.endswith("$") and not text.endswith("\\$"):
+        text = text[:-1]
+    return text.replace("\\.", ".")
+
+
+def readable_match(key, value):
+    """Describe one identifying key, e.g. app id "^org.mozilla.firefox$" as "firefox (app id)"."""
+    plain = py(value)
+    if key in ("app_id", "title", "namespace"):
+        names = []
+        for pattern in plain if isinstance(plain, list) else [plain]:
+            text = readable_pattern(pattern)
+            if key == "app_id" and re.fullmatch(r"[\w-]+(\.[\w-]+){2,}", text):
+                text = text.rsplit(".", 1)[1]
+            names.append(text)
+        kind = {"app_id": "app id", "namespace": "layer"}.get(key, key)
+        return f"{', '.join(names)} ({kind})"
+    word = key.removeprefix("is_").replace("_", " ")
+    if isinstance(plain, bool):
+        return word if plain else f"not {word}"
+    return f"{word}: {totext(value)}"
+
+
+def entry_label_info(entry, index, custom_label=""):
+    """Return (list text, raw TOML keys for a tooltip, whether the name is automatic) for one rule entry."""
+    raw_lines = []
+    for p in (("name",), ("index",)):
+        v = getp(entry, p)
+        if v is not MISSING:
+            raw_lines.append(f"{'.'.join(p)} = {totext(v)}")
+    m = getp(entry, ("match",))
+    if m is not MISSING and hasattr(m, "items"):
+        raw_lines.extend(f"match.{k} = {totext(v)}" for k, v in m.items())
+    raw = "\n".join(raw_lines)
+    number = index + 1
+    if custom_label and custom_label.strip():
+        return f"{number}. {custom_label.strip()}", raw, False
+    name = getp(entry, ("name",))
+    if name is not MISSING:
+        return f"{number}. {py(name)}", raw, False
+    for key in ("app_id", "title", "namespace"):
+        v = getp(entry, ("match", key))
+        if v is not MISSING:
+            return f"{number}. {readable_match(key, v)}", raw, True
+    workspace = getp(entry, ("index",))
+    if workspace is not MISSING:
+        return f"{number}. Workspace {py(workspace)}", raw, True
+    if m is not MISSING and hasattr(m, "items") and len(m):
+        k = next(iter(m))
+        return f"{number}. {readable_match(k, m[k])}", raw, True
+    return f"{number}. (matches everything)", raw, True

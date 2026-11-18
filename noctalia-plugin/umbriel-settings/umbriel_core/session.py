@@ -12,13 +12,13 @@ import tomllib
 
 import tomlkit
 
-from . import entry_ops, keybinds, values
-from .diff import group_diff_by_section
-from .entries import entry_label_info
+from . import entry_ops, keybinds, legacy, values
+from .backups import create_backup_snapshot
 from .fields import TABS
 from .layout import (
     BANNER_RE,
     add_entry_name_comments,
+    group_diff_by_section,
     inline_window_rule_matches,
     move_new_keybinds,
     rebuild_config,
@@ -67,6 +67,7 @@ class ConfigSession:
         self.data_dir = data_dir
         self.config_dir = config_gui_data_dir(self.path, data_dir)
         self._options = schema_options
+        legacy.migrate_config(self.path, self.config_dir)
 
     @property
     def options(self):
@@ -82,7 +83,7 @@ class ConfigSession:
         return {
             "config": text_revision or file_revision(self.path),
             "locks": file_revision(self.lock_path()),
-            "labels": file_revision(labels_file(self.path, self.config_dir)),
+            "labels": file_revision(labels_file(self.config_dir)),
         }
 
     def load(self):
@@ -116,7 +117,7 @@ class ConfigSession:
         for fid, (_, _, field) in PAGE_FIELDS.items():
             current = getp(doc, field.path)
             fields[fid] = values.to_ui(field, current)
-        labels_all = load_all_entry_labels(self.path, self.config_dir)
+        labels_all = load_all_entry_labels(self.config_dir)
         editors = {}
         for eid, (_, _, path, mode, _, _) in entry_ops.ENTRY_EDITORS.items():
             editor_fields = entry_ops.editor_fields(eid)
@@ -126,7 +127,7 @@ class ConfigSession:
                 name, table = (None, item) if mode == "aot" else (str(item[0]), item[1])
                 custom = labels[index] if index < len(labels) else ""
                 if mode == "aot":
-                    title, raw, automatic = entry_label_info(table, index, custom)
+                    title, raw, automatic = entry_ops.entry_label_info(table, index, custom)
                 else:
                     title, raw, automatic = name, "", False
                 items.append({
@@ -146,7 +147,7 @@ class ConfigSession:
             for eid, spec in entry_ops.MAP_EDITORS.items()
         }
         groups, assignments = keybinds.parse_keybind_groups(text)
-        locked = keybinds.load_locked(self.path, self.config_dir)
+        locked = keybinds.load_locked(self.config_dir)
         bindings = keybinds.read_bindings(doc)
         table = getp(doc, ("keybinds",))
         other = [str(k) for k in table.keys() if k not in bindings] if table is not MISSING and hasattr(table, "keys") else []
@@ -178,7 +179,7 @@ class ConfigSession:
         if expected != revision:
             raise ValueError("The config or its GUI data changed since it was loaded. Reload before saving.")
         summary = []
-        labels_all = load_all_entry_labels(self.path, self.config_dir)
+        labels_all = load_all_entry_labels(self.config_dir)
         labels_changed = False
 
         for fid, change in (changes.get("fields") or {}).items():
@@ -197,7 +198,7 @@ class ConfigSession:
             values.apply_value(doc, field, new, default)
             summary.append({
                 "page": page, "group": group, "label": field.label, "id": fid,
-                "old": describe(field, old), "new": describe(field, getp(doc, field.path)),
+                "old": describe(old), "new": describe(getp(doc, field.path)),
             })
 
         for op in changes.get("entries") or []:
@@ -219,7 +220,7 @@ class ConfigSession:
                 table = entry_ops.entry_at(doc, eid, op.get("index"))
                 values.apply_value(table, field, new, values.field_default(field, option))
                 summary.append({"page": page, "label": f"Entry {op['index'] + 1}: {field.label}",
-                                "new": describe(field, getp(table, field.path))})
+                                "new": describe(getp(table, field.path))})
             else:
                 entry_ops.apply_entry_op(doc, eid, labels, op)
                 summary.append({"page": page, "label": describe_entry_op(op)})
@@ -244,10 +245,10 @@ class ConfigSession:
                 doc["keybinds"] = tomlkit.table()  # the group comment needs a [keybinds] header to live under
 
         inline_window_rule_matches(doc)
-        aot_labels = [
-            _Labels(spec[2], labels_all.get(spec[2], []))
+        aot_labels = {
+            spec[2]: labels_all.get(spec[2], [])
             for spec in entry_ops.ENTRY_EDITORS.values() if spec[3] == "aot"
-        ]
+        }
         new_text = add_entry_name_comments(tomlkit.dumps(doc), aot_labels)
         rebuild = changes.get("rebuild")
         if rebuild is None:
@@ -283,7 +284,7 @@ class ConfigSession:
         if table is not MISSING and not hasattr(table, "keys"):
             raise ValueError("keybinds is not a table in the config; fix it in the file first.")
         unparsed = {str(k) for k in table.keys() if k not in original} if table is not MISSING else set()
-        disk_locks = keybinds.load_locked(self.path, self.config_dir)
+        disk_locks = keybinds.load_locked(self.config_dir)
         rows, assignments = {}, {}
         for row in binds["rows"]:
             if not isinstance(row, dict) or not isinstance(row.get("key"), str) or not isinstance(row.get("action"), str):
@@ -421,7 +422,7 @@ class ConfigSession:
         if self.revision() != changes.get("revision"):
             raise ValueError("The config changed while saving. Reload before retrying.")
         if old != new:
-            snapshot = (backup or _default_backup)(self.path, self.config_dir)
+            snapshot = (backup or create_backup_snapshot)(self.path, self.config_dir)
             report["backup"] = snapshot
             if os.path.islink(self.path) or self.revision() != changes.get("revision"):
                 raise ValueError("The config changed while saving. Reload before retrying.")
@@ -430,11 +431,11 @@ class ConfigSession:
         try:
             if labels_all is not None:
                 kept = {key: labels for key, labels in labels_all.items() if any(labels)}
-                write_text_file(labels_file(self.path, self.config_dir), json.dumps(kept, indent=2))
+                write_text_file(labels_file(self.config_dir), json.dumps(kept, indent=2))
         except OSError as error:
             warnings.append(f"Rule names could not be saved: {error}.")
         try:
-            if locks is not None and sorted(keybinds.load_locked(self.path, self.config_dir)) != locks:
+            if locks is not None and sorted(keybinds.load_locked(self.config_dir)) != locks:
                 keybinds.save_locked(locks, self.config_dir)
         except OSError as error:
             warnings.append(f"Keybind locks could not be saved: {error}.")
@@ -444,20 +445,7 @@ class ConfigSession:
         return report
 
 
-def _default_backup(path, config_dir):
-    from .backups import create_backup_snapshot
-    return create_backup_snapshot(path, config_dir)
-
-
-class _Labels:
-    """Adapter for add_entry_name_comments, which expects editor-like objects."""
-    mode = "aot"
-
-    def __init__(self, key, labels):
-        self.labels_key, self.custom_labels = key, labels
-
-
-def describe(field, value):
+def describe(value):
     """Short human text for a value in change summaries."""
     if value is MISSING or value is None:
         return None
@@ -469,16 +457,19 @@ def describe(field, value):
     return str(plain)
 
 
+ENTRY_OP_TEXT = {
+    "remove": "Removed entry {n}",
+    "move": "Moved entry {n} to position {to}",
+    "duplicate": "Duplicated entry {n}",
+}
+
+
 def describe_entry_op(op):
     kind = op.get("op")
     if kind == "add":
         return "Added entry" + (f" {op['name']}" if op.get("name") else "")
-    if kind == "remove":
-        return f"Removed entry {op.get('index', 0) + 1}"
-    if kind == "move":
-        return f"Moved entry {op.get('index', 0) + 1} to position {op.get('to', 0) + 1}"
-    if kind == "duplicate":
-        return f"Duplicated entry {op.get('index', 0) + 1}"
     if kind == "label":
         return f"Renamed entry {op.get('index', 0) + 1} to {op.get('text') or '(automatic)'}"
+    if kind in ENTRY_OP_TEXT:
+        return ENTRY_OP_TEXT[kind].format(n=op.get("index", 0) + 1, to=op.get("to", 0) + 1)
     return str(kind)

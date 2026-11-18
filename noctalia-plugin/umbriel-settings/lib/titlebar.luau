@@ -1,5 +1,8 @@
 -- Title-bar backgrounds that follow Noctalia's palette: helper `titlebar` (state) and `titlebar-follow`.
 -- The chosen color is queued as an ordinary edit for review; afterwards Noctalia's post_hook keeps it current.
+local fields = require("../ui/fields.luau")
+local format = require("../ui/format.luau")
+
 local M = {}
 
 local INCLUDE_FID = "include.optional.files"
@@ -56,7 +59,7 @@ function M.follow(ctx, fid, source, opacity)
   M.state(ctx)
   local item = view.titlebar and view.titlebar.fields and view.titlebar.fields[name]
   if item and source == item.source and opacity then  -- show the new opacity before the helper answers
-    item.alpha = string.format("%02X", math.floor(opacity * 255 + 0.5))
+    item.alpha = format.alphaByte(opacity)
   end
   if view.titlebarBusy[fid] then
     view.titlebarQueued[fid] = { source = source, opacity = opacity }
@@ -72,8 +75,8 @@ function M.follow(ctx, fid, source, opacity)
         view.titlebar = data
         local item = data.fields and data.fields[name]
         if source then queueConfigEdits(ctx, fid, item and item.color, data.old_include) end
-        local key = "f:" .. fid  -- the row's hex input shows the followed color
-        view.gen[key] = (view.gen[key] or 0) + 1
+        local key = fields.rowKey(fid)  -- the row's hex input shows the followed color
+        ctx.bump(key)
       end
       local queued = view.titlebarQueued[fid]
       view.titlebarQueued[fid] = nil

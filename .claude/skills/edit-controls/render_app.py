@@ -11,10 +11,9 @@ and temporary data paths are used; the theme follows the user's Noctalia/qt6ct c
 """
 import argparse
 import json
-import os
-import shutil
 import sys
-import tempfile
+
+from _render_common import close_window, open_window, temp_home
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", required=True, help="PNG path prefix")
@@ -24,21 +23,11 @@ parser.add_argument("--settle", type=int, default=1200, help="ms to wait after e
 parser.add_argument("clicks", nargs="*")
 args = parser.parse_args()
 
-tmp = tempfile.mkdtemp(prefix="umbriel-render-")
-os.environ["XDG_DATA_HOME"] = os.path.join(tmp, "data")
-config = os.path.join(tmp, "config.toml")
-shutil.copy(args.config, config)
+tmp, config = temp_home(args.config, "umbriel-render-")
+app, win = open_window(config, tuple(int(v) for v in args.size.split("x")))
 
-from PySide6.QtCore import QCoreApplication, QEvent, QTimer  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtCore import QTimer  # noqa: E402
 
-from umbriel_settings.app_window import AppWindow  # noqa: E402
-
-app = QApplication([])
-win = AppWindow({"initialConfig": config})
-width, height = (int(v) for v in args.size.split("x"))
-win.resize(width, height)
-win.show()
 steps = ["start"] + args.clicks
 state = {"i": 0}
 
@@ -65,14 +54,7 @@ def step():
         win.view.grab().save(path)
         print(path)
     if i >= len(steps):
-        if win.host.errors:
-            print("Lua errors:", *win.host.errors, sep="\n  ", file=sys.stderr)
-        # Close and delete the page before Qt shuts down, or QtWebEngine can crash at exit.
-        win.closing_confirmed = True
-        win.close()
-        win.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        shutil.rmtree(tmp, ignore_errors=True)
+        close_window(win, tmp)
         app.quit()
         return
     if i > 0:

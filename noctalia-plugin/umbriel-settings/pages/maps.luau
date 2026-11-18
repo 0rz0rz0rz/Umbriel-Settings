@@ -35,7 +35,7 @@ local function editor(ctx, eid)
   for index, row in ipairs(store.mapRows(eid)) do
     local key = "map-" .. eid .. "-" .. row[1]
     if editing and editing.editor == eid and editing.from == row[1] then
-      local gen = tostring(view.gen[key] or 0)
+      local gen = ctx.gen(key)
       table.insert(rows, kit.card({ key = key, fill = "surface_container_high" }, {
         ui.input({ key = key .. ":n:" .. gen, value = row[1], controlSize = "sm", placeholder = EXAMPLES[eid][1],
                    onChange = function(text) editing.name = text end }),
@@ -75,7 +75,7 @@ local function editor(ctx, eid)
   local addKey = "add-" .. eid
   local draft = view[addKey] or {}
   view[addKey] = draft
-  local gen = tostring(view.gen[addKey] or 0)
+  local gen = ctx.gen(addKey)
   local function add()
     local name = noctalia.string.trim(draft.name or "")
     local problem = check(store, eid, name, nil)
@@ -86,7 +86,7 @@ local function editor(ctx, eid)
     end
     store.mapSet(eid, name, draft.value or "", nil)
     view[addKey] = {}
-    view.gen[addKey] = (view.gen[addKey] or 0) + 1
+    ctx.bump(addKey)
     ctx.render()
   end
   table.insert(rows, ui.row({ key = addKey, gap = 6, align = "center" }, {

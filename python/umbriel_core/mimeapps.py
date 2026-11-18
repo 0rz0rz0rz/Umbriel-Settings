@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 from .backups import snapshot_file
-from .paths import atomic_write
+from .paths import atomic_write, xdg_config_home, xdg_data_dirs, xdg_data_home
 from .xdg_dirs import read_document
 
 ROLES = {
@@ -29,7 +29,7 @@ EXTENSION = re.compile(r"^\.[A-Za-z0-9][A-Za-z0-9._+-]*$")
 
 
 def config_path():
-    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "mimeapps.list"
+    return Path(xdg_config_home()) / "mimeapps.list"
 
 
 def defaults(text):
@@ -104,11 +104,7 @@ def desktop_entry(path, wanted):
 
 
 def application_roots():
-    data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
-    roots = [data_home / "applications"]
-    roots.extend(Path(root) / "applications" for root in
-                 (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if root)
-    return roots
+    return [Path(root) / "applications" for root in (xdg_data_home(), *xdg_data_dirs())]
 
 
 def entry_name(entry, languages):
@@ -257,13 +253,9 @@ def update_text(text, updates):
     return "".join(output)
 
 
-def save(path, backup_dir, expected_revision, changes, apps=()):
-    """Write the changes; the returned snapshot lists `apps` (the caller's list), not a fresh scan.
-
-    Scanning every .desktop file again here only to repeat the list the UI already has made saves slow.
-    """
+def save(path, backup_dir, expected_revision, changes):
+    """Write the changes and return the new revision; the UI re-reads the file afterwards."""
     updates = validate_changes(changes)
-    apps = list(apps)
     if path.is_symlink():
         raise ValueError("Default applications file is a symlink; edit its target directly.")
     text, revision = read_document(path)
@@ -273,7 +265,7 @@ def save(path, backup_dir, expected_revision, changes, apps=()):
     if revision != "missing":
         snapshot_file(str(path), str(backup_dir))
     atomic_write(path, updated)
-    return snapshot(updated.decode("utf-8"), hashlib.sha256(updated).hexdigest(), apps)
+    return {"revision": hashlib.sha256(updated).hexdigest()}
 
 
 def extension_mime(extension):

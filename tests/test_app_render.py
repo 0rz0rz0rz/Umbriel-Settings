@@ -2,8 +2,6 @@
 
 import json
 import os
-import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -12,7 +10,7 @@ from unittest.mock import patch
 from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
-from test_host_runtime import CONFIG, FAKE_UMBRIEL, lupa
+from host_support import CONFIG, isolated_home, lupa
 
 # QtWebEngine must load before QApplication exists
 from umbriel_settings.app_window import AppWindow, load_window_state, save_window_state
@@ -34,20 +32,7 @@ class AppRenderTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        root = Path(temp.name)
-        config = root / "config.toml"
-        config.write_text(CONFIG)
-        bin_dir = root / "bin"
-        bin_dir.mkdir()
-        (bin_dir / "umbriel").write_text(f"#!{sys.executable}\n" + FAKE_UMBRIEL)
-        (bin_dir / "umbriel").chmod(0o755)
-        env = patch.dict(os.environ, {"XDG_DATA_HOME": str(root / "data"), "XDG_CONFIG_HOME": str(root / "xdg"),
-                                      "XDG_DATA_DIRS": str(root / "share"),
-                                      "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]})
-        env.start()
-        self.addCleanup(env.stop)
+        root, config = isolated_home(self)
 
         self.win = AppWindow({"initialConfig": str(config)})
         self.win.resize(1100, 760)
@@ -161,6 +146,22 @@ class AppRenderTests(unittest.TestCase):
         self.assertEqual(self.js("String(document.querySelector('#root input[type=range]').value === "
                                  "document.querySelector('#root input[type=range]').max)"), "true")
         self.assertEqual(self.win.host.errors, [])
+
+    def test_typing_in_a_number_box_keeps_it(self):
+        """The first edit adds badges and Reset in front of the controls; the box being typed in must stay."""
+        self.wait_for_text("Home", "Appearance")
+        self.click("Appearance")
+        self.click("Windows")
+        self.wait_for_text("Border width")
+        self.js("window.box = document.querySelector('#root [data-key^=\"f:appearance.border_width:num:\"]');"
+                "box.focus(); box.value = '7'; box.dispatchEvent(new Event('input')); 'ok'")
+        deadline = time.monotonic() + 5
+        while self.win.pending != 1 and time.monotonic() < deadline:
+            self.pause(50)
+        self.assertEqual(self.win.pending, 1, "the typed value is one unsaved change")
+        self.wait_for_text("unsaved")
+        self.assertEqual(self.js("String(box.isConnected && document.activeElement === box)"), "true",
+                         "the number box was replaced while typing")
 
     def test_a_shortcut_is_dragged_into_a_group(self):
         self.wait_for_text("Home", "Keybinds")

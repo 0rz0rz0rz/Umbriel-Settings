@@ -52,7 +52,7 @@ local function editorSection(ctx, state)
     kit.muted("Command for Edit file; the config path is appended. Empty uses the default app (xdg-open). "
       .. "Terminal editors need a terminal, e.g. “kitty nvim”."),
     ui.row({ key = "editor-row", gap = 8, align = "center" }, {
-      ui.input({ key = "editor:" .. tostring(ctx.view.gen.editor or 0), value = state.editor or "", flexGrow = 1,
+      ui.input({ key = "editor:" .. ctx.gen("editor"), value = state.editor or "", flexGrow = 1,
                  controlSize = "sm", placeholder = "Default app (xdg-open)",
                  onChange = function(text) state.editorDraft = text end,
                  onSubmit = function(text) state.editorDraft = text; save() end }),
@@ -96,7 +96,7 @@ function M.render(ctx, route)
       state.loading = false
       if err then state.error = err.error else
         state.loaded, state.editor, state.palette = true, data.editor, data.palette
-        ctx.view.gen.editor = (ctx.view.gen.editor or 0) + 1
+        ctx.bump("editor")
       end
       ctx.render()
     end)

@@ -19,11 +19,11 @@ python/umbriel_settings/             PySide6 host: lupa runs the Luau, QWebEngin
 
 | Area | Rule (auto) | Skills |
 | --- | --- | --- |
-| Shared UI, plugin, helper | `noctalia-plugin.md` | `edit-noctalia-panel`, `edit-noctalia-desktop-settings`, `test-noctalia-plugin` |
+| Shared UI, plugin, helper | `noctalia-plugin.md` | `edit-noctalia-panel`, `edit-noctalia-desktop-settings` |
 | App host | `app-host.md` | `edit-controls`, `split-module` |
 | Tests | `tests.md`, `noctalia-plugin-tests.md` | `add-test` |
 
-Also: `add-setting-field`, `sync-umbriel-schema`, `verify-changes`, `verify-noctalia-plugin`, `build-appimage`. Use the matching skill first.
+Also: `add-setting-field`, `sync-umbriel-schema`, `verify-changes`, `build-appimage`. Use the matching skill first.
 
 ## Commands
 
@@ -31,7 +31,7 @@ Deps: Python 3.11+, PySide6 + QtWebEngine, tomlkit, lupa (`pyproject.toml` range
 
 ```sh
 python tools/check.py                # checks picked from git status; failures only
-python tools/check.py core plugin host schema lint all | test_core_values
+python tools/check.py core plugin host schema lint all | test_core_values   # or any test file
 python tools/sync_plugin_core.py     # after editing python/umbriel_core (--check: drift)
 python python/umbriel-settings.py [config.toml]   # --config --no-validate --no-rebuild --check-schema --version
 ```
@@ -53,8 +53,8 @@ Grep for symbols (`^function\|^local function\|^def \|^class `) and read ranges,
 - Luau = Luau ∩ Lua 5.4/5.5 (no `continue`, `+=`, types, backticks); 25 ms per callback.
 - Files < ~800 lines. Tests: one file per area, `unittest`, temp paths.
 - After every code change, update whatever it made stale in the READMEs (root, `noctalia-plugin/`, `noctalia-plugin/umbriel-settings/`), skills, rules and this file before reporting done.
-- Names: "Umbriel Settings"; package `umbriel_settings`; launcher `python/umbriel-settings.py`; desktop ID/data dirs `umbriel-settings`; plugin ID `0rz0rz0rz/umbriel-settings`. Old `umbriel-config-gui` only for migration (`paths.LEGACY_DIR_NAME`). The app imports the helper (`umbriel_settings.py`) under a private name and restores `sys.path`.
-- Versions: app `__version__` = `<Umbriel version>-<NNN>` (`0.1.0-005`), plugin = `<major>.<minor>.<NNN>` (`0.1.5`), plus README table. Versions change only when a new AppImage is built and released (app and plugin together, raising only `NNN`); never for commits or pushes; `0.1.0` follows Umbriel (`NNN` → `001`). Check Umbriel/Noctalia release notes after their updates.
+- Names: "Umbriel Settings"; package `umbriel_settings`; launcher `python/umbriel-settings.py`; desktop ID/data dirs `umbriel-settings`; plugin ID `0rz0rz0rz/umbriel-settings`. Old `umbriel-config-gui` only for migration (`paths.LEGACY_DIR_NAME`); older file layouts move once via `umbriel_core/legacy.py`. The app imports the helper (`umbriel_settings.py`) under a private name and restores `sys.path`.
+- Versions: app `__version__` = `<Umbriel version>-<NNN>` (`0.1.0-NNN`), plugin = `<major>.<minor>.<NNN>` (`0.1.N`), plus README table. Versions change only when a new AppImage is built and released (app and plugin together, raising only `NNN`); never for commits or pushes; `0.1.0` follows Umbriel (`NNN` → `001`). Check Umbriel/Noctalia release notes after their updates.
 - MIT: keep both `LICENSE` copies, AppImage license bundling, Tabler font license.
 - Comment only what needs it. No planning/notes files. Prefer repo and `umbriel config schema --json` over the web.
 - AppImage builds, commits, pushes, tags, releases: only on explicit permission for that action; a permitted build that is then pushed also gets its tag and GitHub release without asking. Never force-push; short imperative commit messages.

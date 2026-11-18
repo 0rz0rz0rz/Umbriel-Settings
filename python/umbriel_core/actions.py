@@ -282,16 +282,18 @@ def parse_actions(text):
 
 ACTION_CATEGORIES = parse_actions(ACTION_DOCS)
 ACTION_TEMPLATES = [a for _, items in ACTION_CATEGORIES for a, _ in items]
-# bare action name (first word) -> (first template, description)
-ACTION_INFO = {}
-# actions that always need an argument (no bare or all-optional form in the catalog)
-_BARE_OK = set()
-for _, items in ACTION_CATEGORIES:
-    for _a, _d in items:
-        _head, _, _rest = _a.partition(" ")
-        ACTION_INFO.setdefault(_head, (_a, _d))
-        if not _rest or _rest.lstrip().startswith("["):
-            _BARE_OK.add(_head)
-REQUIRED_ARG_ACTIONS = {h for h in ACTION_INFO if h not in _BARE_OK}
 
 
+def _action_index(categories):
+    """({bare action name: (first template, description)}, actions that always need an argument)."""
+    info, bare_ok = {}, set()
+    for _, items in categories:
+        for template, description in items:
+            head, _, rest = template.partition(" ")
+            info.setdefault(head, (template, description))
+            if not rest or rest.lstrip().startswith("["):
+                bare_ok.add(head)
+    return info, {head for head in info if head not in bare_ok}
+
+
+ACTION_INFO, REQUIRED_ARG_ACTIONS = _action_index(ACTION_CATEGORIES)

@@ -1,7 +1,7 @@
 -- Review & save (readable changes, diff, validation) and backups.
 local kit = require("../ui/kit.luau")
-local search = require("../lib/search.luau")
-local fields = require("../ui/fields.luau")
+local drafts = require("../lib/drafts.luau")
+local format = require("../ui/format.luau")
 
 local M = {}
 
@@ -16,14 +16,6 @@ local function diffBlock(text)
   local body = table.concat(lines)
   if count > 80 then body = body .. "\n… " .. (count - 80) .. " more lines\n" end
   return "```diff\n" .. body .. "```"
-end
-
-local function goToField(ctx, fid)
-  local where = search.locate(ctx.store.meta, fid)
-  if not where then return end
-  if where.editor then ctx.openPage(where.page) else
-    ctx.openPage(where.page, { group = where.group, reveal = "f:" .. fid })
-  end
 end
 
 -- Messages Umbriel's validation attached to settings; shown on their rows until the next check.
@@ -57,11 +49,19 @@ local function requestPreview(ctx, state)
     end, { timeout = 45000 })
 end
 
+local function stopSaving(ctx, state)
+  state.saving = false
+  ctx.savingDone()
+end
+
+-- "First part. Second part." with either part possibly empty.
+local function sentences(first, second) return first ~= "" and (first .. " " .. second) or second end
+
 local function finishSave(ctx, state, message)
-  state.saving = false; ctx.savingDone()
+  stopSaving(ctx, state)
   ctx.diagnostics = nil
   ctx.resetInputs()
-  ctx.store.saveDraft()  -- drops a draft from an earlier close that held what was just saved
+  drafts.save()  -- drops a draft from an earlier close that held what was just saved
   if ctx.route().name == "review" then ctx.back() end  -- the user may have moved on while it saved
   ctx.flash(message, (state.newer or state.warnings) and "warning" or "info")
 end
@@ -81,15 +81,14 @@ local function saveDesktop(ctx, state, message)
       failed = table.concat(texts, " ")
     end
     if failed then
-      state.saving = false; ctx.savingDone()
-      state.error = (message ~= "" and (message .. " ") or "") .. "Desktop settings were not saved: " .. failed
+      stopSaving(ctx, state)
+      state.error = sentences(message, "Desktop settings were not saved: " .. failed)
       ctx.render()
       return
     end
-    store.desktop = nil
-    store.history = {}  -- desktop undo steps would revert what was just saved
+    store.desktopSavedAll()
     ctx.loadDesktop(true)
-    finishSave(ctx, state, (message ~= "" and (message .. " ") or "") .. "Desktop settings saved; restart apps to use them.")
+    finishSave(ctx, state, sentences(message, "Desktop settings saved; restart apps to use them."))
   end)
 end
 
@@ -106,7 +105,7 @@ local function save(ctx, state)
     if not store.state or store.state.path ~= path then return false end
     if not report.state then ctx.reload() return false end  -- written but not read back: read it again
     local newer = store.markSaved(report.state, mark)
-    store.saveDraft()
+    drafts.save()
     return newer
   end
   local function extra(report, newer)
@@ -129,12 +128,13 @@ local function save(ctx, state)
         return
       end
       if err then
-        state.saving, state.error = false, err.error; ctx.savingDone()
+        state.error = err.error
+        stopSaving(ctx, state)
         ctx.render()
         return
       end
       if not report.saved then
-        state.saving = false; ctx.savingDone()
+        stopSaving(ctx, state)
         state.preview = report
         setDiagnostics(ctx, report)
         state.error = "Umbriel rejected the new config, so nothing was written. Fix the problems below."
@@ -153,6 +153,13 @@ local function save(ctx, state)
     end, { timeout = 60000, always = true })
 end
 
+-- A value of the change summary (helper text) with the locale's decimal separator.
+local function shown(value)
+  if value == nil then return "unset" end
+  local number = string.match(tostring(value), "^%-?%d+%.%d+$") and tonumber(value)
+  return number and format.number(number) or tostring(value)
+end
+
 local function reviewPage(ctx, route)
   local store, view = ctx.store, ctx.view
   route.state = route.state or { validate = ctx.options.validateDefault ~= false }
@@ -167,11 +174,6 @@ local function reviewPage(ctx, route)
     if #preview.summary > 0 then
       table.insert(content, kit.section("Changes"))
       for index, item in ipairs(preview.summary) do
-        local function shown(value)
-          if value == nil then return "unset" end
-          local number = string.match(tostring(value), "^%-?%d+%.%d+$") and tonumber(value)
-          return number and fields.number(number) or tostring(value)
-        end
         local text = item.label
         if item.old ~= nil or item.new ~= nil then
           text = text .. ":  " .. shown(item.old) .. "  →  " .. shown(item.new)
@@ -180,7 +182,7 @@ local function reviewPage(ctx, route)
           kit.badge(item.page or "", "secondary", "sp-" .. index),
           ui.label({ text = text, fontSize = 13, flexGrow = 1, maxLines = 3 }),
           item.id and ui.button({ glyph = "arrow-right", variant = "ghost", controlSize = "sm", tooltip = "Go to setting",
-                                  onClick = function() goToField(ctx, item.id) end }) or ui.spacer({ width = 1 }),
+                                  onClick = function() ctx.openField(item.id) end }) or ui.spacer({ width = 1 }),
         }))
       end
     end
@@ -206,7 +208,7 @@ local function reviewPage(ctx, route)
         table.insert(content, ui.row({ key = "diag-" .. index, gap = 6, align = "center" }, {
           ui.column({ flexGrow = 1 }, { kit.notice(text, kind, nil, "diagn-" .. index) }),
           item.field and ui.button({ text = "Go to setting", controlSize = "sm", variant = "outline",
-                                     onClick = function() goToField(ctx, item.field) end }) or ui.spacer({ width = 1 }),
+                                     onClick = function() ctx.openField(item.field) end }) or ui.spacer({ width = 1 }),
         }))
       end
     elseif store.hasConfigChanges() and validation.reason then
@@ -231,36 +233,29 @@ local function reviewPage(ctx, route)
   local rebuild = store.rebuild
   if rebuild == nil then rebuild = store.state and store.state.rebuild_default end
   table.insert(content, kit.section("Options"))
-  table.insert(content, ui.row({ key = "opt-validate", gap = 8, align = "center" }, {
-    ui.label({ text = "Check with Umbriel before writing (recommended)", fontSize = 13, flexGrow = 1 }),
+  table.insert(content, kit.optionRow("opt-validate", "Check with Umbriel before writing (recommended)",
     ui.toggle({ checked = state.validate, onChange = function(value)
       state.validate = value == "true"
       requestPreview(ctx, state)
       ctx.render()
-    end }),
-  }))
-  table.insert(content, ui.row({ key = "opt-rebuild", gap = 8, align = "center",
-    tooltip = "Regroup the file in canonical order with section banners. Settings never change; comments may move." }, {
-    ui.label({ text = "Tidy file layout", fontSize = 13, flexGrow = 1 }),
+    end })))
+  table.insert(content, kit.optionRow("opt-rebuild", "Tidy file layout",
     ui.toggle({ checked = rebuild == true, onChange = function(value)
       store.rebuild = value == "true"
       requestPreview(ctx, state)
       ctx.render()
-    end }),
-  }))
+    end }), "Regroup the file in canonical order with section banners. Settings never change; comments may move."))
   table.insert(content, ui.row({ key = "review-actions", gap = 8 }, {
     ui.button({ text = state.saving and "Saving…" or "Save", glyph = "device-floppy", variant = "primary",
                 enabled = not state.saving and not state.loading and store.pendingCount() > 0 and not blocked,
                 onClick = function() save(ctx, state) end }),
     ui.button({ text = "Keep editing", variant = "ghost", onClick = function() ctx.back() end }),
     ui.spacer({ flexGrow = 1 }),
-    ui.button({ text = view.confirm == "discard" and "Click again to discard" or "Discard all", glyph = "trash",
-                variant = view.confirm == "discard" and "destructive" or "outline", onClick = function()
-                  if view.confirm ~= "discard" then view.confirm = "discard"; ctx.render(); return end
-                  view.confirm = nil
-                  ctx.discardAll()
-                  ctx.home()
-                end }),
+    kit.confirmButton(ctx, { key = "discard", text = "Discard all", armedText = "Click again to discard",
+                             glyph = "trash" }, function()
+      ctx.discardAll()
+      ctx.home()
+    end),
   }))
   if blocked then
     table.insert(content, kit.muted("Saving is disabled until Umbriel accepts the config, or turn off the check."))
@@ -323,15 +318,16 @@ local function backupsPage(ctx, route)
   end
   for index, item in ipairs(list) do
     local key = "bk-" .. index
-    table.insert(content, ui.row({ key = key, gap = 8, align = "center", paddingH = 12, paddingV = 8, radius = 10,
-                                   fill = "surface_container" }, {
+    table.insert(content, ui.row({ key = key, gap = 8, align = "center", paddingH = 11, paddingV = 7, radius = 10,
+                                   fill = "surface_container", border = kit.CARD_BORDER,
+                                   borderWidth = kit.CARD_BORDER_WIDTH }, {
       ui.toggle({ checked = state.marked[item.path] == true, onChange = function(value)
         state.marked[item.path] = value == "true" or nil
         ctx.render()
       end }),
       ui.column({ gap = 2, flexGrow = 1 }, {
         ui.label({ text = item.time, fontSize = 13, fontWeight = "bold" }),
-        kit.muted(string.format("%.1f KB", item.size / 1024)),
+        kit.muted(kit.fileSize(item.size)),
       }),
       ui.button({ text = "Compare", controlSize = "sm", variant = "ghost", onClick = function()
         ctx.helper.call("backup-diff", { config = path, snapshot = item.path }, function(err, data)
@@ -340,11 +336,11 @@ local function backupsPage(ctx, route)
           ctx.render()
         end)
       end }),
-      ui.button({ text = view.confirm == key and "Click again to restore" or "Restore", controlSize = "sm",
-                  variant = view.confirm == key and "destructive" or "outline", onClick = function()
-        if store.hasConfigChanges() then ctx.flash("Save or discard your changes before restoring.", "warning") return end
-        if view.confirm ~= key then view.confirm = key; ctx.render(); return end
-        view.confirm = nil
+      kit.confirmButton(ctx, { key = key .. "-restore", text = "Restore", armedText = "Click again to restore",
+                               controlSize = "sm", check = function()
+                                 if not store.hasConfigChanges() then return true end
+                                 ctx.flash("Save or discard your changes before restoring.", "warning")
+                               end }, function()
         ctx.helper.call("restore", { config = path, snapshot = item.path, revision = store.state.revision },
           function(err, data)
             if err then ctx.flash(err.error, "error") return end
@@ -353,7 +349,7 @@ local function backupsPage(ctx, route)
             ctx.flash("Backup restored. The previous file was backed up first."
               .. (data.warnings and (" " .. table.concat(data.warnings, " ")) or ""), data.warnings and "warning" or "info")
           end)
-      end }),
+      end),
     }))
     if state.diff and state.diff.path == item.path then
       table.insert(content, ui.markdown({ key = key .. "-diff", text = state.diff.text ~= "" and diffBlock(state.diff.text)

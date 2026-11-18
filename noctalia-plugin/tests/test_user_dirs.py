@@ -1,46 +1,20 @@
-import json
-import os
-import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "umbriel-settings"
-HELPER = PLUGIN / "umbriel_settings.py"
+from support import HELPER, HelperTestCase
 
 
-class UserFoldersPluginTests(unittest.TestCase):
-    def test_plugin_directory_matches_manifest_id(self):
-        manifest = (PLUGIN / "plugin.toml").read_text()
-        match = re.search(r'^id\s*=\s*"([^"]+)"', manifest, re.MULTILINE)
-        self.assertIsNotNone(match)
-        self.assertEqual(match.group(1).split("/")[-1], PLUGIN.name)
-
+class UserFoldersPluginTests(HelperTestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.path = self.root / "config" / "user-dirs.dirs"
+        super().setUp()
+        self.path = self.root / "xdg-config" / "user-dirs.dirs"
         self.backup = self.root / "data" / "umbriel-settings" / "backups"
-        self.env = {**os.environ, "XDG_CONFIG_HOME": str(self.path.parent),
-                    "XDG_DATA_HOME": str(self.root / "data"), "PYTHONDONTWRITEBYTECODE": "1"}
 
     def call(self, command, request, success=True, env=None):
-        request_file = self.root / "request.json"
-        request_file.write_text(json.dumps(request))
-        result = subprocess.run(
-            [sys.executable, "-B", str(HELPER), command, "--request", str(request_file)],
-            env=env or self.env, text=True, capture_output=True, check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        reply = json.loads(result.stdout)
-        self.assertEqual(reply["ok"], success, reply)
-        return reply["result"] if success else reply["error"]
+        return self.expect(command, request, success, env)
 
     def helper(self, *args, success=True):
         return self.call("desktop", {}, success)["userdirs"]
@@ -59,7 +33,7 @@ class UserFoldersPluginTests(unittest.TestCase):
             "DOCUMENTS": "$HOME/Work",
             "MUSIC": "/data/My Music",
         })
-        self.assertEqual(saved["values"]["MUSIC"], "/data/My Music")
+        self.assertEqual(saved["revision"], self.helper("read")["revision"])
         self.assertEqual(
             self.path.read_text(),
             '# User folders\nXDG_DOCUMENTS_DIR="$HOME/Work"\nXDG_CUSTOM_DIR="/old"\n'
@@ -112,34 +86,19 @@ class UserFoldersPluginTests(unittest.TestCase):
         }
 
         def launch(**extra_env):
-            result = subprocess.run(
-                [sys.executable, "-B", str(HELPER), "launch-app"],
-                env={**env, **extra_env}, text=True, capture_output=True, check=False,
-            )
-            reply = json.loads(result.stdout)
-            result.returncode = 0 if reply["ok"] else 1
-            result.stderr = reply.get("error", "")
-            result.stdout = json.dumps(reply.get("result", {}))
-            return result
+            return self.reply("launch-app", env={**env, **extra_env})
 
-        result = launch()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("desktop entry not found", result.stderr)
+        reply = launch()
+        self.assertIn("desktop entry not found", reply["error"])
         desktop.parent.mkdir(parents=True)
         desktop.write_text("[Desktop Entry]\n")
-        result = launch()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("gio is not installed", result.stderr)
+        self.assertIn("gio is not installed", launch()["error"])
         gio = bin_dir / "gio"
         gio.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$LAUNCH_LOG"\nexit "${LAUNCH_EXIT:-0}"\n')
         gio.chmod(0o755)
-        result = launch()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), {})
+        self.assertEqual(launch(), {"ok": True, "result": {}})
         self.assertEqual(log.read_text().splitlines(), ["launch", str(desktop)])
-        result = launch(LAUNCH_EXIT="9")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("exit code 9", result.stderr)
+        self.assertIn("exit code 9", launch(LAUNCH_EXIT="9")["error"])
 
     @unittest.skipUnless(shutil.which("gio"), "gio is required for the launcher integration test")
     def test_standalone_launcher_detaches_app_output(self):

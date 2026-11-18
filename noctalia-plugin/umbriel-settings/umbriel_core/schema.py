@@ -6,39 +6,32 @@ import re
 import shutil
 import subprocess
 
-from .fields import (
-    EFFECT_POOL_GROUPS,
-    EFFECT_PRESET_GROUPS,
-    INPUT_DEVICE,
-    LAYER_RULE,
-    OUTPUT_GROUPS,
-    SCRATCHPAD,
-    SECURITY_RULE,
-    TABS,
-    WINDOW_RULE_GROUPS,
-    WORKSPACE_RULE_GROUPS,
-)
+from .fields import ENTRY_EDITORS, TABS, schema_prefix
+
+
+def run_umbriel_json(args, timeout):
+    """Run `umbriel <args>` and parse its JSON output.
+
+    Raises FileNotFoundError (no umbriel on PATH), subprocess.TimeoutExpired, RuntimeError (non-zero exit)
+    or ValueError (invalid JSON).
+    """
+    executable = shutil.which("umbriel")
+    if not executable:
+        raise FileNotFoundError("Umbriel CLI was not found on PATH.")
+    command = "umbriel " + " ".join(args)
+    result = subprocess.run([executable, *args], capture_output=True, text=True, timeout=timeout, check=False)
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
+        raise RuntimeError(f"`{command}` failed: {detail}")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"`{command}` returned invalid JSON: {error}") from error
 
 
 def load_umbriel_schema(timeout=5):
     """Load option metadata from the installed Umbriel CLI."""
-    executable = shutil.which("umbriel")
-    if not executable:
-        raise FileNotFoundError("Umbriel CLI was not found on PATH.")
-    result = subprocess.run(
-        [executable, "config", "schema", "--json"],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-    if result.returncode:
-        detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
-        raise RuntimeError(f"`umbriel config schema --json` failed: {detail}")
-    try:
-        schema = json.loads(result.stdout)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"`umbriel config schema --json` returned invalid JSON: {error}") from error
+    schema = run_umbriel_json(["config", "schema", "--json"], timeout)
     if not isinstance(schema, dict) or not isinstance(schema.get("options"), list):
         raise ValueError("`umbriel config schema --json` returned an unexpected schema document.")
     return schema
@@ -71,18 +64,8 @@ def schema_field_catalog():
 
     for groups in TABS.values():
         add_fields(groups)
-    for prefix, groups in (
-        ("output.<name>", OUTPUT_GROUPS),
-        ("window_rule[]", WINDOW_RULE_GROUPS),
-        ("layer_rule[]", [("Layer rule", LAYER_RULE)]),
-        ("workspace[]", WORKSPACE_RULE_GROUPS),
-        ("security_context_rule[]", [("Security rule", SECURITY_RULE)]),
-        ("scratchpad[]", [("Scratchpad", SCRATCHPAD)]),
-        ("input.device[]", [("Device override", INPUT_DEVICE)]),
-        ("effects.preset.<name>", EFFECT_PRESET_GROUPS),
-        ("effects.pool.<name>", EFFECT_POOL_GROUPS),
-    ):
-        add_fields(groups, prefix)
+    for editor_id, spec in ENTRY_EDITORS.items():
+        add_fields(spec[4], schema_prefix(editor_id))
 
     catalog.extend([
         ("keybinds.<name>", "custom"),
@@ -96,7 +79,7 @@ def schema_field_catalog():
 
 def _segment(part):
     """A path segment as a literal string, or a compiled pattern when it holds a wildcard (`<name>` → `*`)."""
-    normalized = part.replace("[]", "__array__").replace("<name>", "*")
+    normalized = _value(part)
     if any(char in normalized for char in "*?["):
         return re.compile(fnmatch.translate(normalized)).match
     return normalized

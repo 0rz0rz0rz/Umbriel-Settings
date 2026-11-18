@@ -3,6 +3,8 @@
 import configparser
 import os
 
+from .paths import xdg_config_home
+
 TITLE_BAR_KEYS = {
     ("colors", "title_bar", "background"): "activeBackground",
     ("colors", "title_bar", "background_unfocused"): "inactiveBackground",
@@ -17,8 +19,7 @@ BACKGROUND_KEYS = {
 
 
 def qt6ct_config_path():
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "qt6ct", "qt6ct.conf")
+    return os.path.join(xdg_config_home(), "qt6ct", "qt6ct.conf")
 
 
 def parse_rgb(value):
@@ -64,16 +65,11 @@ def read_title_bar_rgb(path):
     def read_color(section, key):
         if not parser.has_option(section, key):
             return None
-        parts = parser.get(section, key).split(",")
-        if len(parts) != 3:
+        value = parser.get(section, key)
+        rgb = parse_rgb(value) if value.count(",") == 2 else None  # title bar colors take no alpha part
+        if rgb is None:
             raise ValueError(f"Invalid [{section}] {key} color")
-        try:
-            components = [int(part.strip()) for part in parts]
-        except ValueError as error:
-            raise ValueError(f"Invalid [{section}] {key} color") from error
-        if any(component < 0 or component > 255 for component in components):
-            raise ValueError(f"Invalid [{section}] {key} color")
-        return tuple(components)
+        return rgb
 
     colors, backgrounds, errors = {}, {}, {}
     for kind, entries, output in (
@@ -94,16 +90,23 @@ def read_title_bar_rgb(path):
     return colors, backgrounds, errors
 
 
-def qt6ct_scheme_path(config_path=None):
-    """Return the KDE color scheme qt6ct uses; raise ValueError when there is none."""
+def qt6ct_scheme_path(config_path=None, require_custom=True):
+    """Return the KDE color scheme qt6ct uses; raise ValueError when there is none.
+
+    With `require_custom`, a scheme only counts while qt6ct's custom palette is switched on (what qt6ct applies).
+    """
     config_path = config_path or qt6ct_config_path()
     if not os.path.isfile(config_path):
         raise ValueError("qt6ct configuration not found")
     parser = configparser.RawConfigParser(interpolation=None, strict=False)
     parser.optionxform = str
-    with open(config_path, encoding="utf-8") as handle:
-        parser.read_file(handle)
-    if parser.get("Appearance", "custom_palette", fallback="false").strip().lower() != "true":
+    try:
+        with open(config_path, encoding="utf-8") as handle:
+            parser.read_file(handle)
+    except (OSError, UnicodeError, configparser.Error) as error:
+        raise ValueError(f"qt6ct configuration is not readable: {error}") from error
+    custom = parser.get("Appearance", "custom_palette", fallback="false").strip().lower() == "true"
+    if require_custom and not custom:
         raise ValueError("qt6ct custom palette is not enabled")
     scheme = parser.get("Appearance", "color_scheme_path", fallback="").strip().strip('"')
     if not scheme:

@@ -9,14 +9,7 @@ local flushReads, find, texts = H.flushReads, H.find, H.texts
 
 -- Clicks the first clickable node whose text contains `pattern` (plain); returns whether one was found.
 local function click(pattern)
-  local function walk(node, visit)
-    if visit(node) then return node end
-    for _, child in ipairs(node.children or {}) do
-      local found = walk(child, visit)
-      if found then return found end
-    end
-  end
-  local node = walk(H.tree(), function(n)
+  local node = H.walk(H.tree(), function(n)
     return n.props.onClick and texts(n):find(pattern, 1, true) ~= nil
   end)
   if node then node.props.onClick(); flushReads() end
@@ -25,7 +18,7 @@ end
 
 local function search(text)
   entry.onKey("ctrl+f", true)
-  find("input", function(n) return tostring(n.props.key):match("^search:") end).props.onChange(text)
+  H.input("^search:").props.onChange(text)
   flushReads()
 end
 

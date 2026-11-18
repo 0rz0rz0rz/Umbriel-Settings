@@ -1,19 +1,18 @@
 """Read and update XDG user folder paths (user-dirs.dirs)."""
 
 import hashlib
-import os
 import re
 from pathlib import Path
 
 from .backups import snapshot_file
-from .paths import atomic_write
+from .paths import atomic_write, xdg_config_home
 
 ENTRY = re.compile(r'^\s*XDG_([A-Z]+)_DIR\s*=\s*"(.*)"\s*$')
 KEY = re.compile(r"^[A-Z]+$")
 
 
 def config_path():
-    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "user-dirs.dirs"
+    return Path(xdg_config_home()) / "user-dirs.dirs"
 
 
 def read_document(path):
@@ -79,4 +78,4 @@ def save(path, backup_dir, expected_revision, changes):
     if revision != "missing":
         snapshot_file(str(path), str(backup_dir))
     atomic_write(path, updated)
-    return snapshot(updated.decode("utf-8"), hashlib.sha256(updated).hexdigest())
+    return {"revision": hashlib.sha256(updated).hexdigest()}

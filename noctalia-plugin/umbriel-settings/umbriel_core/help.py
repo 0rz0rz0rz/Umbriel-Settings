@@ -1,7 +1,6 @@
 """Help text and contextual descriptions for settings pages."""
 
 import re
-import textwrap
 
 FIELD_HELP = {
     "Enabled": "Turn this feature on or off.",
@@ -145,6 +144,17 @@ FIELD_HELP = {
 }
 
 
+# Fallback help by field kind for settings without FIELD_HELP; other kinds get "Set the {label} used by {group}."
+GENERIC_HELP = {
+    "color": "Set the {label} color used by {group}.",
+    "raw": "Set {label} for {group} using a TOML value.",
+    "choice": "Choose the {label} used by {group}.",
+    "combo": "Choose the {label} used by {group}.",
+    "command_list": "List the commands used by {group}.",
+    "list": "List the values used by {group}.",
+}
+
+
 def setting_help_text(field, group):
     """Return the unwrapped description and usage notes for a setting."""
     if field.path == ("input", "cursor", "theme"):
@@ -158,27 +168,10 @@ def setting_help_text(field, group):
         if field.label.startswith("Match "):
             description = "Require this condition for the rule to match."
         elif field.kind == "bool":
-            description = (
-                f"Choose whether {label[5:].lower()} is required for this rule to match."
-                if label.startswith("Match ")
-                else f"Choose whether {label[:1].lower() + label[1:]} is enabled for {group.lower()}."
-            )
-        elif field.kind == "color":
-            description = f"Set the {label.lower()} color used by {group.lower()}."
-        elif field.kind in ("int", "float"):
-            description = f"Set the {label.lower()} used by {group.lower()}."
-        elif field.kind == "raw":
-            description = f"Set {label.lower()} for {group.lower()} using a TOML value."
-        elif field.kind == "table":
-            description = f"Set the {label.lower()} used by {group.lower()}."
-        elif field.kind in ("choice", "combo"):
-            description = f"Choose the {label.lower()} used by {group.lower()}."
-        elif field.kind == "command_list":
-            description = f"List the commands used by {group.lower()}."
-        elif field.kind == "list":
-            description = f"List the values used by {group.lower()}."
+            description = f"Choose whether {label[:1].lower() + label[1:]} is enabled for {group.lower()}."
         else:
-            description = f"Set the {label.lower()} used by {group.lower()}."
+            template = GENERIC_HELP.get(field.kind, "Set the {label} used by {group}.")
+            description = template.format(label=label.lower(), group=group.lower())
     if field.kind in ("choice", "combo") and isinstance(field.extra, (list, tuple)):
         description += " Options: " + ", ".join(str(option) for option in field.extra) + "."
         if field.kind == "combo":
@@ -190,17 +183,6 @@ def setting_help_text(field, group):
     else:
         description += " This value is written directly to the config."
     return description
-
-
-def setting_description(field, category, group):
-    """Return contextual help with usage notes for a setting, wrapped for tooltips."""
-    parts = (
-        setting_help_text(field, group),
-        f"Applies to: {category} > {group}",
-        f"Config key: {'.'.join(field.path)}",
-    )
-    return "\n".join(textwrap.fill(part, width=42) for part in parts)
-
 
 
 GROUP_HELP = {

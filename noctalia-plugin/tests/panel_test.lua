@@ -13,7 +13,7 @@ assert(hasText("Umbriel Settings"), "home header")
 assert(hasText("Appearance") and hasText("Window rules") and hasText("Keybinds"), "page cards")
 
 -- the clear button empties the search box (a new, empty input) and is disabled while there is nothing to clear
-local function searchInput() return find("input", function(n) return tostring(n.props.key):match("^search:") end) end
+local function searchInput() return H.input("^search:") end
 local function clearButton() return find("button", function(n) return n.props.key == "search-clear" end) end
 assert(clearButton().props.enabled == false, "nothing to clear yet")
 local typed = searchInput()
@@ -25,7 +25,7 @@ assert(searchInput().props.key ~= typed.props.key and (searchInput().props.value
 assert(not hasText("Mod key") and clearButton().props.enabled == false, "results gone: " .. screen())
 
 -- search finds a setting by its help text and opens the right group
-local search = find("input", function(n) return tostring(n.props.key):match("^search:") end)
+local search = H.input("^search:")
 search.props.onChange("modifier")
 flushReads()
 assert(hasText("Mod key"), "search shows Mod key: " .. screen())
@@ -38,7 +38,7 @@ select.props.onChange(tostring(alt))
 assert(hasText("1 unsaved change"), "save bar counts the edit")
 assert(hasText("unsaved"), "row shows the unsaved badge")
 assert(hasText("Default Super"), "the status line names the default: " .. screen())
-local function byKey(key) return H.walk(H.tree(), function(n) return n.props.key == key end) end
+local byKey = H.byKey
 local function overrideBadge() return byKey("f:general.mod_key:override") end
 assert(overrideBadge() and hasText("Override"), "an overridden key shows the Override badge")
 
@@ -90,7 +90,7 @@ assert(hasText("Saved."), "flash after save: " .. screen())
 
 -- rejected configs are not written and the diagnostic links to the setting
 entry.onKey("ctrl+f", true)
-search = find("input", function(n) return tostring(n.props.key):match("^search:") end)
+search = H.input("^search:")
 search.props.onChange("")
 clickText("General")
 select = find("select", function(n) return n.props.key == "f:general.mod_key:select" end)
@@ -118,6 +118,19 @@ local store = loaded[pluginDir .. "/lib/store.luau"]
 local ops = {}
 for _, op in ipairs(store.entryOps) do table.insert(ops, op.op) end
 assert(table.concat(ops, ",") == "add,label", "typing coalesces label edits: " .. table.concat(ops, ","))
+
+-- an armed "Click again to delete" is disarmed by leaving the page (and by Ctrl+F)
+local function deleteButton() return find("button", function(n) return tostring(n.props.key):match("^delete%-window_rule%-") end) end
+deleteButton().props.onClick()
+assert(hasText("Click again to delete"), "first click arms the delete: " .. screen())
+entry.onKey("alt+Left", true)
+clickText("2. Browsers")
+assert(not hasText("Click again to delete"), "navigation disarms it: " .. screen())
+deleteButton().props.onClick()
+entry.onKey("ctrl+f", true)
+clickText("Window rules")
+clickText("2. Browsers")
+assert(not hasText("Click again to delete"), "Ctrl+F disarms it: " .. screen())
 
 -- keybinds: change a shortcut with the modifier chips
 entry.onKey("ctrl+f", true)
@@ -203,10 +216,7 @@ replies["titlebar-follow"] = function(request)
 end
 
 -- smoke: every page and every group renders (covers every field kind's row)
-local function goHome()
-  entry.onKey("ctrl+f", true)
-  find("input", function(n) return tostring(n.props.key):match("^search:") end).props.onChange("")
-end
+local goHome = H.goHome
 local names = {}
 for name in pairs(store.meta.pages) do table.insert(names, name) end
 table.sort(names)
@@ -429,6 +439,15 @@ assert(widthBox().props.value == "7" and store.value("appearance.border_width") 
 H.clock = H.clock + 150
 drag.props.onDragEnd()
 assert(store.value("appearance.border_width") == 7, "stored on release")
+-- typing into the box moves the slider; Noctalia reports that move, which must not replace the box being typed in
+local box = widthBox()
+box.props.onChange("8")
+flushReads()
+assert(widthBox().props.key == box.props.key, "the box keeps its key (and focus) while typing")
+assert(store.value("appearance.border_width") == 8, "typed value stored")
+box.props.onChange("12")
+flushReads()
+assert(widthBox().props.key == box.props.key and store.value("appearance.border_width") == 12, "typing goes on")
 store.setField("appearance.border_width", width)
 
 -- Customized settings lists values that differ from Umbriel's defaults and opens them

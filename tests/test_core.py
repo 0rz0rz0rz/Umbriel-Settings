@@ -1,5 +1,7 @@
 import collections
+import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -11,19 +13,19 @@ import unittest.mock
 
 import tomlkit
 
-from umbriel_core import entries, entry_ops, kde, keybinds, paths, schema
+from umbriel_core import backups, entry_ops, kde, keybinds, legacy, paths, schema
 from umbriel_core.layout import BANNER_RE, rebuild_config
 from umbriel_core.tomlops import MISSING, getp
 
-PYTHON_DIR = os.path.dirname(os.path.dirname(os.path.abspath(entries.__file__)))
+PYTHON_DIR = os.path.dirname(os.path.dirname(os.path.abspath(entry_ops.__file__)))
 ROOT = os.path.dirname(PYTHON_DIR)
 CORE_MODULES = sorted(
     name[:-3] for name in os.listdir(os.path.join(PYTHON_DIR, "umbriel_core"))
     if name.endswith(".py") and name != "__init__.py"
 )
 # Modules the desktop-only plugin helpers import; they must work without tomlkit.
-TOMLKIT_FREE = {"actions", "backups", "cursor_themes", "fields", "help", "kde", "launch", "mimeapps", "paths",
-                "schema", "xdg_dirs"}
+TOMLKIT_FREE = {"actions", "backups", "cursor_themes", "fields", "help", "kde", "launch", "legacy", "mimeapps",
+                "paths", "schema", "xdg_dirs"}
 
 
 def import_blocked(modules, blocked):
@@ -50,17 +52,8 @@ class CoreIsolationTests(unittest.TestCase):
         result = import_blocked(sorted(TOMLKIT_FREE), ["PySide6", "tomlkit"])
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_plugin_copy_matches_source(self):
-        result = subprocess.run(
-            [sys.executable, "-B", os.path.join(ROOT, "tools", "sync_plugin_core.py"), "--check"],
-            capture_output=True, text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr + "\nRun tools/sync_plugin_core.py.")
-
     def test_app_and_plugin_share_one_version(self):
         """App `<Umbriel version>-<NNN>`; plugin `<major>.<minor>.<NNN>` (Noctalia needs plain semver)."""
-        import re
-        import tomllib
         with open(os.path.join(PYTHON_DIR, "umbriel_settings", "__init__.py"), encoding="utf-8") as handle:
             app_version = re.search(r'^__version__ = "([^"]+)"', handle.read(), re.M).group(1)
         with open(os.path.join(ROOT, "noctalia-plugin", "umbriel-settings", "plugin.toml"), "rb") as handle:
@@ -71,7 +64,6 @@ class CoreIsolationTests(unittest.TestCase):
 
     def test_appimage_lock_matches_the_requirements(self):
         """The build installs only hashed wheels from appimage/requirements.lock; a version bump needs new pins."""
-        import re
         with open(os.path.join(PYTHON_DIR, "requirements.txt"), encoding="utf-8") as handle:
             wanted = {line.split("#")[0].strip().lower().replace("_", "-") for line in handle} - {""}
         with open(os.path.join(ROOT, "appimage", "requirements.lock"), encoding="utf-8") as handle:
@@ -92,12 +84,12 @@ class CoreEntryTests(unittest.TestCase):
             index = 3
         """))
         first, second = doc["window_rule"]
-        self.assertEqual(entries.entry_label_info(first, 0), (
+        self.assertEqual(entry_ops.entry_label_info(first, 0), (
             "1. firefox (app id)", 'match.app_id = "^org.mozilla.firefox$"', True))
-        self.assertEqual(entries.entry_label_info(first, 0, "Browser")[0], "1. Browser")
-        self.assertEqual(entries.entry_label_info(second, 1)[:3:2], ("2. Chat", False))
-        self.assertEqual(entries.entry_label_info(doc["workspace"][0], 0)[0], "1. Workspace 3")
-        self.assertEqual(entries.entry_label_info(tomlkit.table(), 4)[0], "5. (matches everything)")
+        self.assertEqual(entry_ops.entry_label_info(first, 0, "Browser")[0], "1. Browser")
+        self.assertEqual(entry_ops.entry_label_info(second, 1)[:3:2], ("2. Chat", False))
+        self.assertEqual(entry_ops.entry_label_info(doc["workspace"][0], 0)[0], "1. Workspace 3")
+        self.assertEqual(entry_ops.entry_label_info(tomlkit.table(), 4)[0], "5. (matches everything)")
 
 
     def test_wrongly_shaped_entry_sections_raise_readable_errors(self):
@@ -144,15 +136,28 @@ class CoreKeybindTests(unittest.TestCase):
             keybinds.check_action("super+x", "workspace-switch <n>")
         keybinds.check_action("super+x", "spawn kitty")
 
-    def test_locks_migrate_from_next_to_config(self):
+    def test_old_sidecars_migrate_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = os.path.join(tmp, "config.toml")
             config_dir = paths.config_gui_data_dir(config, os.path.join(tmp, "data"))
             with open(os.path.join(tmp, keybinds.LOCK_FILE_NAME), "w", encoding="utf-8") as f:
                 f.write('["super+q"]')
-            self.assertEqual(keybinds.load_locked(config, config_dir), {"super+q"})
+            with open(config + ".gui-labels.json", "w", encoding="utf-8") as f:
+                f.write('{"window_rule": ["A"]}')
+            os.mkdir(config + ".backups")
+            with open(os.path.join(config + ".backups", "config.toml.bak"), "w", encoding="utf-8") as f:
+                f.write("old")
+            legacy.migrate_config(config, config_dir)
+            self.assertEqual(keybinds.load_locked(config_dir), {"super+q"})
+            self.assertEqual(paths.load_all_entry_labels(config_dir), {"window_rule": ["A"]})
+            self.assertFalse(os.path.exists(config + ".backups"))
+            self.assertEqual(len(backups.list_backup_snapshots(backups.backup_dir(config_dir), config)), 1)
+            with open(os.path.join(tmp, keybinds.LOCK_FILE_NAME), "w", encoding="utf-8") as f:
+                f.write('["super+w"]')
+            legacy.migrate_config(config, config_dir)
+            self.assertTrue(os.path.exists(os.path.join(tmp, keybinds.LOCK_FILE_NAME)), "the marker stops a re-run")
             keybinds.save_locked({"b", "a"}, config_dir)
-            self.assertEqual(keybinds.load_locked(config, config_dir), {"a", "b"})
+            self.assertEqual(keybinds.load_locked(config_dir), {"a", "b"})
 
 
 class CoreLayoutTests(unittest.TestCase):
@@ -196,14 +201,13 @@ class CoreLayoutTests(unittest.TestCase):
 
 
 class CorePathTests(unittest.TestCase):
-    def test_entry_labels_round_trip(self):
+    def test_entry_labels_ignore_malformed_sidecar_data(self):
         with tempfile.TemporaryDirectory() as tmp:
-            config = os.path.join(tmp, "config.toml")
             config_dir = os.path.join(tmp, "gui")
-            paths.save_entry_labels(config, "window_rule", ["A", ""], config_dir)
-            paths.save_entry_labels(config, "scratchpad", ["", ""], config_dir)
-            self.assertEqual(paths.load_all_entry_labels(config, config_dir), {"window_rule": ["A", ""]})
-            self.assertEqual(paths.load_entry_labels(config, "layer_rule", config_dir), [])
+            os.makedirs(config_dir)
+            with open(os.path.join(config_dir, "gui-labels.json"), "w", encoding="utf-8") as handle:
+                json.dump({"window_rule": ["A", 3], "scratchpad": "junk"}, handle)
+            self.assertEqual(paths.load_all_entry_labels(config_dir), {"window_rule": ["A", ""]})
 
     def test_schema_option_lookup_uses_wildcards(self):
         options = schema.schema_options_by_path({"options": [

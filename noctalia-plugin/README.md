@@ -12,7 +12,7 @@ running it from a checkout and developing it.
 
 ```sh
 noctalia plugins lint /path/to/Umbriel-Settings/noctalia-plugin/umbriel-settings
-noctalia msg plugins source add umbriel-dev path /path/to/Umbriel-Settings/noctalia-plugin
+noctalia msg plugins source add umbriel-settings path /path/to/Umbriel-Settings/noctalia-plugin
 noctalia msg plugins enable 0rz0rz0rz/umbriel-settings
 noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
 ```
@@ -47,4 +47,5 @@ python tools/check.py plugin host   # plugin tests, Lua/Luau parse, plugin lint,
 
 `test_panel.py` drives `panel.luau`, `app.luau` and `bar.luau` under plain `lua` with a mocked Noctalia API
 (`tests/harness.lua`) and real helper output (`panel_test.lua`, `state_test.lua`, `app_test.lua`, `bar_test.lua`,
-`budget_test.lua`); live rendering and the real CPU budget need a running Noctalia.
+`budget_test.lua`; shared Python fixtures in `tests/support.py`); live rendering and the real CPU budget need a
+running Noctalia. One test file: `python tools/check.py test_panel`.

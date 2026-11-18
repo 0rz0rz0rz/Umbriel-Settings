@@ -18,7 +18,7 @@ Versions are raised only here, as part of building and releasing a new AppImage;
 
 This single value is used by `--version`, the AppImage file name; `plugin.toml` follows it as `<major>.<minor>.<NNN>` (`0.1.0-004` → `0.1.4`; `tests/test_core.py` checks it). Never raise the `0.1.0` part on your own.
 
-The build bundles `python/umbriel_settings`, `python/umbriel_core` (one `-x` with two paths) and the shared Luau UI from the plugin (`app.luau`, `lib/`, `ui/`, `pages/`, `umbriel_settings.py`) as `umbriel_settings/ui_shared/`. It installs `python/requirements.txt` (PySide6, tomlkit, lupa) and keeps QtWebEngine, QtWebChannel and their Qt libraries (`libexec/QtWebEngineProcess`, `resources/`, `translations/qtwebengine_locales`). The first build after the web-view switch is unverified: check that `umbriel_core/` sits next to `umbriel_settings/`, that `ui_shared/app.luau` exists, and that the app window opens and shows pages (WebEngine can fail at runtime when a pruned library is missing; run it from a terminal and read the errors). The script prunes unused Qt libraries, plugins and Python stdlib/tooling, then fails if a remaining Qt library still needs a pruned `libQt6*` (uses `readelf`); extend the prune lists, not the guard.
+The build bundles `python/umbriel_settings`, `python/umbriel_core` (one `-x` with two paths) and the shared Luau UI from the plugin (`app.luau`, `lib/`, `ui/`, `pages/`, `umbriel_settings.py`) as `umbriel_settings/ui_shared/`. It installs `python/requirements.txt` (PySide6, tomlkit, lupa) and keeps QtWebEngine, QtWebChannel and their Qt libraries (`libexec/QtWebEngineProcess`, `resources/`, `translations/qtwebengine_locales`). If the built app fails at runtime, check that `umbriel_core/` sits next to `umbriel_settings/` and `ui_shared/app.luau` exists, and run it from a terminal (WebEngine fails when a pruned library is missing). The script prunes unused Qt libraries, plugins and Python stdlib/tooling, then fails if a remaining Qt library still needs a pruned `libQt6*` (uses `readelf`); extend the prune lists, not the guard.
 
 ## Pinned downloads
 
@@ -27,7 +27,7 @@ The build bundles `python/umbriel_settings`, `python/umbriel_core` (one `-x` wit
 - After changing `python/requirements.txt` or a version in that tool: `python tools/update_appimage_pins.py` (`--check` compares). `tests/test_core.py` fails when the lock is missing a requirement.
 - "Checksum mismatch" or a 404 for the base image: the python-appimage `python3.12` release replaces its files with each Python patch release. Rerun the tool, look at what changed, and rebuild.
 - Testing the downloads without building: `appimage/fetch-pinned.sh <scratch dir>`.
-- python-appimage reads the Python version from the base image's file name, so `fetch-pinned.sh` keeps the release name under `base/`; a renamed file fails with "Invalide base image". First pinned build: 0.1.0-006.
+- python-appimage reads the Python version from the base image's file name, so `fetch-pinned.sh` keeps the release name under `base/`; a renamed file fails with "Invalide base image".
 
 ## Steps
 

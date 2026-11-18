@@ -4,6 +4,8 @@ import configparser
 import os
 import warnings
 
+from .paths import xdg_data_dirs, xdg_data_home
+
 
 def installed_cursor_themes():
     """Find cursor themes and inheritance-only aliases in cursor search paths."""
@@ -11,12 +13,10 @@ def installed_cursor_themes():
     if cursor_path is not None:
         roots = cursor_path.split(os.pathsep)
     else:
-        data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-        data_dirs = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
         roots = [
             os.path.expanduser("~/.icons"),
-            os.path.join(data_home, "icons"),
-            *(os.path.join(directory, "icons") for directory in data_dirs.split(os.pathsep) if directory),
+            os.path.join(xdg_data_home(), "icons"),
+            *(os.path.join(directory, "icons") for directory in xdg_data_dirs()),
             "/usr/share/pixmaps",
         ]
     themes = set()

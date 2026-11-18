@@ -1,6 +1,6 @@
 ---
 name: verify-changes
-description: "Use after editing Python or Luau code in this repo to cheaply confirm nothing broke: compact test runs picked from the changed files, schema check and offscreen renders, without building the AppImage."
+description: "Use after editing Python or Luau code in this repo (core, app host, Noctalia plugin, shared Luau UI) to cheaply confirm nothing broke: compact test runs picked from the changed files, Luau syntax and plugin lint, schema check and offscreen renders, without building the AppImage or touching the live session."
 ---
 
 # Verify changes cheaply
@@ -10,20 +10,15 @@ From the repository root:
 ```sh
 python tools/check.py            # picks checks from `git status`, prints one line per check
 python tools/check.py host       # or name them: core plugin host schema lint all
-python tools/check.py test_core  # or single test files
+python tools/check.py test_core  # or single test files (tests/ or noctalia-plugin/tests/)
 ```
 
-| Changed | Checks |
-| --- | --- |
-| `python/umbriel_core/` | `core plugin host`; `check.py` runs the sync drift check, so run `tools/sync_plugin_core.py` first |
-| Shared Luau UI or `umbriel_settings.py` | `plugin host` |
-| App host (`app.py`, `app_window.py`, `appicon.py`, `host/`, `web/`) | `host` (includes the web render test) |
-| Fields or keybind actions | add `schema` (must report 0 unsupported, 0 stale) |
-| Any Python file, `pyproject.toml`, AppImage shell scripts | `lint` (`ruff check` + `shellcheck`; each skipped when missing) |
+Which checks cover which change, and what each runs: CLAUDE.md "Commands" and "Verify". Also:
 
+- After editing `python/umbriel_core/` run `tools/sync_plugin_core.py` first (`core` checks the copy).
+- Python files, `pyproject.toml` and the AppImage shell scripts also need `lint` (`ruff check` + `shellcheck`). The app host (`app.py`, `app_window.py`, `appicon.py`, `host/`, `host/web/`) needs `host`, which includes the web render test.
+- Shared Luau changes need `plugin` and `host`: `luac -p` parses as Lua 5.4 (the app), `luau-compile --null` as Luau (Noctalia), `noctalia plugins lint` checks the manifest and entry paths. These check syntax, not the Noctalia runtime.
 - Failing checks print only their failure blocks. Rerun just that file, with `-v` if the trimmed output isn't enough.
 - Visual change: render offscreen and Read the PNGs (`edit-controls`: `render_app.py`).
-- `plugin` includes the CPU budget check (`budget_test.lua`: every page on a large config, each callback ≤ 25 ms under plain Lua, mock JSON excluded).
-- Add a test for behavior changes and check that it fails without the fix.
-- Never build the AppImage or launch the app to verify; report skipped checks (no `lua`, `luac`, `luau-compile`, `noctalia`, `umbriel`, `ruff`, `shellcheck`).
-- Afterwards, update every README, skill, rule and `CLAUDE.md` the change made stale (module tables, check names, file locations, behavior).
+- Optional deeper look at Luau: `luau-analyze <files>` finds real bugs (`MisleadingAndOr`, `LocalUnused`); ignore its TypeErrors about the Noctalia globals (`noctalia`, `ui`, `panel`) and `FunctionUnused` on entry globals.
+- Never install dependencies, build the AppImage, launch the app, or touch the live shell or user config to verify. Report skipped checks (no `lua`, `luac`, `luau-compile`, `noctalia`, `umbriel`, `ruff`, `shellcheck`, `gio`) and say when live rendering was not tested.

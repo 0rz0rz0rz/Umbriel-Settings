@@ -1,8 +1,12 @@
 -- Shared by both frontends: navigation stack, loading, notices, the save bar and key handling.
 -- shell.create(layout, options) returns ctx and the handlers an entry script exposes as globals.
--- layout(ctx, parts) builds the outer tree from parts = { header, notices, content, saveBar, route }.
+-- layout(ctx, parts) builds the outer tree from parts = { page, route }: page = header, notices, content and
+-- save bar in order.
 local helper = require("./helper.luau")
 local store = require("./store.luau")
+local drafts = require("./drafts.luau")
+local search = require("./search.luau")
+local fields = require("../ui/fields.luau")
 local kit = require("../ui/kit.luau")
 local home = require("../pages/home.luau")
 local form = require("../pages/form.luau")
@@ -33,6 +37,14 @@ function M.create(layout, options)
     epoch = epoch + 1
     local base = epoch * 1000000
     view.gen = setmetatable({}, { __index = function() return base end })
+  end
+
+  -- Inputs are uncontrolled: a page keys an input with ctx.gen(key) and calls ctx.bump(key) to replace its text.
+  function ctx.gen(key) return tostring(view.gen[key] or 0) end
+  function ctx.bump(key) view.gen[key] = (view.gen[key] or 0) + 1 end
+  function ctx.clearSearch()
+    view.query = ""
+    ctx.bump("search")
   end
 
   function ctx.discardAll()
@@ -111,8 +123,12 @@ function M.create(layout, options)
                     tooltip = "Ctrl+S", enabled = dirty, onClick = function() ctx.go({ name = "review" }) end }),
       })
     end
-    panel.render(layout(ctx, { header = parts.header or {}, notices = noticeNodes, content = content,
-                               saveBar = saveBar, route = current }))
+    local page = {}
+    for _, child in ipairs(parts.header or {}) do table.insert(page, child) end
+    for _, child in ipairs(noticeNodes) do table.insert(page, child) end
+    table.insert(page, content)
+    if saveBar then table.insert(page, saveBar) end
+    panel.render(layout(ctx, { page = page, route = current }))
     noctalia.state.set("umbriel.pending", pending)
     noctalia.state.set("umbriel.config", store.state and store.state.path or "")
   end
@@ -130,28 +146,31 @@ function M.create(layout, options)
   -- Coalesce bursts (slider drags) into one render per frame.
   function ctx.renderSoon() panel.setNeedsFrameTick(true) end
 
-  function ctx.go(next)
+  -- Every navigation disarms "click again" confirmations; only replace keeps the notices.
+  local function leave(keepNotices)
     view.confirmReset = nil
+    view.confirm = nil
+    if not keepNotices then notices = {} end
+  end
+  function ctx.go(next)
+    leave()
     table.insert(stack, next)
-    notices = {}
     ctx.render()
   end
   function ctx.replace(next)
-    view.confirmReset = nil
+    leave(true)
     stack[#stack] = next
     ctx.render()
   end
   function ctx.canGoBack() return #stack > 1 end
   function ctx.back()
-    view.confirmReset = nil
+    leave()
     if #stack > 1 then table.remove(stack) end
-    notices = {}
     ctx.render()
   end
   function ctx.home()
-    view.confirmReset = nil
+    leave()
     stack = { { name = "home" } }
-    notices = {}
     ctx.render()
   end
 
@@ -182,11 +201,22 @@ function M.create(layout, options)
   -- pages as the root of the stack, so they have no back button.
   function ctx.openPage(name, extra)
     if ctx.isApp then
+      leave()
       stack = { pageRoute(name, extra) }
-      notices = {}
       ctx.render()
     else
       ctx.go(pageRoute(name, extra))
+    end
+  end
+
+  -- Opens the page (and group) holding a setting and scrolls to its row; `where` = search.locate's answer.
+  function ctx.openField(fid, where)
+    where = where or search.locate(store.meta, fid)
+    if not where then return end
+    if where.editor then
+      ctx.openPage(where.page)
+    else
+      ctx.openPage(where.page, { group = where.group, reveal = fields.rowKey(fid) })
     end
   end
 
@@ -223,10 +253,10 @@ function M.create(layout, options)
       if note then table.insert(notices, { text = note, kind = "warning" }) end
       if not draftChecked then
         draftChecked = true
-        local restored = store.restoreDraft()
+        local restored = drafts.restore()
         if restored then table.insert(notices, { text = restored, kind = "info" }) end
       end
-      local parked = store.restoreParked()
+      local parked = drafts.restoreParked()
       if parked then table.insert(notices, { text = parked, kind = "info" }) end
       ctx.render()
     end)
@@ -335,7 +365,7 @@ function M.create(layout, options)
   end
 
   function handlers.onClose()
-    store.saveDraft()
+    drafts.save()
     helper.generation = helper.generation + 1
   end
 
@@ -347,8 +377,9 @@ function M.create(layout, options)
   function handlers.onKey(chord, pressed)
     if not pressed or not store.meta then return end
     if chord == "ctrl+f" then
+      leave()
       stack = { { name = "home" } }
-      view.gen.search = (view.gen.search or 0) + 1
+      ctx.bump("search")
       ctx.render()
     elseif chord == "ctrl+s" then
       if route().name ~= "review" and store.pendingCount() > 0 then ctx.go({ name = "review" }) end
@@ -358,8 +389,7 @@ function M.create(layout, options)
       ctx.undo()
     elseif chord == "Escape" then  -- app only: in Noctalia, Escape always closes the panel
       if (view.query or "") ~= "" then
-        view.query = ""
-        view.gen.search = (view.gen.search or 0) + 1
+        ctx.clearSearch()
         ctx.render()
       elseif ctx.canGoBack() then
         ctx.back()

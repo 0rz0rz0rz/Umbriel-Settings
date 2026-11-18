@@ -3,7 +3,7 @@
 
   python tools/check.py              # pick checks from `git status` (changed + untracked files)
   python tools/check.py core plugin  # run named checks: core, plugin (luac, luau), host, schema, lint (ruff, shellcheck), all
-  python tools/check.py test_core_values  # run single test files from tests/ by name
+  python tools/check.py test_core_values test_panel  # run single test files (tests/, noctalia-plugin/tests/) by name
   python tools/check.py -v ...       # also print the full output of passing checks
 
 Failing checks print only their failure blocks (trimmed to --lines), which keeps logs short.
@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON = ROOT / "python"
 TESTS = ROOT / "tests"
 PLUGIN = ROOT / "noctalia-plugin" / "umbriel-settings"
+PLUGIN_TESTS = ROOT / "noctalia-plugin" / "tests"
 CORE_TESTS = sorted(p.stem for p in TESTS.glob("test_core*.py"))
 HOST_TESTS = sorted(p.stem for p in TESTS.glob("test_*.py") if p.stem not in CORE_TESTS)
 ORDER = ["core", "plugin", "host", "schema", "lint"]
@@ -29,7 +30,7 @@ TIMEOUT = 900  # seconds per step
 
 def env():
     values = dict(os.environ, QT_QPA_PLATFORM="offscreen", PYTHONDONTWRITEBYTECODE="1",
-                  PYTHONPATH=os.pathsep.join([str(PYTHON), str(TESTS)]))
+                  PYTHONPATH=os.pathsep.join([str(PYTHON), str(TESTS), str(PLUGIN_TESTS)]))
     values.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
     return values
 
@@ -107,8 +108,8 @@ def checks_for_paths(paths):
                 wanted.add("schema")
         elif path.startswith("noctalia-plugin/"):
             wanted |= {"plugin", "host"}
-        elif path.startswith(("python/umbriel_settings/", ".github/")) or Path(path).stem in HOST_TESTS \
-                or path in ("python/umbriel-settings.py", "python/requirements.txt"):
+        elif path.startswith("python/umbriel_settings/") or Path(path).stem in HOST_TESTS \
+                or path in ("python/umbriel-settings.py", "python/requirements.txt", "tests/host_support.py"):
             wanted.add("host")
         elif path.startswith("tests/") and path.endswith(".py"):
             stem = Path(path).stem
@@ -154,7 +155,7 @@ def run_step(name, step, argv, kind, verbose, limit):
         return f"skip {name}:{step} (no {argv[0]})", True
     if name == "schema" and not shutil.which("umbriel"):  # the coverage check asks the installed Umbriel
         return f"skip {name}:{step} (no umbriel)", True
-    cwd = PYTHON if name in ("host", "core", "schema") else ROOT
+    cwd = PYTHON if name in ("host", "core", "schema", "tests") else ROOT
     code, output, seconds = run(argv, cwd=cwd)
     detail = unittest_summary(output) if kind == "unittest" else (output.strip().splitlines() or [""])[-1][:100]
     line = f"{'ok  ' if code == 0 else 'FAIL'} {name}:{step}  {detail}  {seconds:.1f}s"
@@ -167,7 +168,7 @@ def run_step(name, step, argv, kind, verbose, limit):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("checks", nargs="*", help="check names or test file names from tests/")
+    parser.add_argument("checks", nargs="*", help="check names or test file names (tests/, noctalia-plugin/tests/)")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--lines", type=int, default=60, help="max failure lines per check")
     args = parser.parse_args()

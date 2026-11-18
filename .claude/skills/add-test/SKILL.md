@@ -1,19 +1,17 @@
 ---
 name: add-test
-description: "Use when writing or fixing a unit test for this repo: core, app host (lupa, web view) or plugin tests, which file to use, and how to run a single test file."
+description: "Use when writing or fixing a unit test for this repo: core, app host (lupa, web view), the Noctalia plugin, the shared Luau UI (panel and app layouts) or the umbriel_settings.py helper: which file to use, the shared fixtures, and how to run a single test file."
 ---
 
 # Add a headless test
 
-- Pick the layer first:
-  - Qt-free logic in `umbriel_core` → `tests/test_core*.py` (no `QApplication`).
-  - Shared Luau UI or helper flows → `noctalia-plugin/tests/` (see `test-noctalia-plugin`) and/or `tests/test_host_runtime.py`, which runs `app.luau` through lupa with the real core. Its `setUp` creates a temp config, temp `XDG_*` dirs and a fake `umbriel`; use `self.find(predicate)`, `self.click(text)`, `self.host.invoke(node["props"]["onChange"], value)` and `self.settle()` (drains `ManualScheduler`, asserts no Lua errors).
-  - Python↔JS bridge, scheduler, glyph names → `tests/test_host_bridge.py`.
-  - The rendered web page (DOM, JS errors, clicks through the bridge) → `tests/test_app_render.py` (slow: about 1 s per window).
-  - App icon, desktop entry, startup wiring → `tests/test_app_icon.py`.
-- Core tests by area: `test_core.py` (import rules, entries, keybind apply, layout rebuild, paths), `test_core_values.py` (value conversion, overridden checks, help coverage, keybind checks), `test_core_files.py` (backups and snapshots, atomic writes, cursor themes, KDE colors, Noctalia templates, title-bar follow/apply, launch environment), `test_core_session.py` (`ConfigSession` saves on hand-written config shapes).
-- App host: `test_host_runtime.py` has `new_app(data_dir)` for a restart on the same files (drafts) and swaps `api._helpers[path]` to fake a crashing helper.
-- `unittest` style (no pytest), temporary paths; never touch the real `~/.config` or `~/.local/share` (patch `XDG_*`).
-- Qt order: import `app_window` (QtWebEngine) before any `QApplication` exists and before patching `PySide6.QtWidgets.QApplication`. Close windows with `deleteLater()` plus `QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)`, or QtWebEngine segfaults at exit.
-- Check that a new test catches the regression: temporarily revert the fix, see the test fail, then restore it.
-- Run one file: `python tools/check.py test_<area>` (compact). One test: `cd python && QT_QPA_PLATFORM=offscreen PYTHONPATH=.:../tests python -m unittest test_<area> -k <test_name>`.
+Which file covers what, the shared fixtures and the Qt pitfalls: `.claude/rules/tests.md` (`tests/`) and `.claude/rules/noctalia-plugin-tests.md` (`noctalia-plugin/tests/`); they load with the test files.
+
+1. Pick the layer:
+   - Qt-free logic in `umbriel_core` → `tests/test_core*.py` (no `QApplication`).
+   - Helper commands and desktop files → `noctalia-plugin/tests/test_umbriel_settings.py`, `test_user_dirs.py`, `test_default_apps.py` (`support.HelperTestCase`/`ConfigTestCase`).
+   - Shared Luau UI flows → the Lua scripts `test_panel.py` runs (`panel_test.lua` plugin layout, `state_test.lua` drafts/discard/undo/reopening, `app_test.lua` app layout), driven through node props (`onClick`, `onChange`) found by key or text, asserting on texts; and/or `tests/test_host_runtime.py`, which runs `app.luau` through lupa with the real core (`self.find`, `self.click`, `self.host.invoke(node["props"]["onChange"], value)`, `self.settle()`; `new_app(data_dir)` restarts on the same files; swap `api._helpers[path]` to fake a crashing helper).
+   - The rendered web page (DOM, focus, JS errors, clicks through the bridge) → `tests/test_app_render.py` (about 1 s per window). Bridge, scheduler, glyph names → `test_host_bridge.py`; icon, desktop entry, startup → `test_app_icon.py`.
+2. `unittest` only, temporary paths and `XDG_*` dirs from the fixtures; never the real `~/.config`, `~/.local/share` or the live Noctalia session.
+3. Make sure the test catches the regression: revert the fix, see it fail, restore the fix.
+4. Run one file with `python tools/check.py test_<area>` (tests/ or noctalia-plugin/tests/). One test: `cd python && QT_QPA_PLATFORM=offscreen PYTHONPATH=.:../tests:../noctalia-plugin/tests python -m unittest test_<area> -k <test_name>`.

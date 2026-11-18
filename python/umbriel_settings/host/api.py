@@ -258,8 +258,7 @@ class NoctaliaApi:
     def notify(self, title, body=None):
         self.notify_cb(title, body or "")
 
-    def notifyError(self, title, body=None):
-        self.notify_cb(title, body or "")
+    notifyError = notify  # Noctalia has both; the app's status bar shows them alike
 
     def fuzzyScore(self, pattern, text):
         return fuzzy_score(pattern or "", text or "")

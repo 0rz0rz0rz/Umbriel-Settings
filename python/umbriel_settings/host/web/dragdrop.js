@@ -49,12 +49,15 @@ function zoneAt(x, y) {
   return deepest;
 }
 
+// Un-highlights a zone and gives an expanded one its own height back.
+function clearTarget(zone) {
+  zone.classList.remove("drop-over");
+  if (zone.__props.expandOnDrag) zone.style.height = px(zone.__props.height);
+}
+
 function setTarget(zone) {
   if (drag.target === zone) return;
-  if (drag.target) {
-    drag.target.classList.remove("drop-over");
-    if (drag.target.__props.expandOnDrag) drag.target.style.height = px(drag.target.__props.height);
-  }
+  if (drag.target) clearTarget(drag.target);
   drag.target = zone;
   if (zone) {
     zone.classList.add("drop-over");
@@ -114,10 +117,7 @@ function endDrag(cancel) {
   window.removeEventListener("keydown", onDragKey, true);
   if (!state || !state.active) return null;
   const target = cancel ? null : state.target;
-  if (state.target) {
-    state.target.classList.remove("drop-over");
-    if (state.target.__props.expandOnDrag) state.target.style.height = px(state.target.__props.height);
-  }
+  if (state.target) clearTarget(state.target);
   state.ghost.remove();
   state.preview.classList.remove("drag-lifted", "drag-dimmed");
   document.body.classList.remove("dragging");

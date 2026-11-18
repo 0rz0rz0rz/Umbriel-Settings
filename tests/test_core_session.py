@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from umbriel_core import keybinds, layout
-from umbriel_core.session import ConfigSession, _Labels
+from umbriel_core.session import ConfigSession
 
 ROWS = [{"key": "super+q", "action": "window-close", "group": "Windows"}]
 
@@ -90,7 +90,7 @@ class HandWrittenShapeTests(SessionTestCase):
 
     def test_labels_count_indented_and_spaced_rule_headers(self):
         text = "  [[window_rule]]\nopacity = 1\n[[ window_rule ]]\nopacity = 0.5\n"
-        named = layout.add_entry_name_comments(text, [_Labels("window_rule", ["", "Second"])])
+        named = layout.add_entry_name_comments(text, {"window_rule": ["", "Second"]})
         self.assertEqual(named, "  [[window_rule]]\nopacity = 1\n# GUI rule name: Second\n"
                                 "[[ window_rule ]]\nopacity = 0.5\n")
 
@@ -98,11 +98,11 @@ class HandWrittenShapeTests(SessionTestCase):
 class LockFileTests(SessionTestCase):
     def test_a_lock_file_that_is_not_a_list_locks_nothing(self):
         session = self.session("")
-        os.makedirs(session.config_dir)
+        os.makedirs(session.config_dir, exist_ok=True)
         for content, expected in (('"abc"', set()), ('{"a": 1}', set()), ('["super+q", 3]', {"super+q"})):
             with open(session.lock_path(), "w", encoding="utf-8") as handle:
                 handle.write(content)
-            self.assertEqual(keybinds.load_locked(self.path, session.config_dir), expected, content)
+            self.assertEqual(keybinds.load_locked(session.config_dir), expected, content)
 
 
 if __name__ == "__main__":

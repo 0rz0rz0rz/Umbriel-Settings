@@ -13,7 +13,9 @@ from PySide6.QtCore import QFileSystemWatcher, QSettings, QTimer
 from PySide6.QtGui import QColor, QFont, QIcon, QPalette
 from PySide6.QtWidgets import QStyleFactory
 
-from umbriel_core.kde import qt6ct_config_path, read_scheme
+from umbriel_core.kde import qt6ct_config_path, qt6ct_scheme_path, read_scheme
+
+from .host.paths import watch_with_parents
 
 _ROLE_SECTIONS = (
     (QPalette.ColorRole.Window, "Window", "BackgroundNormal"),
@@ -113,9 +115,11 @@ def apply_qt6ct_theme(app, config_path=None, first_run=True):
     if style_name and app.style().name().lower() != style_name.lower():
         app.setStyle(style_name)
 
-    scheme_path = settings.value("Appearance/color_scheme_path", "", str)
-    if settings.value("Appearance/custom_palette", False, bool) and scheme_path:
-        scheme_path = os.path.expanduser(scheme_path)
+    try:
+        scheme_path = qt6ct_scheme_path(config_path)
+    except ValueError:
+        scheme_path = None
+    if scheme_path:
         files.append(scheme_path)
         palette = build_palette(read_kde_color_scheme(scheme_path), app.style().standardPalette())
         if palette is not None:
@@ -152,13 +156,4 @@ class Qt6ctThemeFollower:
         self._watch(apply_qt6ct_theme(self.app, first_run=False))
 
     def _watch(self, files):
-        # Theme tools often replace files atomically, which drops the file watch; watch
-        # the parent directories too and re-add the files after every change.
-        paths = [path for path in files if os.path.exists(path)]
-        paths += sorted({os.path.dirname(path) for path in files if os.path.isdir(os.path.dirname(path))})
-        stale = [path for path in self.watcher.files() + self.watcher.directories() if path not in paths]
-        if stale:
-            self.watcher.removePaths(stale)
-        missing = [path for path in paths if path not in self.watcher.files() + self.watcher.directories()]
-        if missing:
-            self.watcher.addPaths(missing)
+        watch_with_parents(self.watcher, files, prune=True)

@@ -4,4 +4,5 @@ noctalia-plugin/umbriel-settings/umbriel_core/
 # Generated or binary assets.
 python/umbriel_settings/host/web/fonts/
 docs/*.png
-*.AppImage
+noctalia-plugin/umbriel-settings/screenshot.png
+noctalia-plugin/umbriel-settings/thumbnail.webp

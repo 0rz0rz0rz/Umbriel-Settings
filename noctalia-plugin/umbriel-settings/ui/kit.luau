@@ -17,7 +17,7 @@ function M.muted(text, props)
   return M.label(text, props)
 end
 
-function M.title(text, size)
+local function titleLabel(text, size)
   return ui.label({ text = text, fontSize = size or 18, fontWeight = "bold" })
 end
 
@@ -49,6 +49,32 @@ function M.card(props, children)
   return ui.column(props, children)
 end
 
+function M.fileSize(bytes) return string.format("%.1f KB", bytes / 1024) end
+
+-- A settings row: label on the left, its control on the right.
+function M.optionRow(key, label, control, tooltip)
+  return ui.row({ key = key, gap = 8, align = "center", tooltip = tooltip }, {
+    ui.label({ text = label, fontSize = 13, flexGrow = 1 }),
+    control,
+  })
+end
+
+-- A button that asks once: the first click arms it (destructive "Click again to …"), the second runs `action`.
+-- props: key (also what view.confirm holds while armed), text, armedText, glyph, controlSize, enabled, and
+-- `check`, which can refuse before arming. Navigation disarms it (the shell clears view.confirm).
+function M.confirmButton(ctx, props, action)
+  local view = ctx.view
+  local armed = view.confirm == props.key
+  return ui.button({ key = props.key, text = armed and props.armedText or props.text, glyph = props.glyph,
+                     variant = armed and "destructive" or "outline", controlSize = props.controlSize,
+                     enabled = props.enabled, onClick = function()
+                       if props.check and not props.check() then return end
+                       if view.confirm ~= props.key then view.confirm = props.key; ctx.render(); return end
+                       view.confirm = nil
+                       action()
+                     end })
+end
+
 -- Header: back button, breadcrumb title, then right-side actions.
 function M.header(ctx, title, subtitle, actions)
   local left = {}
@@ -56,7 +82,7 @@ function M.header(ctx, title, subtitle, actions)
     table.insert(left, ui.button({ key = "back", glyph = "arrow-left", variant = "ghost", tooltip = "Back (Alt+Left)",
                                    onClick = function() ctx.back() end }))
   end
-  local titles = { M.title(title) }
+  local titles = { titleLabel(title) }
   if subtitle and subtitle ~= "" then table.insert(titles, M.muted(subtitle, { maxLines = 2 })) end
   table.insert(left, ui.column({ gap = 0, flexGrow = 1 }, titles))
   for _, action in ipairs(actions or {}) do table.insert(left, action) end
@@ -116,7 +142,7 @@ end
 -- the box keeps its width; clearing replaces the input (inputs are uncontrolled) and keeps the focus there.
 function M.searchBox(ctx, props)
   local view = ctx.view
-  props.key = "search:" .. tostring(view.gen.search or 0)
+  props.key = "search:" .. ctx.gen("search")
   props.value = view.query
   props.focus = true
   props.flexGrow = 1
@@ -124,8 +150,7 @@ function M.searchBox(ctx, props)
     ui.input(props),
     ui.button({ key = "search-clear", glyph = "eraser", variant = "ghost", controlSize = props.controlSize,
                 tooltip = "Clear search", enabled = (view.query or "") ~= "", onClick = function()
-                  view.query = ""
-                  view.gen.search = (view.gen.search or 0) + 1
+                  ctx.clearSearch()
                   ctx.render()
                 end }),
   })

@@ -1,4 +1,4 @@
-"""Text-level layout of the config file: entry name comments, keybind placement, canonical rebuild."""
+"""Text-level layout of the config file: entry name comments, keybind placement, canonical rebuild, diff sections."""
 
 import re
 
@@ -7,14 +7,12 @@ import tomlkit
 from .tomlops import header_re
 
 
-def add_entry_name_comments(text, editors):
-    """Render custom array-entry names as comments immediately above their TOML headers."""
+def add_entry_name_comments(text, sections):
+    """Render custom array-entry names as comments immediately above their TOML headers.
+
+    `sections` maps an array-of-tables path to its labels, e.g. {"window_rule": ["", "Browsers"]}.
+    """
     marker = "# GUI rule name: "
-    sections = {
-        editor.labels_key: editor.custom_labels
-        for editor in editors
-        if getattr(editor, "mode", None) == "aot"
-    }
     headers = {path: header_re(path, aot=True) for path in sections}
     indexes = {path: 0 for path in sections}
     output = []
@@ -321,3 +319,58 @@ def rebuild_config(text):
     if tomlkit.parse(result).unwrap() != tomlkit.parse(text).unwrap():
         raise ValueError("the rebuilt file would not contain the same settings")
     return result
+
+
+# ------------------------------------------------------------------ diff by section
+def _section_title(line):
+    """`[a.b]` or `[[a]]` when the line is a TOML table header, else None."""
+    if not line.lstrip().startswith("["):
+        return None
+    try:
+        path, is_array = header_path(line)
+    except (tomlkit.exceptions.TOMLKitError, ValueError):
+        return None
+    if not path:
+        return None
+    return ("[[" if is_array else "[") + ".".join(map(str, path)) + ("]]" if is_array else "]")
+
+
+def group_diff_by_section(diff, new_text):
+    """Split unified-diff hunks by the TOML section containing their new lines."""
+    section_by_line = {}
+    section = "Top-level settings"
+    for line_number, line in enumerate(new_text.splitlines(), start=1):
+        section = _section_title(line) or section
+        section_by_line[line_number] = section
+
+    groups = {}
+    lines = diff.splitlines(keepends=True)
+    index = 0
+    while index < len(lines):
+        if not lines[index].startswith("@@ "):
+            index += 1
+            continue
+        hunk = [lines[index]]
+        match = re.search(r"\+(\d+)(?:,\d+)?", lines[index])
+        new_start = int(match.group(1)) if match else 1
+        index += 1
+        while index < len(lines) and not lines[index].startswith("@@ "):
+            if not lines[index].startswith(("--- ", "+++ ")):
+                hunk.append(lines[index])
+            index += 1
+
+        current_section = section_by_line.get(max(1, new_start), section)
+        current_line = max(1, new_start)
+        section_hunks = {}
+        for diff_line in hunk[1:]:
+            prefix = diff_line[:1]
+            content = diff_line[1:] if prefix in (" ", "+", "-") else diff_line
+            if prefix in (" ", "+"):
+                current_section = section_by_line.get(current_line, current_section)
+                current_line += 1
+            elif prefix == "-" and _section_title(content):
+                current_section = "Removed " + _section_title(content)
+            section_hunks.setdefault(current_section, []).append(diff_line)
+        for name, section_lines in section_hunks.items():
+            groups.setdefault(name, []).extend([hunk[0], *section_lines, "\n"])
+    return groups

@@ -7,14 +7,13 @@ import re
 import tomlkit
 
 from .actions import ACTION_INFO, REQUIRED_ARG_ACTIONS
-from .paths import migrate_gui_file, write_text_file
+from .paths import LOCK_FILE_NAME, write_text_file
 from .tomlops import MISSING, ensure_table, getp, header_re
 
 # Known per-bind options with their own controls (anything else is preserved untouched).
 BIND_BOOL_OPTIONS = [("repeat", "Repeat"), ("allow_when_locked", "When locked"),
                      ("allow_when_inhibited", "When inhibited")]
 KEYBIND_GROUPS_MARKER = "# Umbriel Config GUI keybind groups: "
-LOCK_FILE_NAME = "gui-locked-keybinds.json"
 
 
 def lock_file(config_dir):
@@ -22,9 +21,8 @@ def lock_file(config_dir):
     return os.path.join(config_dir, LOCK_FILE_NAME)
 
 
-def load_locked(config_path, config_dir):
-    """Return the set of keybind keys locked in the GUI, migrating the legacy file next to the config."""
-    migrate_gui_file(os.path.join(os.path.dirname(config_path), LOCK_FILE_NAME), lock_file(config_dir))
+def load_locked(config_dir):
+    """Return the set of keybind keys locked in the GUI."""
     try:
         with open(lock_file(config_dir), encoding="utf-8") as f:
             keys = json.load(f)
@@ -108,21 +106,6 @@ def write_keybind_groups(text, groups, assignments):
     )
     lines.insert(start + 1, KEYBIND_GROUPS_MARKER + payload + newline)
     return "".join(lines)
-
-
-def parse_opts(text):
-    """Parse the keybind options text ('repeat=false, allow_when_locked=true') into a dict with real booleans/ints."""
-    out = {}
-    for part in filter(None, (p.strip() for p in text.split(","))):
-        k, _, v = part.partition("=")
-        v = v.strip()
-        out[k.strip()] = (v == "true") if v in ("true", "false") else int(v) if v.lstrip("-").isdigit() else v
-    return out
-
-
-def fmt_opts(o):
-    """Format an options dict back into 'key=value, key=value' text."""
-    return ", ".join(f"{k}={str(v).lower() if isinstance(v, bool) else v}" for k, v in o.items())
 
 
 def normalize_shortcut(key):

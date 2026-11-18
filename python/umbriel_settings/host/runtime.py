@@ -9,8 +9,8 @@ import traceback
 from lupa import lua54
 
 UI_KINDS = (
-    "column", "row", "scroll", "label", "fillLabel", "markdown", "glyph", "image", "box", "separator",
-    "spacer", "progress", "button", "toggle", "slider", "colorPicker", "select", "input", "dragSource", "dropZone",
+    "column", "row", "scroll", "label", "markdown", "glyph", "image", "box", "separator",
+    "spacer", "button", "toggle", "slider", "colorPicker", "select", "input", "dragSource", "dropZone",
 )
 
 # How many renders a callback id stays valid: a click can be on its way while newer trees are rendered.

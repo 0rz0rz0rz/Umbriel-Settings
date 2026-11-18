@@ -5,23 +5,11 @@ description: "Use when changing the shared Luau UI (Noctalia panel and standalon
 
 # Edit the shared Luau UI
 
-The same Luau code runs in the Noctalia panel (`panel.luau`) and in the standalone app (`app.luau`, via lupa and a web view). Change it once; check both.
+The same Luau code runs in the Noctalia panel (`panel.luau`) and in the standalone app (`app.luau`, via lupa and a web view). Change it once; check both. The module table and the rules (inputs, store setters, 25 ms budget, syntax, tooltips, menus) are in `.claude/rules/noctalia-plugin.md`, which loads with any file in `noctalia-plugin/umbriel-settings/`.
 
-- Find the module instead of reading everything (`grep -n "^function\|^local function\|function ctx\." <file>`):
-  - `lib/shell.luau`: ctx, navigation stack (`go/back/replace/home/openPage`), loading (a failed first load shows **Try again**; an external change during a reload re-reads afterwards), save bar (with **Undo**), `onKey` (`ctrl+f ctrl+s ctrl+z alt+Left`, app also `Escape`), `onRelaunch` (app), menus; routes dispatch in `body()`.
-  - `panel.luau` / `app.luau`: only layout and entry globals.
-  - `lib/store.luau` (unsaved edits, `changeSet`, drafts incl. desktop edits), `lib/helper.luau` (shows the last stderr line when the helper crashes), `lib/search.luau`, `lib/titlebar.luau` (per-config title-bar follow).
-  - `ui/fields.luau` (one row per field kind, locale-aware numbers), `ui/kit.luau` (header, cards, badges, notices, `navRow`, `plural`), `ui/sidebar.luau` (app only).
-  - `pages/*.luau`: `home`, `form`, `entries`, `maps`, `keybinds`, `desktop`, `review`, `about`.
-- Pages return `{ header = {...}, content = {...} }`. New routes need a branch in `body()` and, for nav pages, `ctx.openPage`.
-- App-only or plugin-only behavior: branch on `ctx.isApp` (e.g. no close button or "Standalone app" button in the app). App options arrive in `ctx.options` (`appVersion`, `validateDefault`, `rebuildDefault`, `initialConfig`).
-- Field metadata comes from the helper's `meta`; never hard-code field lists. New settings come from `umbriel_core/fields.py`.
-- Edits go through `store` (`setField`/`unsetField`/`revertField`, `entryOp`, `mapSet`/`mapRemove`, `keybindsChanged(step)` after editing keybind rows in place, `setDesktop(part, key, value)`); these record undo steps (`store.undo`), and the helper replays them on save. A new capture chord also goes into `plugin.toml` `capture_keys` and `KEYS` in `renderer.js`. Entry ops use zero-based indices.
-- Inputs are uncontrolled: stable keys, bump `ctx.view.gen[key]` to replace text. `ui.select` is zero-based. Never read `.children` of a built node; build lists first.
-- 25 ms CPU budget: one open group per page, capped lists, `ctx.renderSoon()` for slider drags.
-- Syntax: Luau ∩ Lua 5.4/5.5 (no `continue`, `+=`, type annotations, backtick strings); `check.py plugin` parses with both `luac` and `luau-compile`. Avoid `cond and nil or x` (always `x`): use `if`/`else` or `(not cond) and x or nil`. Glyphs from Tabler (`tests/test_host_bridge.py` checks names).
-- Icon-only buttons need a `tooltip`: the app uses it as the accessible name (`tests/test_app_render.py` checks it).
-- Context-menu `onActivate` names an entry global; the app host has no context menus, so keep a visible button for every menu action.
-- Drag and drop: `ui.dropZone` `onDrop = "onDrop"` (entry global → `ctx.dropHandler`, set during render); keep a button alternative (no keyboard drag). The app draws it in `host/web/dragdrop.js`.
-- Check features against the target Noctalia API level before using them; a new API also needs the app host (`host/api.py`) and the mock (`noctalia-plugin/tests/harness.lua`).
-- Test with `test-noctalia-plugin` (extend `panel_test.lua` / `state_test.lua` / `app_test.lua`, or `tests/test_host_runtime.py`), verify with `python tools/check.py plugin host`, and look at the app with `.claude/skills/edit-controls/render_app.py`. Neither proves live Noctalia rendering.
+1. Find the function instead of reading whole modules: `grep -n "^function\|^local function\|function ctx\." <file>`.
+2. Pages return `{ header = {...}, content = {...} }`. A new route needs a branch in `body()` (`lib/shell.luau`) and, for a nav page, `ctx.openPage`; reuse `kit` pieces (`optionRow`, `confirmButton`, `card`, `navRow`) instead of building rows by hand.
+3. App-only or plugin-only behavior: branch on `ctx.isApp` (no close button and no "Standalone app" button in the app). App options arrive in `ctx.options` (`appVersion`, `validateDefault`, `rebuildDefault`, `initialConfig`).
+4. A new capture chord also goes into `plugin.toml` `capture_keys` and `KEYS` in `host/web/renderer.js`. A new `ui` kind or prop may need a builder in `renderer.js` (see `edit-controls`); a new Noctalia API also needs `host/api.py` and `noctalia-plugin/tests/harness.lua`. Check it against the target Noctalia API level first.
+5. Drag and drop: `ui.dropZone` with `onDrop = "onDrop"` (entry global → `ctx.dropHandler`, set during render); keep a button alternative, as there is no keyboard drag.
+6. Test (`add-test`: `panel_test.lua`, `state_test.lua`, `app_test.lua` or `tests/test_host_runtime.py`), verify with `python tools/check.py plugin host` (`verify-changes`) and look at the app with `.claude/skills/edit-controls/render_app.py`. None of these prove live Noctalia rendering.

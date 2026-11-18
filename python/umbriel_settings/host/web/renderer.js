@@ -58,6 +58,9 @@ function withTooltip(el) {
 }
 
 // ------------------------------------------------------------------ creation
+const TOOLTIP_KINDS = ["column", "row", "scroll", "box", "image", "button", "dragSource"];
+const CLICKABLE_KINDS = ["column", "row", "box", "image"];  // onClick makes them buttons (role, Enter/Space)
+
 function create(node) {
   const kind = node.kind;
   let el;
@@ -65,20 +68,14 @@ function create(node) {
     el = document.createElement("button");
     el.innerHTML = '<i class="glyph" aria-hidden="true"></i><span class="text"></span>';
     el.addEventListener("click", (e) => { e.stopPropagation(); hideTip(); invoke(el.__props.onClick); });
-    el.addEventListener("contextmenu", (e) => {
-      if (el.__props.onRightClick) { e.preventDefault(); invoke(el.__props.onRightClick); }
-    });
   } else if (kind === "input") {
-    el = document.createElement(node.props.multiline ? "textarea" : "input");
-    if (!node.props.multiline) { el.type = node.props.password ? "password" : "text"; }
+    el = document.createElement("input");
+    el.type = "text";
     el.className = "text";
     el.value = node.props.value == null ? "" : String(node.props.value);
     el.addEventListener("input", () => invoke(el.__props.onChange, el.value));
     el.addEventListener("keydown", (e) => {
-      const p = el.__props;
-      const submit = p.multiline ? (e.key === "Enter" && (e.ctrlKey || (p.submitOnEnter && !e.shiftKey)))
-        : e.key === "Enter";
-      if (submit && p.onSubmit) { e.preventDefault(); invoke(p.onSubmit, el.value); }
+      if (e.key === "Enter" && el.__props.onSubmit) { e.preventDefault(); invoke(el.__props.onSubmit, el.value); }
     });
     if (node.props.focus) setTimeout(() => el.focus(), 0);
   } else if (kind === "select") {
@@ -103,15 +100,16 @@ function create(node) {
       invoke(el.__props.onDragEnd, el.value);
     });
     el.addEventListener("pointerdown", () => { el.__dragging = true; });
-    el.addEventListener("pointerup", () => { el.__dragging = false; });
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
+      el.addEventListener(type, () => { el.__dragging = false; });
+    }
   } else if (kind === "colorPicker") {
     el = document.createElement("div");
     el.className = "flex col picker";
-    el.innerHTML = '<input type="color" aria-label="Color"><div class="flex rowdir" style="gap:8px;align-items:center">'
-      + '<span class="label" style="font-size:12px">Alpha</span>'
-      + '<input type="range" min="0" max="255" style="flex:1" aria-label="Alpha">'
-      + '<input class="text sm hex" style="width:110px" aria-label="Hex color"></div>'
-      + '<div class="flex rowdir swatches" style="gap:6px;flex-wrap:wrap"></div>';
+    el.innerHTML = '<input type="color" aria-label="Color"><div class="flex rowdir alpha-row">'
+      + '<span class="label">Alpha</span><input type="range" min="0" max="255" aria-label="Alpha">'
+      + '<input class="text sm hex" aria-label="Hex color"></div>'
+      + '<div class="flex rowdir swatches"></div>';
     const [rgb, alpha, hex] = el.querySelectorAll("input");
     const emit = (end) => {
       const value = (rgb.value + Number(alpha.value).toString(16).padStart(2, "0")).toUpperCase();
@@ -129,7 +127,7 @@ function create(node) {
   } else if (kind === "markdown") {
     el = document.createElement("div");
     el.className = "markdown";
-  } else if (kind === "label" || kind === "fillLabel") {
+  } else if (kind === "label") {
     el = document.createElement("div");
     el.className = "label";
   } else if (kind === "glyph") {
@@ -139,11 +137,6 @@ function create(node) {
   } else if (kind === "image") {
     el = document.createElement("img");
     el.draggable = false;
-  } else if (kind === "progress") {
-    el = document.createElement("div");
-    el.className = "progress";
-    el.setAttribute("role", "progressbar");
-    el.appendChild(document.createElement("div"));
   } else if (kind === "scroll") {
     el = document.createElement("div");
     el.className = "flex col scroll";
@@ -162,8 +155,8 @@ function create(node) {
     el = document.createElement("div"); // column, row, box, separator, spacer
   }
   el.__kind = kind;
-  if (["column", "row", "scroll", "box", "image", "button", "dragSource"].includes(kind)) withTooltip(el);
-  if (["column", "row", "box", "image"].includes(kind)) {
+  if (TOOLTIP_KINDS.includes(kind)) withTooltip(el);
+  if (CLICKABLE_KINDS.includes(kind)) {
     el.addEventListener("click", (e) => {
       if (!el.__props.onClick) return;
       e.stopPropagation(); hideTip(); invoke(el.__props.onClick);
@@ -173,8 +166,6 @@ function create(node) {
         e.preventDefault(); invoke(el.__props.onClick);
       }
     });
-    el.addEventListener("mouseenter", () => { if (el.__props.onHover) invoke(el.__props.onHover, "true", el.__props.key || ""); });
-    el.addEventListener("mouseleave", () => { if (el.__props.onHover) invoke(el.__props.onHover, "false", el.__props.key || ""); });
   }
   return el;
 }
@@ -197,18 +188,19 @@ function layout(el, p, kind) {
   const s = el.style;
   if (CONTAINERS.includes(kind)) {
     if (kind !== "box") {
-      // a drop zone is a column unless direction = "row"; our drag sources wrap one grip, laid out as a row
-      const isRow = kind === "row" || kind === "dragSource" || (kind === "dropZone" && p.direction === "row");
+      // drop zones are columns; our drag sources wrap one grip, laid out as a row
+      const isRow = kind === "row" || kind === "dragSource";
       el.classList.add("flex");
       el.classList.toggle("col", !isRow);
       el.classList.toggle("rowdir", isRow);
-      const target = el.__host || el;
+    }
+    const target = el.__host || el;  // a scroll lays out its inner column
+    if (kind !== "box") {
       target.style.gap = px(p.gap);
       target.style.alignItems = ALIGN[p.align] || "stretch";
       target.style.justifyContent = JUSTIFY[p.justify] || "flex-start";
     }
     const pad = p.padding;
-    const target = el.__host || el;
     target.style.padding = `${px(p.paddingV ?? pad) || 0} ${px(p.paddingH ?? pad) || 0}`;
     s.background = color(p.fill);
     s.borderRadius = px(p.radius);
@@ -224,7 +216,6 @@ function layout(el, p, kind) {
   s.flexGrow = p.flexGrow != null ? String(p.flexGrow) : "";
   if (p.flexGrow != null) s.flexBasis = "0";
   s.opacity = p.opacity != null ? String(p.opacity) : "";
-  s.display = p.visible === false ? "none" : "";
 }
 
 function apply(el, node) {
@@ -235,19 +226,17 @@ function apply(el, node) {
   el.dataset.key = p.key == null ? "" : String(p.key);
   layout(el, p, kind);
   // Screen readers: clickable containers act as buttons; icon-only controls are named by their tooltip.
-  if (["column", "row", "box", "image"].includes(kind)) {
+  if (CLICKABLE_KINDS.includes(kind)) {
     attr(el, "role", p.onClick ? "button" : null);
     attr(el, "aria-label", p.onClick ? p.tooltip : null);
   }
   if (kind === "dragSource") attr(el, "aria-label", p.tooltip);
-  if (kind === "label" || kind === "fillLabel") {
+  if (kind === "label") {
     el.textContent = p.text == null ? "" : String(p.text);
     el.style.fontSize = px(p.fontSize);
     el.style.color = color(p.color);
     el.style.fontWeight = WEIGHT[p.fontWeight] || "";
-    el.style.fontFamily = p.fontFamily || "";
     el.style.textAlign = p.textAlign || "";
-    el.style.maxWidth = px(p.maxWidth);
     el.classList.toggle("clamp", !!p.maxLines);
     el.style.webkitLineClamp = p.maxLines ? String(p.maxLines) : "";
   } else if (kind === "glyph") {
@@ -257,18 +246,16 @@ function apply(el, node) {
     el.style.color = color(p.color || "on_surface");
   } else if (kind === "button") {
     el.className = [p.variant || "default", p.controlSize || "md", p.selected ? "selected" : "",
-      p.contentAlign === "start" ? "start" : "", p.glyph && !p.text ? "icon" : ""].join(" ");
+      p.glyph && !p.text ? "icon" : ""].join(" ");
     const icon = el.firstChild, text = el.lastChild;
     const code = p.glyph && glyphs[p.glyph];
     icon.textContent = code ? String.fromCodePoint(code) : "";
     icon.style.display = code ? "" : "none";
-    icon.style.fontSize = px(p.glyphSize || (p.controlSize === "sm" ? 16 : 18));
+    icon.style.fontSize = px(p.controlSize === "sm" ? 16 : 18);
     text.textContent = p.text || "";
     text.style.display = p.text ? "" : "none";
-    if (p.selected !== undefined) el.setAttribute("aria-pressed", p.selected ? "true" : "false");
-    else el.removeAttribute("aria-pressed");
     attr(el, "aria-label", p.text ? null : p.tooltip);
-    attr(el, "aria-pressed", p.selected ? "true" : null);
+    attr(el, "aria-pressed", p.selected === undefined ? null : String(Boolean(p.selected)));
     if (p.fontSize) text.style.fontSize = px(p.fontSize);
     el.disabled = p.enabled === false;
   } else if (kind === "input") {
@@ -277,7 +264,6 @@ function apply(el, node) {
     attr(el, "aria-label", p.tooltip || p.placeholder);
     el.disabled = p.enabled === false;
     if (p.fontSize) el.style.fontSize = px(p.fontSize);
-    if (p.frameVisible === false) { el.style.border = "none"; el.style.background = "transparent"; }
   } else if (kind === "select") {
     el.classList.toggle("sm", p.controlSize === "sm");
     const options = p.options || [];
@@ -330,18 +316,13 @@ function apply(el, node) {
     el.style.objectFit = p.fit || "contain";
     el.style.borderRadius = px(p.radius);
   } else if (kind === "separator") {
-    const vertical = p.orientation === "vertical";
     el.className = "separator";
-    el.style[vertical ? "width" : "height"] = px(p.thickness || 1);
-    el.style.margin = vertical ? `0 ${px(p.spacing || 0)}` : `${px(p.spacing || 0)} 0`;
+    el.style.height = px(p.thickness || 1);
+    el.style.margin = `${px(p.spacing || 0)} 0`;
     el.style.alignSelf = "stretch";
     if (p.color) el.style.background = color(p.color);
   } else if (kind === "spacer") {
     if (p.flexGrow == null) el.style.flexGrow = p.width || p.height ? "" : "1";
-  } else if (kind === "progress") {
-    const value = Math.max(0, Math.min(1, p.progress || 0));
-    el.firstChild.style.width = `${value * 100}%`;
-    attr(el, "aria-valuenow", Math.round(value * 100));
   }
   if (kind !== "button" && p.tooltip == null) clearTimeout(el.__tipTimer);
 }
@@ -358,7 +339,7 @@ function patchChildren(host, children) {
   children.forEach((child, index) => {
     const id = identity(child, index);
     let el = existing.get(id);
-    if (!el || el.__kind !== child.kind || (child.kind === "input" && !!child.props.multiline !== (el.tagName === "TEXTAREA"))) {
+    if (!el || el.__kind !== child.kind) {
       el = create(child);
       el.__id = id;
     } else {
@@ -392,7 +373,7 @@ function render(tree) {
   patchChildren(host, tree ? [tree] : []);
 }
 
-// ------------------------------------------------------------------ markdown (subset used by the pages)
+// ------------------------------------------------------------------ markdown (paragraphs, inline code/emphasis, fences)
 function escapeHtml(text) {
   return text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
@@ -419,19 +400,11 @@ function markdown(source) {
         return cls ? `<span class="${cls}">${escapeHtml(l)}</span>` : escapeHtml(l);
       }).join("\n");
       out.push(`<pre><code>${html}</code></pre>`);
-    } else if (/^#{1,6}\s/.test(line)) {
-      const level = line.match(/^#+/)[0].length;
-      out.push(`<h${level}>${inline(line.replace(/^#+\s/, ""))}</h${level}>`);
-      i += 1;
-    } else if (/^\s*[-*]\s/.test(line)) {
-      const items = [];
-      while (i < lines.length && /^\s*[-*]\s/.test(lines[i])) { items.push(`<li>${inline(lines[i].replace(/^\s*[-*]\s/, ""))}</li>`); i += 1; }
-      out.push(`<ul>${items.join("")}</ul>`);
     } else if (line.trim() === "") {
       i += 1;
     } else {
       const para = [];
-      while (i < lines.length && lines[i].trim() !== "" && !/^(```|#{1,6}\s|\s*[-*]\s)/.test(lines[i])) { para.push(lines[i]); i += 1; }
+      while (i < lines.length && lines[i].trim() !== "" && !lines[i].startsWith("```")) { para.push(lines[i]); i += 1; }
       out.push(`<p>${inline(para.join(" "))}</p>`);
     }
   }
@@ -440,7 +413,7 @@ function markdown(source) {
 
 // ------------------------------------------------------------------ keys and startup
 // Ctrl+Z in a text field stays the field's own text undo; elsewhere it undoes the last settings edit.
-const typing = (e) => e.target instanceof HTMLElement && e.target.matches("input[type=text], input[type=password], textarea");
+const typing = (e) => e.target instanceof HTMLElement && e.target.matches("input[type=text]");
 const KEYS = { "ctrl+f": (e) => e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f",
                "ctrl+s": (e) => e.ctrlKey && !e.altKey && e.key.toLowerCase() === "s",
                "ctrl+z": (e) => e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "z" && !typing(e),

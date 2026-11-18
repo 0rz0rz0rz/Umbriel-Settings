@@ -3,7 +3,6 @@ local M = {}
 
 local counter = 0
 M.generation = 0
-M.running = 0
 
 local function fail(cb, message, code)
   cb({ error = message, code = code or "error" }, nil)
@@ -21,11 +20,11 @@ end
 local WRITE_COMMANDS = { save = true, ["set-config"] = true, restore = true, ["delete-backups"] = true,
                          ["desktop-save"] = true, ["set-editor"] = true, ["palette-template"] = true,
                          ["titlebar-follow"] = true }
-M.WRITE_TIMEOUT = 60000
+local WRITE_TIMEOUT = 60000
 
 function M.call(command, request, cb, opts)
   opts = opts or {}
-  if opts.timeout == nil and WRITE_COMMANDS[command] then opts.timeout = M.WRITE_TIMEOUT end
+  if opts.timeout == nil and WRITE_COMMANDS[command] then opts.timeout = WRITE_TIMEOUT end
   local pluginDir = noctalia.pluginDir()
   local dataDir, dirError = noctalia.pluginDataDir()
   if not pluginDir or not dataDir then
@@ -52,12 +51,10 @@ function M.call(command, request, cb, opts)
     return false
   end
   local generation = M.generation
-  M.running = M.running + 1
   -- Bytecode goes to the data dir (not the plugin folder), saving the recompile on every call.
   local argv = { "python3", "-Xpycache_prefix=" .. dataDir .. "/pycache", pluginDir .. "/umbriel_settings.py", command,
                  "--request", requestPath, "--response", responsePath }
   local accepted = noctalia.runAsync(argv, function(result)
-    M.running = M.running - 1
     local stale = generation ~= M.generation and not opts.always
     local function finish(err, data)
       cleanup(requestPath, responsePath)
@@ -102,7 +99,6 @@ function M.call(command, request, cb, opts)
     if not queued then finish({ error = "Too many files are being read; try again." }) end
   end, opts.timeout)
   if not accepted then
-    M.running = M.running - 1
     cleanup(requestPath)
     fail(cb, "Could not start python3. Install Python 3 and try again.", "missing_python")
     return false

@@ -1,40 +1,17 @@
-import json
-import os
-import subprocess
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-HELPER = Path(__file__).resolve().parents[1] / "umbriel-settings" / "umbriel_settings.py"
+from support import HelperTestCase
 
 
-class DefaultAppsPluginTests(unittest.TestCase):
+class DefaultAppsPluginTests(HelperTestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.path = self.root / "config" / "mimeapps.list"
+        super().setUp()
+        self.path = self.root / "xdg-config" / "mimeapps.list"
         self.backup = self.root / "data" / "umbriel-settings" / "backups"
-        self.env = {
-            **os.environ,
-            "XDG_CONFIG_HOME": str(self.path.parent),
-            "XDG_DATA_HOME": str(self.root / "data"),
-            "XDG_DATA_DIRS": str(self.root / "system"),
-            "PYTHONDONTWRITEBYTECODE": "1",
-        }
+        self.env["XDG_DATA_DIRS"] = str(self.root / "system")
 
     def call(self, command, request, success=True):
-        request_file = self.root / "request.json"
-        request_file.write_text(json.dumps(request))
-        result = subprocess.run(
-            [sys.executable, "-B", str(HELPER), command, "--request", str(request_file)],
-            env=self.env, text=True, capture_output=True, check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        reply = json.loads(result.stdout)
-        self.assertEqual(reply["ok"], success, reply)
-        return reply["result"] if success else reply["error"]
+        return self.expect(command, request, success)
 
     def helper(self, *args, success=True):
         if args[0] == "extension":
@@ -68,8 +45,7 @@ class DefaultAppsPluginTests(unittest.TestCase):
         self.assertIn("[Added Associations]\ntext/html=other.desktop;", text)
         backups = sorted(self.backup.glob("mimeapps.list.*.bak"))
         self.assertEqual([path.read_text() for path in backups], [original])
-        self.assertEqual(saved["roles"]["Web browser"], "new.desktop")
-        self.assertEqual(saved["apps"], [], "a save does not rescan the installed apps")
+        self.assertEqual(saved, {"revision": self.helper("read")["revision"]}, "a save only returns the new revision")
 
     def test_file_types_list_their_extensions(self):
         self.path.parent.mkdir()

@@ -4,10 +4,10 @@ local home = require("../pages/home.luau")
 
 local M = {}
 
-M.WIDTH = 270
+local WIDTH = 270
 
 -- The tooltip names the item when a narrow window shows the sidebar as icons only (style.css).
-local function navItem(ctx, key, glyph, title, active, badge, onClick)
+local function navItem(key, glyph, title, active, badge, onClick)
   local children = {
     ui.glyph({ name = glyph or "settings", size = 18, color = active and "primary" or kit.MUTED }),
     ui.label({ text = title, fontSize = 13, fontWeight = active and "bold" or nil, flexGrow = 1, maxLines = 1 }),
@@ -41,9 +41,8 @@ function M.render(ctx)
                            -- results show on Home, also when a page (About, Review) sits on top of it
                            if root.name ~= "home" or ctx.canGoBack() then ctx.home() else ctx.render() end
                          end }),
-    navItem(ctx, "nav-home", "home", "Home", active == "Home", nil, function()
-      view.query = ""
-      view.gen.search = (view.gen.search or 0) + 1
+    navItem("nav-home", "home", "Home", active == "Home", nil, function()
+      ctx.clearSearch()
       ctx.home()
     end),
   }
@@ -57,7 +56,7 @@ function M.render(ctx)
         if page then
           local changed = store.state and home.pageChanges(store, name) or 0
           local badge = changed > 0 and kit.badge(tostring(changed), "primary", "navb-" .. name) or nil
-          table.insert(items, navItem(ctx, "nav-" .. name, page.glyph, name, active == name, badge, function()
+          table.insert(items, navItem("nav-" .. name, page.glyph, name, active == name, badge, function()
             ctx.openPage(name)
           end))
         end
@@ -66,13 +65,13 @@ function M.render(ctx)
   end
   local tools = { ui.separator({ key = "sidebar-sep", thickness = 1, spacing = 4, opacity = 0.6 }) }
   for _, item in ipairs(TOOLS) do
-    table.insert(tools, navItem(ctx, "nav-tool-" .. item[1], item[2], item[3], tool == item[1], nil, function()
+    table.insert(tools, navItem("nav-tool-" .. item[1], item[2], item[3], tool == item[1], nil, function()
       if tool == item[1] then return end
       ctx.home()
       ctx.go({ name = item[1] })
     end))
   end
-  return ui.column({ key = "sidebar", width = M.WIDTH, gap = 2, padding = 10, radius = 12,
+  return ui.column({ key = "sidebar", width = WIDTH, gap = 2, padding = 10, radius = 12,
                      fill = "surface_container_low" }, {
     ui.scroll({ key = "sidebar-scroll", gap = 2, flexGrow = 1 }, items),
     ui.column({ key = "sidebar-tools", gap = 2 }, tools),

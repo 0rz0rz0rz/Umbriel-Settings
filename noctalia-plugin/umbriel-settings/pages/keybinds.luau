@@ -1,12 +1,13 @@
 -- Keybinds: grouped list, a detail page with a shortcut builder, and a searchable action picker.
 local kit = require("../ui/kit.luau")
+local order = require("./keybind_order.luau")
 
 local M = {}
 
 local MODIFIERS = { "Mod", "Super", "Ctrl", "Alt", "Shift" }
 local OPTION_CHOICES = { "Default", "On", "Off" }
 
-local function normalize(key) return string.lower((string.gsub(noctalia.string.trim(key), "%s+", " "))) end
+local function normalizeKey(key) return string.lower((string.gsub(noctalia.string.trim(key), "%s+", " "))) end
 
 local function splitShortcut(key)
   local mods, rest = {}, {}
@@ -64,104 +65,20 @@ local function argHelp(meta, template)
 end
 
 local function conflict(store, key, index)
-  local wanted = normalize(key)
+  local wanted = normalizeKey(key)
   if wanted == "" then return nil end
   for i, row in ipairs(store.keybinds.rows) do
-    if i ~= index and normalize(row.key) == wanted then return row.key end
+    if i ~= index and normalizeKey(row.key) == wanted then return row.key end
   end
   return nil
 end
 
--- step names a typed edit (repeats are one undo step); nil makes every call its own step.
-local function changed(store, step) store.keybindsChanged(step) end
-
--- ------------------------------------------------------------------ order
--- Rows are kept in display order (groups in order, Ungrouped last), which is also the order the file gets.
-local function normalize(kb)
-  local rank, buckets = {}, {}
-  for i, name in ipairs(kb.groups) do rank[name] = i end
-  for i = 1, #kb.groups + 1 do buckets[i] = {} end
-  for _, row in ipairs(kb.rows) do
-    local bucket = buckets[rank[row.group or ""] or (#kb.groups + 1)]
-    bucket[#bucket + 1] = row
+-- Whether a group of that name exists (and says so).
+local function groupTaken(ctx, name)
+  for _, other in ipairs(ctx.store.keybinds.groups) do
+    if other == name then ctx.flash("That group already exists.", "warning"); return true end
   end
-  local i = 0
-  for _, bucket in ipairs(buckets) do
-    for _, row in ipairs(bucket) do i = i + 1; kb.rows[i] = row end
-  end
-end
-
--- Moves row `from` into `group`, before row `before` (an index of the list as it was) or at the group's end.
-function M._moveRow(kb, from, group, before)
-  local row = table.remove(kb.rows, from)
-  if (row.group or "") ~= group then row.group = group end
-  if before then
-    if before > from then before = before - 1 end
-    table.insert(kb.rows, before, row)
-  else
-    local at = #kb.rows
-    for i, other in ipairs(kb.rows) do if (other.group or "") == group then at = i end end
-    table.insert(kb.rows, at + 1, row)
-  end
-  normalize(kb)
-end
-
--- Moves group `from` before group `before` (an index of the list as it was), or last when nil.
-function M._moveGroup(kb, from, before)
-  local name = table.remove(kb.groups, from)
-  if before then
-    if before > from then before = before - 1 end
-    table.insert(kb.groups, before, name)
-  else
-    table.insert(kb.groups, name)
-  end
-  normalize(kb)
-end
-
-local function signature(kb)
-  local parts = { table.concat(kb.groups, "\0") }
-  for _, row in ipairs(kb.rows) do parts[#parts + 1] = row.key .. "\0" .. (row.group or "") end
-  return table.concat(parts, "\1")
-end
-
--- Payloads and zone values are "r|<row index>|<key>" or "g|<group index>|<name>" (0 = Ungrouped); the name
--- guards against a list that changed since the drag began (undo, a reload).
-local function parseDrag(text)
-  local kind, index, name = string.match(text, "^([rg])|(%d+)|(.*)$")
-  return kind, tonumber(index), name
-end
-
--- A row onto a row: before it, in its group. A row onto a group: at its end. A group onto a group: before
--- it (Ungrouped: last).
-local function drop(ctx, payload, value)
-  local kb = ctx.store.keybinds
-  local kind, index, name = parseDrag(payload)
-  local target, targetIndex, targetName = parseDrag(value)
-  if not (kb and kind and target) then return end
-  local before = signature(kb)
-  local function groupAt(i)
-    if i == 0 then return "" end
-    return kb.groups[i] == targetName and kb.groups[i] or nil
-  end
-  if kind == "r" then
-    local row = kb.rows[index]
-    if not row or row.key ~= name or row.locked then ctx.render(); return end
-    if target == "r" then
-      local anchor = kb.rows[targetIndex]
-      if not anchor or anchor.key ~= targetName then ctx.render(); return end
-      M._moveRow(kb, index, anchor.group or "", targetIndex)
-    else
-      local group = groupAt(targetIndex)
-      if not group then ctx.render(); return end
-      M._moveRow(kb, index, group, nil)
-    end
-  else
-    if index == 0 or kb.groups[index] ~= name or target ~= "g" then ctx.render(); return end
-    if targetIndex > 0 and not groupAt(targetIndex) then ctx.render(); return end
-    M._moveGroup(kb, index, targetIndex > 0 and targetIndex or nil)
-  end
-  if signature(kb) ~= before then changed(ctx.store) end
-  ctx.render()
+  return false
 end
 
 local GAP = 8        -- the list's spacing; between rows it is an insertion zone while sorting is possible
@@ -199,7 +116,7 @@ local function listPage(ctx)
   -- Sorting needs every row of a group on screen: a gap between filtered rows would be ambiguous.
   local sortable = filter == ""
   if sortable then
-    ctx.dropHandler = function(payload, value) drop(ctx, payload, value) end
+    ctx.dropHandler = function(payload, value) order.drop(ctx, payload, value) end
   elseif #store.keybinds.rows > 1 then
     table.insert(content, kit.muted("Clear the filter to reorder shortcuts and groups."))
   end
@@ -272,48 +189,44 @@ local function listPage(ctx)
                  onSubmit = function(text)
                    text = noctalia.string.trim(text)
                    if text == "" or text == group then return end
-                   for _, other in ipairs(store.keybinds.groups) do
-                     if other == text then ctx.flash("That group already exists.", "warning"); return end
-                   end
+                   if groupTaken(ctx, text) then return end
                    store.keybinds.groups[index] = text
                    for _, row in ipairs(store.keybinds.rows) do if row.group == group then row.group = text end end
-                   changed(store)
+                   store.keybindsChanged()
                    ctx.render()
                  end }),
       -- the keyboard way to reorder groups (dragging is pointer-only)
       ui.button({ key = "grp-up-" .. index, glyph = "arrow-up", variant = "ghost", controlSize = "sm",
                   tooltip = "Move group up", enabled = index > 1, onClick = function()
-                    M._moveGroup(store.keybinds, index, index - 1)
-                    changed(store)
+                    order.moveGroup(store.keybinds, index, index - 1)
+                    store.keybindsChanged()
                     ctx.render()
                   end }),
       ui.button({ key = "grp-down-" .. index, glyph = "arrow-down", variant = "ghost", controlSize = "sm",
                   tooltip = "Move group down", enabled = index < #store.keybinds.groups, onClick = function()
-                    M._moveGroup(store.keybinds, index + 1, index)
-                    changed(store)
+                    order.moveGroup(store.keybinds, index + 1, index)
+                    store.keybindsChanged()
                     ctx.render()
                   end }),
       ui.button({ glyph = "trash", variant = "ghost", controlSize = "sm",
                   tooltip = "Delete group (its shortcuts move to Ungrouped)", onClick = function()
                     table.remove(store.keybinds.groups, index)
                     for _, row in ipairs(store.keybinds.rows) do if row.group == group then row.group = "" end end
-                    changed(store)
+                    store.keybindsChanged()
                     ctx.render()
                   end }),
     }))
   end
   table.insert(content, ui.row({ key = "grp-add", gap = 6 }, {
-    ui.input({ key = "grp-new-" .. tostring(view.gen.grp or 0), value = "", flexGrow = 1, controlSize = "sm",
+    ui.input({ key = "grp-new-" .. ctx.gen("grp"), value = "", flexGrow = 1, controlSize = "sm",
                placeholder = "New group name (press Enter)",
                onSubmit = function(text)
                  text = noctalia.string.trim(text)
                  if text == "" then return end
-                 for _, other in ipairs(store.keybinds.groups) do
-                   if other == text then ctx.flash("That group already exists.", "warning"); return end
-                 end
+                 if groupTaken(ctx, text) then return end
                  table.insert(store.keybinds.groups, text)
-                 view.gen.grp = (view.gen.grp or 0) + 1
-                 changed(store)
+                 ctx.bump("grp")
+                 store.keybindsChanged()
                  ctx.render()
                end }),
   }))
@@ -327,7 +240,7 @@ local function detailPage(ctx, route)
   local row = isNew and view.kbNew or store.keybinds.rows[route.index]
   if not row then return { header = { kit.header(ctx, "Keybind") }, content = { kit.empty("This shortcut no longer exists.") } } end
   local locked = row.locked == true
-  local function edit(step) if not isNew then changed(store, step and (step .. ":" .. route.index)) end end
+  local function edit(step) if not isNew then store.keybindsChanged(step and (step .. ":" .. route.index)) end end
   -- the keyboard way to reorder shortcuts (dragging is pointer-only): swap with the neighbor in the group
   local moves = {}
   if not isNew then
@@ -338,8 +251,8 @@ local function detailPage(ctx, route)
       end
     end
     local function move(from, before)
-      M._moveRow(store.keybinds, from, row.group or "", before)
-      changed(store)
+      order.moveRow(store.keybinds, from, row.group or "", before)
+      store.keybindsChanged()
       for i, other in ipairs(store.keybinds.rows) do
         if other == row then ctx.replace({ name = "keybind", index = i }); return end
       end
@@ -368,11 +281,11 @@ local function detailPage(ctx, route)
       onClick = function()
         mods[mod] = not mods[mod] or nil
         row.key = joinShortcut(mods, key)
-        view.gen.kbkey = (view.gen.kbkey or 0) + 1
+        ctx.bump("kbkey")
         edit(); ctx.render()
       end }))
   end
-  table.insert(chips, ui.input({ key = "kb-key-" .. tostring(view.gen.kbkey or 0), value = key, flexGrow = 1,
+  table.insert(chips, ui.input({ key = "kb-key-" .. ctx.gen("kbkey"), value = key, flexGrow = 1,
     controlSize = "sm", enabled = not locked, placeholder = "Key: Return, Q, F1, XF86AudioMute…",
     onChange = function(text)
       row.key = joinShortcut(mods, noctalia.string.trim(text))
@@ -391,7 +304,7 @@ local function detailPage(ctx, route)
   local actionCard = {
     kit.muted("Action"),
     ui.row({ gap = 6, align = "center" }, {
-      ui.input({ key = "kb-action-" .. tostring(view.gen.kbaction or 0), value = row.action, flexGrow = 1,
+      ui.input({ key = "kb-action-" .. ctx.gen("kbaction"), value = row.action, flexGrow = 1,
                  controlSize = "sm", enabled = not locked, placeholder = "e.g. spawn kitty",
                  onChange = function(text) row.action = text; edit("action"); ctx.render() end }),
       ui.button({ text = "Choose…", glyph = "list-search", controlSize = "sm", enabled = not locked,
@@ -407,20 +320,17 @@ local function detailPage(ctx, route)
   for _, option in ipairs(store.meta.actions.options) do
     local name, label = option[1], option[2]
     local value = row.opts[name]
-    table.insert(optionRows, ui.row({ key = "opt-" .. name, gap = 8, align = "center" }, {
-      ui.label({ text = label, fontSize = 13, flexGrow = 1 }),
+    table.insert(optionRows, kit.optionRow("opt-" .. name, label,
       ui.select({ options = OPTION_CHOICES, selectedIndex = value == nil and 0 or (value and 1 or 2), width = 160,
                   controlSize = "sm", enabled = not locked, onChange = function(i)
                     i = tonumber(i) or 0
                     row.opts[name] = i == 1 and true or i == 2 and false or nil
                     edit(); ctx.render()
-                  end }),
-    }))
+                  end })))
   end
   for _, item in ipairs({ { "cooldown_ms", "Cooldown (ms)", "0 = none" }, { "submap", "Submap", "Name (optional)" } }) do
     local name = item[1]
-    table.insert(optionRows, ui.row({ key = "opt-" .. name, gap = 8, align = "center" }, {
-      ui.label({ text = item[2], fontSize = 13, flexGrow = 1 }),
+    table.insert(optionRows, kit.optionRow("opt-" .. name, item[2],
       ui.input({ key = "opt-in-" .. name, value = row.opts[name] ~= nil and tostring(row.opts[name]) or "", width = 160,
                  controlSize = "sm", enabled = not locked, placeholder = item[3], onChange = function(text)
                    text = noctalia.string.trim(text)
@@ -431,28 +341,23 @@ local function detailPage(ctx, route)
                      row.opts[name] = text ~= "" and text or nil
                    end
                    edit("opt-" .. name)
-                 end }),
-    }))
+                 end })))
   end
   local groupOptions, selected = { "Ungrouped" }, 0
   for index, group in ipairs(store.keybinds.groups) do
     table.insert(groupOptions, group)
     if group == row.group then selected = index end
   end
-  table.insert(optionRows, ui.row({ key = "opt-group", gap = 8, align = "center" }, {
-    ui.label({ text = "Group", fontSize = 13, flexGrow = 1 }),
+  table.insert(optionRows, kit.optionRow("opt-group", "Group",
     ui.select({ options = groupOptions, selectedIndex = selected, width = 160, controlSize = "sm",
                 enabled = not locked, onChange = function(i)
                   i = tonumber(i) or 0
                   row.group = i == 0 and "" or store.keybinds.groups[i]
                   edit(); ctx.render()
-                end }),
-  }))
+                end })))
   if not isNew then
-    table.insert(optionRows, ui.row({ key = "opt-lock", gap = 8, align = "center" }, {
-      ui.label({ text = "Locked (protect from edits here and in the app)", fontSize = 13, flexGrow = 1 }),
-      ui.toggle({ checked = locked, onChange = function(value) row.locked = value == "true"; edit(); ctx.render() end }),
-    }))
+    table.insert(optionRows, kit.optionRow("opt-lock", "Locked (protect from edits here and in the app)",
+      ui.toggle({ checked = locked, onChange = function(value) row.locked = value == "true"; edit(); ctx.render() end })))
   end
   table.insert(content, kit.card({ key = "options" }, optionRows))
   -- actions
@@ -464,7 +369,7 @@ local function detailPage(ctx, route)
         end
         if clash then ctx.flash("That shortcut is already used by “" .. clash .. "”.", "warning"); return end
         table.insert(store.keybinds.rows, row)
-        changed(store)
+        store.keybindsChanged()
         view.kbNew = nil
         ctx.replace({ name = "keybind", index = #store.keybinds.rows })
       end }),
@@ -475,20 +380,17 @@ local function detailPage(ctx, route)
         local copy = store.deepCopy(row)
         copy.key, copy.locked = "", false
         view.kbNew = copy
-        view.gen.kbkey = (view.gen.kbkey or 0) + 1  -- the inputs keep their keys: show the copy's (empty) shortcut
-        view.gen.kbaction = (view.gen.kbaction or 0) + 1
+        ctx.bump("kbkey")  -- the inputs keep their keys: show the copy's (empty) shortcut
+        ctx.bump("kbaction")
         ctx.replace({ name = "keybind", index = nil })
       end }),
       ui.spacer({ flexGrow = 1 }),
-      ui.button({ text = view.confirm == "kbdel" and "Click again to delete" or "Delete", glyph = "trash",
-                  controlSize = "sm", variant = view.confirm == "kbdel" and "destructive" or "outline",
-                  enabled = not locked, onClick = function()
-                    if view.confirm ~= "kbdel" then view.confirm = "kbdel"; ctx.render(); return end
-                    view.confirm = nil
-                    table.remove(store.keybinds.rows, route.index)
-                    changed(store)
-                    ctx.back()
-                  end }),
+      kit.confirmButton(ctx, { key = "kbdel", text = "Delete", armedText = "Click again to delete", glyph = "trash",
+                               controlSize = "sm", enabled = not locked }, function()
+        table.remove(store.keybinds.rows, route.index)
+        store.keybindsChanged()
+        ctx.back()
+      end),
     }))
   end
   return { header = header, content = content }
@@ -504,9 +406,9 @@ local function pickerPage(ctx, route)
     local row = route.target and store.keybinds.rows[route.target] or view.kbNew
     if row then
       row.action = reduceTemplate(template)
-      if route.target then changed(store) end
+      if route.target then store.keybindsChanged() end
     end
-    view.gen.kbaction = (view.gen.kbaction or 0) + 1
+    ctx.bump("kbaction")
     view.actQuery = ""
     ctx.back()
   end

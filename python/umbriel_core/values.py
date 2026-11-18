@@ -143,29 +143,6 @@ def from_ui(field, value, schema_option=None):
     raise ValueError(f"{label}: unsupported field kind {kind}.")
 
 
-def normalize_color(value):
-    """Uppercase #RRGGBBAA form of a color string, or None when it is not a color."""
-    if not isinstance(value, str) or not value.startswith("#") or len(value) not in (7, 9):
-        return None
-    try:
-        int(value[1:], 16)
-    except ValueError:
-        return None
-    return (value + "FF" if len(value) == 7 else value).upper()
-
-
-def is_overridden(field, value, default):
-    """Whether a present value differs from the default (colors compare by RGBA)."""
-    if value is MISSING or value is None:
-        return False
-    plain, base = py(value), py(default)
-    if field.kind == "color" and base is not None:
-        a, b = normalize_color(plain), normalize_color(base)
-        if a is not None and b is not None:
-            return a != b
-    return plain != base
-
-
 def apply_value(container, field, value, default):
     """Write one field like the app's apply_fields: None deletes; new keys are written when optional or non-default."""
     path = field.path

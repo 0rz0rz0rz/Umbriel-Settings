@@ -7,14 +7,9 @@ local options = APP or { isApp = true }
 options.isApp = true
 
 local function layout(ctx, parts)
-  local page = {}
-  for _, child in ipairs(parts.header) do table.insert(page, child) end
-  for _, child in ipairs(parts.notices) do table.insert(page, child) end
-  table.insert(page, parts.content)
-  if parts.saveBar then table.insert(page, parts.saveBar) end
   return ui.row({ gap = 12, flexGrow = 1, padding = 8 }, {
     sidebar.render(ctx),
-    ui.column({ key = "page", gap = 10, flexGrow = 1 }, page),
+    ui.column({ key = "page", gap = 10, flexGrow = 1 }, parts.page),
   })
 end
 

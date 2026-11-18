@@ -12,7 +12,7 @@ import re
 import tomllib
 
 from . import noctalia_theme
-from .paths import DATA_DIR_NAME, atomic_write
+from .paths import DATA_DIR_NAME, atomic_write, xdg_config_home
 
 TEMPLATE_KEY = "umbriel_titlebar"
 OLD_INCLUDE = "titlebar.toml"  # earlier versions included the rendered file; Noctalia's include order defeated it
@@ -33,15 +33,15 @@ UNSAFE_PATH = ("\n", "\r", "{{", "}}", "<*", "*>")
 
 
 def template_file():
-    return os.path.join(noctalia_theme.config_home(), "noctalia", "templates", "umbriel-titlebar.toml")
+    return os.path.join(xdg_config_home(), "noctalia", "templates", "umbriel-titlebar.toml")
 
 
 def output_file():
-    return os.path.join(noctalia_theme.config_home(), DATA_DIR_NAME, "titlebar-colors.toml")
+    return os.path.join(xdg_config_home(), DATA_DIR_NAME, "titlebar-colors.toml")
 
 
 def script_file():
-    return os.path.join(noctalia_theme.config_home(), DATA_DIR_NAME, "titlebar_apply.py")
+    return os.path.join(xdg_config_home(), DATA_DIR_NAME, "titlebar_apply.py")
 
 
 def _install_script():
@@ -56,7 +56,7 @@ def _install_script():
 
 def _noctalia_path(path):
     """Write paths under $XDG_CONFIG_HOME the way Noctalia's own entries do."""
-    home = noctalia_theme.config_home().rstrip("/") + "/"
+    home = xdg_config_home().rstrip("/") + "/"
     return "$XDG_CONFIG_HOME/" + path[len(home):] if path.startswith(home) else path
 
 

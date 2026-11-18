@@ -4,95 +4,19 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
-import textwrap
 import threading
 import time
 import unittest
 import unittest.mock
 from pathlib import Path
 
+import support
+from support import CONFIG, HELPER, ConfigTestCase
+
 ROOT = Path(__file__).resolve().parents[2]
-PLUGIN = ROOT / "noctalia-plugin" / "umbriel-settings"
-HELPER = PLUGIN / "umbriel_settings.py"
-
-CONFIG = textwrap.dedent("""\
-    # my config
-    [general]
-    mod_key = "Super" # main modifier
-    show_cheatsheet = true
-
-    [environment]
-    QT_QPA_PLATFORM = "wayland"
-
-    [keybinds]
-    # launchers
-    "super+Return" = "spawn kitty"
-    "super+q" = "window-close"
-
-    [[window_rule]]
-    match = { app_id = "^org.mozilla.firefox$" }
-    opacity = 0.9
-""")
-
-FAKE_UMBRIEL = textwrap.dedent("""\
-    import json, os, sys
-    if sys.argv[1:3] == ["config", "schema"]:
-        print(json.dumps({"version": "test", "revision": "r1", "options": [
-            {"path": "general.mod_key", "type": "enum", "default": "Super",
-             "values": ["Super", "Alt", "Ctrl", "Shift"]},
-            {"path": "appearance.border_width", "type": "int", "default": 5, "min": 0, "max": 100},
-            {"path": "general.show_cheatsheet", "type": "bool", "default": True},
-        ]}))
-        raise SystemExit(0)
-    valid = os.environ.get("VALID", "yes") == "yes"
-    print(json.dumps({"valid": valid, "diagnostics": [] if valid else
-                      [{"severity": "error", "message": "bad value for general.mod_key", "line": 3}]}))
-    raise SystemExit(0 if valid else 1)
-""")
 
 
-class HelperTestCase(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.config = self.root / "umbriel" / "config.toml"
-        self.config.parent.mkdir()
-        self.config.write_text(CONFIG, encoding="utf-8")
-        bin_dir = self.root / "bin"
-        bin_dir.mkdir()
-        fake = bin_dir / "umbriel"
-        fake.write_text(f"#!{sys.executable}\n" + FAKE_UMBRIEL)
-        fake.chmod(0o755)
-        self.env = {
-            **os.environ,
-            "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
-            "XDG_DATA_HOME": str(self.root / "data"),
-            "XDG_CONFIG_HOME": str(self.root / "xdg-config"),
-            "PYTHONDONTWRITEBYTECODE": "1",
-        }
-
-    def call(self, command, request=None, env=None):
-        args = [sys.executable, "-B", str(HELPER), command]
-        if request is not None:
-            request_file = self.root / "request.json"
-            request_file.write_text(json.dumps(request), encoding="utf-8")
-            args += ["--request", str(request_file)]
-        result = subprocess.run(args, env=env or self.env, capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return json.loads(result.stdout)
-
-    def ok(self, command, request=None):
-        reply = self.call(command, request)
-        self.assertTrue(reply["ok"], reply)
-        return reply["result"]
-
-    def fails(self, command, request=None, env=None):
-        reply = self.call(command, request, env)
-        self.assertFalse(reply["ok"], reply)
-        return reply
-
+class HelperTestCase(ConfigTestCase):
     def read(self):
         return self.ok("read", {"config": str(self.config)})
 
@@ -160,10 +84,6 @@ class MetaAndReadTests(HelperTestCase):
         reply = self.fails("read", {"config": str(self.config)}, env)
         self.assertEqual(reply["code"], "missing_dependency")
 
-    def test_vendored_core_matches_source(self):
-        result = subprocess.run([sys.executable, "-B", str(ROOT / "tools" / "sync_plugin_core.py"), "--check"],
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class SaveTests(HelperTestCase):
@@ -247,13 +167,9 @@ class SaveTests(HelperTestCase):
 
     def test_validation_errors_block_the_save(self):
         state = self.read()
-        env = {**self.env, "VALID": "no"}
-        request = self.root / "r.json"
-        request.write_text(json.dumps({"config": str(self.config), "changes": {
-            "revision": state["revision"], "fields": {"general.mod_key": {"value": "Alt"}}}}))
-        out = subprocess.run([sys.executable, "-B", str(HELPER), "save", "--request", str(request)],
-                             env=env, capture_output=True, text=True, check=True)
-        report = json.loads(out.stdout)["result"]
+        report = self.ok("save", {"config": str(self.config), "changes": {
+            "revision": state["revision"], "fields": {"general.mod_key": {"value": "Alt"}}}},
+            env={**self.env, "VALID": "no"})
         self.assertFalse(report["saved"])
         self.assertEqual(report["validation"]["diagnostics"][0]["field"], "general.mod_key")
         self.assertEqual(self.config.read_text(), CONFIG)
@@ -349,36 +265,23 @@ class ConfigPathTests(HelperTestCase):
 
 @unittest.skipUnless(shutil.which("umbriel") and os.path.isfile("/usr/share/umbriel/config.toml"),
                      "needs the installed umbriel CLI and its stock config")
-class RealUmbrielTests(unittest.TestCase):
+class RealUmbrielTests(support.HelperTestCase):  # no fake: the installed `umbriel` validates
     def test_stock_config_round_trip_validates(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            config = root / "config.toml"
-            shutil.copy("/usr/share/umbriel/config.toml", config)
-            env = {**os.environ, "XDG_DATA_HOME": str(root / "data"), "PYTHONDONTWRITEBYTECODE": "1"}
-
-            def call(command, request):
-                request_file = root / "request.json"
-                request_file.write_text(json.dumps(request))
-                out = subprocess.run([sys.executable, "-B", str(HELPER), command, "--request", str(request_file)],
-                                     env=env, capture_output=True, text=True, check=True)
-                reply = json.loads(out.stdout)
-                self.assertTrue(reply["ok"], reply)
-                return reply["result"]
-
-            state = call("read", {"config": str(config)})
-            keybinds = state["keybinds"]["rows"]
-            report = call("save", {"config": str(config), "changes": {
-                "revision": state["revision"],
-                "fields": {"appearance.border_width": {"value": 3}},
-                "keybinds": {"rows": keybinds + [{"key": "Mod+Shift+F12", "action": "spawn true"}],
-                             "groups": ["Test"], "locks": []},
-            }})
-            self.assertTrue(report["saved"], report)
-            self.assertTrue(report["validation"]["valid"], report["validation"])
-            text = config.read_text()
-            self.assertIn("border_width = 3", text)
-            self.assertIn('"Mod+Shift+F12" = "spawn true"', text)
+        config = self.root / "config.toml"
+        shutil.copy("/usr/share/umbriel/config.toml", config)
+        state = self.ok("read", {"config": str(config)})
+        keybinds = state["keybinds"]["rows"]
+        report = self.ok("save", {"config": str(config), "changes": {
+            "revision": state["revision"],
+            "fields": {"appearance.border_width": {"value": 3}},
+            "keybinds": {"rows": keybinds + [{"key": "Mod+Shift+F12", "action": "spawn true"}],
+                         "groups": ["Test"], "locks": []},
+        }})
+        self.assertTrue(report["saved"], report)
+        self.assertTrue(report["validation"]["valid"], report["validation"])
+        text = config.read_text()
+        self.assertIn("border_width = 3", text)
+        self.assertIn('"Mod+Shift+F12" = "spawn true"', text)
 
 
 class BackupAndDesktopTests(HelperTestCase):
@@ -423,7 +326,9 @@ class BackupAndDesktopTests(HelperTestCase):
         self.assertEqual(state["userdirs"]["values"], {"DESKTOP": "$HOME/Desktop"})
         result = self.ok("desktop-save", {"userdirs": {
             "revision": state["userdirs"]["revision"], "changes": {"DESKTOP": "$HOME/Schreibtisch"}}})
-        self.assertEqual(result["userdirs"]["values"]["DESKTOP"], "$HOME/Schreibtisch")
+        reread = self.ok("desktop")["userdirs"]
+        self.assertEqual(reread["values"]["DESKTOP"], "$HOME/Schreibtisch")
+        self.assertEqual(result["userdirs"], {"revision": reread["revision"]})
         self.assertIn("# keep", (xdg / "user-dirs.dirs").read_text())
         self.assertEqual(self.ok("extension", {"extension": "pdf"})["mime"], "application/pdf")
 
@@ -440,7 +345,7 @@ class BackupAndDesktopTests(HelperTestCase):
             "apps": {"revision": state["apps"]["revision"],
                      "changes": [{"kind": "mime", "key": "application/example", "value": "a.desktop"}]}})
         self.assertIn("symlink", result["errors"]["apps"])
-        self.assertEqual(result["userdirs"]["values"]["DESKTOP"], "$HOME/Tisch")
+        self.assertEqual(result["userdirs"]["revision"], self.ok("desktop")["userdirs"]["revision"])
         self.assertIn("Tisch", (xdg / "user-dirs.dirs").read_text())
         self.assertEqual(target.read_text(), "[Default Applications]\n")
 
@@ -455,12 +360,8 @@ class BackupAndDesktopTests(HelperTestCase):
     def test_restore_reports_an_invalid_backup_but_restores_it(self):
         state = self.read()
         report = self.save(state, fields={"general.mod_key": {"value": "Alt"}})
-        request = self.root / "r.json"
-        request.write_text(json.dumps({"config": str(self.config), "snapshot": report["backup"],
-                                       "revision": report["state"]["revision"]}))
-        out = subprocess.run([sys.executable, "-B", str(HELPER), "restore", "--request", str(request)],
-                             env={**self.env, "VALID": "no"}, capture_output=True, text=True, check=True)
-        restored = json.loads(out.stdout)["result"]
+        restored = self.ok("restore", {"config": str(self.config), "snapshot": report["backup"],
+                                       "revision": report["state"]["revision"]}, env={**self.env, "VALID": "no"})
         self.assertIn("Umbriel reports problems", restored["warnings"][0])
         self.assertEqual(self.config.read_text(), CONFIG)
         self.assertIsNotNone(restored["state"])

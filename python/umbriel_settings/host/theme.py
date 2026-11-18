@@ -5,6 +5,8 @@ from PySide6.QtGui import QPalette
 
 from umbriel_core import noctalia_theme
 
+from .paths import watch_with_parents
+
 
 def palette_roles(palette):
     """Fallback roles from a QPalette (desktops without Noctalia)."""
@@ -44,17 +46,11 @@ class Theme(QObject):
         self.changed.emit(self.css)
 
     def _watch(self):
-        import os
         paths = [noctalia_theme.palette_file(), noctalia_theme.noctalia_config_file()]
         scheme = noctalia_theme.qt6ct_scheme()
         if scheme:
             paths.append(scheme)
-        wanted = [p for p in paths if os.path.exists(p)]
-        wanted += sorted({os.path.dirname(p) for p in paths if os.path.isdir(os.path.dirname(p))})
-        current = self.watcher.files() + self.watcher.directories()
-        missing = [p for p in wanted if p not in current]
-        if missing:
-            self.watcher.addPaths(missing)
+        watch_with_parents(self.watcher, paths)
 
     def color(self, role):
         return self.roles.get(role)

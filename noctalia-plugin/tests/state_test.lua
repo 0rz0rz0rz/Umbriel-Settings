@@ -6,13 +6,7 @@ local entry = H.start("panel.luau")
 local json, fixtures, files, calls, replies, loaded, pluginDir = H.json, H.fixtures, H.files, H.calls, H.replies, H.loaded, H.pluginDir
 local flushReads, hasText, find, clickText, lastCall, screen = H.flushReads, H.hasText, H.find, H.clickText, H.lastCall, H.screen
 
-local function input(pattern)
-  return find("input", function(n) return tostring(n.props.key):match(pattern) end, "no input " .. pattern)
-end
-local function goHome()
-  entry.onKey("ctrl+f", true)
-  input("^search:").props.onChange("")
-end
+local input, goHome = H.input, H.goHome
 local function countCalls(command)
   local count = 0
   for _, call in ipairs(calls) do if call.command == command then count = count + 1 end end
@@ -165,12 +159,13 @@ store.discardAll()
 -- a draft for another config is parked, not deleted, and comes back when that config opens
 files["/data/draft.json"] = json.encode({ path = "/other/config.toml", revision = {},
                                           fields = { ["appearance.border_width"] = { value = 3 } } })
-local note = store.restoreDraft()
+local drafts = loaded[pluginDir .. "/lib/drafts.luau"]
+local note = drafts.restore()
 assert(note and note:find("/other/config.toml", 1, true), tostring(note))
 assert(files["/data/draft-other-config.json"] and next(store.fieldChanges) == nil, "parked, not applied")
 local ownPath = store.state.path
 store.state.path = "/other/config.toml"
-assert(store.restoreParked() == "Restored 1 unsaved change(s) from last time.", "parked edits restored")
+assert(drafts.restoreParked() == "Restored 1 unsaved change(s) from last time.", "parked edits restored")
 assert(store.fieldChanges["appearance.border_width"].value == 3 and files["/data/draft-other-config.json"] == nil)
 store.state.path = ownPath
 store.discardAll()

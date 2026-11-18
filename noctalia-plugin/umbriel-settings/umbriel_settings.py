@@ -18,7 +18,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from umbriel_core import backups, paths, schema  # noqa: E402
+from umbriel_core import backups, legacy, paths, schema  # noqa: E402
 from umbriel_core.launch import child_env  # noqa: E402
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -289,22 +289,15 @@ def cmd_extension(request):
 
 
 def cmd_outputs(request):
-    executable = shutil.which("umbriel")
-    if not executable:
-        raise HelperError("The umbriel command was not found.", "missing_umbriel")
     try:
-        result = subprocess.run([executable, "outputs", "--json"], capture_output=True, text=True,
-                                timeout=5, check=False)
+        outputs = schema.run_umbriel_json(["outputs", "--json"], timeout=5)
+    except FileNotFoundError as error:
+        raise HelperError("The umbriel command was not found.", "missing_umbriel") from error
     except subprocess.TimeoutExpired as error:
         raise HelperError("`umbriel outputs --json` did not finish within 5 seconds. "
                           "Make sure Umbriel is running in this session.") from error
-    if result.returncode:
-        raise HelperError("`umbriel outputs --json` failed: "
-                          + (result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"))
-    try:
-        outputs = json.loads(result.stdout)
-    except json.JSONDecodeError as error:
-        raise HelperError(f"`umbriel outputs --json` returned invalid JSON: {error}") from error
+    except (RuntimeError, ValueError) as error:
+        raise HelperError(str(error)) from error
     if not isinstance(outputs, list) or any(not isinstance(o, dict) or not isinstance(o.get("name"), str)
                                             for o in outputs):
         raise HelperError("`umbriel outputs --json` returned an unexpected output list.")
@@ -352,8 +345,7 @@ def cmd_pick_folder(request):
 
 def cmd_launch_app(request):
     """Start the standalone app through its per-user desktop entry, detached from this helper's output."""
-    data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
-    entry = os.path.join(data_home, "applications", "umbriel-settings.desktop")
+    entry = os.path.join(paths.xdg_data_home(), "applications", paths.DESKTOP_ENTRY)
     if not os.path.isfile(entry):
         raise HelperError("Standalone desktop entry not found. Run Umbriel Settings once first.", "missing_app")
     gio = shutil.which("gio")
@@ -505,6 +497,7 @@ def run(argv):
                 raise HelperError("The request must be a JSON object.")
         if command in WRITE_COMMANDS:
             with paths.write_lock(data_dir()):
+                legacy.migrate_data_dir(data_dir())  # before the first new snapshot
                 result = COMMANDS[command](request)
         else:
             result = COMMANDS[command](request)

@@ -8,7 +8,7 @@ import warnings
 
 from PySide6.QtGui import QIcon, QPixmap
 
-from umbriel_core.paths import LEGACY_DIR_NAME, write_text_file
+from umbriel_core.paths import DESKTOP_ENTRY, LEGACY_DIR_NAME, write_text_file, xdg_data_home
 
 from . import APP_NAME
 
@@ -344,13 +344,11 @@ def install_desktop_icon(icon):
     """Install a matching per-user desktop entry for Wayland taskbar icon lookup."""
     if sys.platform != "linux":
         return
-    data_home = os.environ.get("XDG_DATA_HOME") or os.path.join(
-        os.path.expanduser("~"), ".local", "share"
-    )
+    data_home = xdg_data_home()
     icon_directory = os.path.join(data_home, "icons", "hicolor", "128x128", "apps")
     application_directory = os.path.join(data_home, "applications")
     icon_path = os.path.join(icon_directory, "umbriel-settings.png")
-    desktop_path = os.path.join(application_directory, "umbriel-settings.desktop")
+    desktop_path = os.path.join(application_directory, DESKTOP_ENTRY)
     os.makedirs(icon_directory, exist_ok=True)
     os.makedirs(application_directory, exist_ok=True)
     if not icon.pixmap(128, 128).save(icon_path, "PNG"):

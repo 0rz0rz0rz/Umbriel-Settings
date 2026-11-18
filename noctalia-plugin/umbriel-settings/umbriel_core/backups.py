@@ -8,8 +8,6 @@ import os
 import shutil
 import stat
 
-from .paths import migrate_gui_directory
-
 MAX_BACKUPS = 10
 STAMP = "%Y%m%d-%H%M%S-%f"
 
@@ -22,30 +20,16 @@ def backup_dir(config_dir):
 def create_backup_snapshot(path, config_dir, protect=None):
     """Keep a timestamped, restorable copy under the GUI's data directory; older ones beyond MAX_BACKUPS go,
     except `protect` (the backup being restored)."""
-    directory = backup_dir(config_dir)
-    migrate_gui_directory(path + ".backups", directory)
-    return snapshot_file(path, directory, protect=protect)
+    return snapshot_file(path, backup_dir(config_dir), protect=protect)
 
 
 def snapshot_file(path, directory, protect=None):
     """Copy `path` into `directory` as `<name>.<timestamp>.bak` and keep the newest MAX_BACKUPS (and `protect`)."""
     os.makedirs(directory, exist_ok=True)
-    _adopt_single_backup(path, directory)
     snapshot = os.path.join(directory, f"{os.path.basename(path)}.{datetime.datetime.now().strftime(STAMP)}.bak")
     shutil.copy2(path, snapshot)
     prune_backup_snapshots(directory, path, protect=protect)
     return snapshot
-
-
-def _adopt_single_backup(path, directory):
-    """Earlier versions kept one rolling `<name>.bak`; name it by its time so it sorts and prunes as the oldest."""
-    legacy = os.path.join(directory, os.path.basename(path) + ".bak")
-    if not os.path.isfile(legacy) or os.path.islink(legacy):
-        return
-    stamp = datetime.datetime.fromtimestamp(os.path.getmtime(legacy)).strftime(STAMP)
-    target = os.path.join(directory, f"{os.path.basename(path)}.{stamp}.bak")
-    if not os.path.exists(target):
-        os.replace(legacy, target)
 
 
 def prune_backup_snapshots(directory, config_path, keep=MAX_BACKUPS, protect=None):

@@ -18,7 +18,7 @@ from umbriel_core.paths import atomic_write
 
 from .host.api import NoctaliaApi
 from .host.bridge import Bridge, QtScheduler
-from .host.paths import app_data_dir, shared_ui_dir
+from .host.paths import app_data_dir, shared_ui_dir, watch_with_parents
 from .host.runtime import LuaHost
 from .host.theme import Theme
 
@@ -232,14 +232,7 @@ class AppWindow(QMainWindow):
 
     def watch_desktop_files(self):
         """Watch the desktop files that exist and are not watched yet; returns True when one was added."""
-        directory = os.path.dirname(self.desktop_files[0])
-        if os.path.isdir(directory) and directory not in self.watcher.directories():
-            self.watcher.addPath(directory)
-        watched = self.watcher.files()
-        missing = [path for path in self.desktop_files if path not in watched and os.path.exists(path)]
-        if missing:
-            self.watcher.addPaths(missing)
-        return bool(missing)
+        return any(path in self.desktop_files for path in watch_with_parents(self.watcher, self.desktop_files))
 
     def on_file_change(self, path):
         (self.desktop_timer if path in self.desktop_files else self.watch_timer).start()
@@ -292,8 +285,3 @@ class AppWindow(QMainWindow):
             "maximized": self.isMaximized() or self.isFullScreen(),
         })
         event.accept()
-
-
-def ui_selftest_tree(window):
-    """Last rendered tree as JSON text (used by tests and the render tool)."""
-    return json.loads(window.bridge.last_tree) if window.bridge.last_tree else None

@@ -1,77 +1,15 @@
 -- One settings row per field: label, default, Override badge + Reset, a compact control, undo and help.
 local kit = require("./kit.luau")
+local format = require("./format.luau")
 
 local M = {}
 
-M.EDITOR_WIDTH = 320
-M.ACTIONS_WIDTH = 64  -- two small icon buttons: undo, help
+-- Key of a setting's row (and prefix of its controls' keys); routes reveal it.
+function M.rowKey(fid) return "f:" .. fid end
 
--- Numbers follow the system's numeric locale (LC_ALL > LC_NUMERIC > LANG): "0,75" in German.
--- The config file always stores a dot; only display and typing change.
-local COMMA_LANGUAGES = {
-  de = true, fr = true, es = true, it = true, nl = true, pt = true, ru = true, pl = true, cs = true, sk = true,
-  sv = true, da = true, nb = true, nn = true, no = true, fi = true, tr = true, uk = true, hu = true, ro = true,
-  hr = true, sl = true, el = true, bg = true, lt = true, lv = true, et = true, id = true, vi = true, be = true,
-}
-local decimalPoint = nil
-function M.decimalPoint()
-  if decimalPoint == nil then
-    local value = ""
-    for _, name in ipairs({ "LC_ALL", "LC_NUMERIC", "LANG" }) do
-      local found = noctalia.getenv(name)
-      if found and found ~= "" then value = found; break end
-    end
-    decimalPoint = COMMA_LANGUAGES[string.lower(string.match(value, "^(%a+)") or "")] and "," or "."
-  end
-  return decimalPoint
-end
-
--- A number as text with the locale's decimal separator.
-function M.number(value)
-  if type(value) ~= "number" then return tostring(value) end
-  local text
-  if value == math.floor(value) and math.abs(value) < 1e15 then text = string.format("%d", math.floor(value))
-  else text = string.format("%.15g", value) end
-  if M.decimalPoint() ~= "." then text = (string.gsub(text, "%.", M.decimalPoint())) end
-  return text
-end
-
--- Parse typed text; both "0,75" and "0.75" are accepted.
-function M.parseNumber(text)
-  text = noctalia.string.trim(text or "")
-  if text == "" then return nil end
-  return tonumber((string.gsub(text, ",", ".")))
-end
-
-function M.format(field, value)
-  if value == nil then return "not set" end
-  local kind = field.kind
-  if kind == "bool" then return value and "On" or "Off" end
-  if type(value) == "number" and field.special and value == field.special.value then
-    return string.lower(field.special.label)
-  end
-  if type(value) == "number" then return M.number(value) end
-  if type(value) == "table" then
-    if kind == "table" then
-      local parts = {}
-      for _, key in ipairs(field.keys or {}) do
-        if value[key] ~= nil then table.insert(parts, key .. " " .. M.number(value[key])) end
-      end
-      return table.concat(parts, ", ")
-    end
-    local parts = {}
-    for _, item in ipairs(value) do table.insert(parts, tostring(item)) end
-    return #parts > 0 and table.concat(parts, ", ") or "empty"
-  end
-  local text = tostring(value)
-  if text == "" then return "empty" end
-  if field.choice_labels then
-    for i, choice in ipairs(field.choices or {}) do
-      if choice == text then return field.choice_labels[i] or text end
-    end
-  end
-  return text
-end
+local EDITOR_WIDTH = 320
+local ACTIONS_WIDTH = 64  -- two small icon buttons: undo, help
+local NO_COLOR = "#000000FF"  -- what color controls show for an unset color
 
 local function indexOf(list, value)
   for index, item in ipairs(list or {}) do
@@ -81,7 +19,7 @@ local function indexOf(list, value)
 end
 
 local function parseNumber(text, integer)
-  local number = M.parseNumber(text)
+  local number = format.parseNumber(text)
   if number == nil then return nil end
   if integer then
     if number ~= math.floor(number) then return nil end
@@ -114,14 +52,21 @@ local function bump(view, key) view.gen[key] = (view.gen[key] or 0) + 1 end
 -- props: key, min, max, step, value, ...; preview(number) runs on every change; commit(number) once at the end.
 local WHEEL_MS, WHEEL_STEPS = 20, 3
 local function now() return noctalia.nowMs and noctalia.nowMs() or 0 end
+-- Noctalia also calls onChange when a render moves the slider (Slider::setValue reports every new value), and it
+-- calls the previous render's handler. Without a gesture, a value at the one rendered last is that echo: taking it
+-- for a drag would rebuild the number box next to it while someone types there.
 local function slider(ctx, props, preview, commit)
   local view, key, shown = ctx.view, props.key, props.value
   view.sliding = view.sliding or {}
+  view.sliderShown = view.sliderShown or {}
+  view.sliderShown[key] = shown
   props.key = key .. ":" .. gen(view, key)
   props.onChange = function(text)
     local number = tonumber(text)
     if number == nil then return end
     local gesture = view.sliding[key]
+    local rendered = view.sliderShown[key]
+    if not gesture and rendered ~= nil and math.abs(number - rendered) <= (props.step or 0) / 2 + 1e-9 then return end
     if not gesture then
       gesture = { at = now(), count = 0 }
       view.sliding[key] = gesture
@@ -212,10 +157,10 @@ local function numberControl(ctx, spec, effective)
   local boxValue = preview ~= nil and preview or effective
   if isSpecial and preview == nil then boxValue = nil end  -- the switch says it; the box stays empty
   table.insert(controls, ui.input({
-    key = key .. ":num:" .. gen(view, key), value = boxValue ~= nil and M.format(field, boxValue) or "",
+    key = key .. ":num:" .. gen(view, key), value = boxValue ~= nil and format.value(field, boxValue) or "",
     width = hasRange and 84 or nil, flexGrow = (not hasRange) and 1 or nil, controlSize = "sm",
-    placeholder = (effective == nil and field.initial ~= nil) and ("e.g. " .. M.format(field, field.initial))
-      or (field.min ~= nil and field.max ~= nil) and (M.number(field.min) .. " – " .. M.number(field.max)) or "number",
+    placeholder = (effective == nil and field.initial ~= nil) and ("e.g. " .. format.value(field, field.initial))
+      or (field.min ~= nil and field.max ~= nil) and (format.number(field.min) .. " – " .. format.number(field.max)) or "number",
     onChange = function(text)
       local number = parseNumber(text, integer)
       if number ~= nil and clamp(field, number) ~= nil then
@@ -226,9 +171,9 @@ local function numberControl(ctx, spec, effective)
       else
         local range = ""
         if field.min ~= nil and field.max ~= nil then
-          range = " between " .. M.number(field.min) .. " and " .. M.number(field.max)
-        elseif field.min ~= nil then range = " of at least " .. M.number(field.min)
-        elseif field.max ~= nil then range = " of at most " .. M.number(field.max) end
+          range = " between " .. format.number(field.min) .. " and " .. format.number(field.max)
+        elseif field.min ~= nil then range = " of at least " .. format.number(field.min)
+        elseif field.max ~= nil then range = " of at most " .. format.number(field.max) end
         view.invalid[key] = (integer and "Enter a whole number" or "Enter a number") .. range
       end
       ctx.render()
@@ -240,7 +185,7 @@ end
 
 local function colorControl(ctx, spec, effective)
   local key, view = spec.key, ctx.view
-  local value = type(effective) == "string" and effective or "#000000FF"
+  local value = type(effective) == "string" and effective or NO_COLOR
   local controls = {
     ui.box({ width = 34, height = 22, radius = 6, fill = value, border = "outline_variant", borderWidth = 1,
              onClick = function()
@@ -370,8 +315,8 @@ local function tableControl(ctx, spec, effective)
       kit.muted(sub, { fontSize = 10 }),
       ui.input({
         key = key .. ":" .. sub .. ":" .. gen(ctx.view, key), controlSize = "sm",
-        value = (current and current[sub] ~= nil) and M.number(current[sub]) or "",
-        placeholder = defaults[sub] ~= nil and M.number(defaults[sub]) or "",
+        value = (current and current[sub] ~= nil) and format.number(current[sub]) or "",
+        placeholder = defaults[sub] ~= nil and format.number(defaults[sub]) or "",
         onChange = function(text)
           local next = {}
           for _, other in ipairs(field.keys) do
@@ -384,7 +329,7 @@ local function tableControl(ctx, spec, effective)
             if not current then ctx.render(); return end
             next[sub] = defaults[sub]
           elseif numeric then
-            local number = M.parseNumber(trimmed)
+            local number = format.parseNumber(trimmed)
             if number == nil then ctx.view.invalid[key] = sub .. ": enter a number"; ctx.render(); return end
             next[sub] = number
           else
@@ -449,13 +394,13 @@ local function opacityRow(ctx, spec, effective)
   local follow = spec.follow
   local color = type(effective) == "string" and effective or spec.field.initial
   if follow then color = "#000000" .. follow.alpha end
-  local rgb, alphaHex = string.match(type(color) == "string" and color or "#000000FF", "^(#%x%x%x%x%x%x)(%x?%x?)$")
+  local rgb, alphaHex = string.match(type(color) == "string" and color or NO_COLOR, "^(#%x%x%x%x%x%x)(%x?%x?)$")
   if not rgb then return nil end
   alphaHex = string.upper(alphaHex ~= "" and alphaHex or "FF")
   local alpha = tonumber(alphaHex, 16) / 255
   return ui.row({ key = key .. ":opacity", gap = 12, align = "center" }, {
     ui.column({ flexGrow = 1 }, { kit.muted("Opacity") }),
-    ui.row({ width = M.EDITOR_WIDTH, gap = 6, align = "center", opacity = (spec.set or follow) and 1 or 0.75 }, {
+    ui.row({ width = EDITOR_WIDTH, gap = 6, align = "center", opacity = (spec.set or follow) and 1 or 0.75 }, {
       slider(ctx, { key = key .. ":opacity-slider", min = 0, max = 1, step = 0.01, value = alpha,
                     flexGrow = 1, controlSize = "sm", tooltip = "Opacity (alpha of the color)" }, nil,
         function(number)
@@ -463,17 +408,17 @@ local function opacityRow(ctx, spec, effective)
           if follow then
             spec.onFollow(follow.source, number)
           else
-            spec.onSet(rgb .. string.format("%02X", math.floor(number * 255 + 0.5)))
+            spec.onSet(rgb .. format.alphaByte(number))
           end
           bump(view, key)
         end),
       ui.label({ text = (function()
         local shown = sliding(ctx, key .. ":opacity-slider")
         if shown == nil then return string.format("%.2f · %s", alpha, alphaHex) end
-        return string.format("%.2f · %02X", shown, math.floor(shown * 255 + 0.5))
+        return string.format("%.2f · ", shown) .. format.alphaByte(shown)
       end)(), fontSize = 12 }),
     }),
-    ui.row({ width = M.ACTIONS_WIDTH }, {}),
+    ui.row({ width = ACTIONS_WIDTH }, {}),
   })
 end
 
@@ -503,7 +448,7 @@ function M.row(ctx, spec)
     below = listRows(ctx, spec, spec.set and spec.value or nil)
   else
     local hint = field.default ~= nil and field.default or field.initial
-    local placeholder = field.placeholder or (hint ~= nil and M.format(field, hint) or "")
+    local placeholder = field.placeholder or (hint ~= nil and format.value(field, hint) or "")
     if placeholder == "empty" or placeholder == "not set" then placeholder = "" end
     if kind == "raw" then placeholder = "TOML value" .. (placeholder ~= "" and (", e.g. " .. placeholder) or "") end
     controls = textControl(ctx, spec, spec.set and spec.value or nil, placeholder)
@@ -515,7 +460,7 @@ function M.row(ctx, spec)
                                       tooltip = "Takes effect after restarting Umbriel" }))
   end
   -- One quiet line: a hint, then "Default 2"; an overridden key gets the Override badge instead of a color.
-  local defaultText = hasDefault(field) and M.format(field, field.default) or nil
+  local defaultText = hasDefault(field) and format.value(field, field.default) or nil
   if defaultText == "empty" then defaultText = nil end
   local customized = spec.set and (defaultText == nil or ctx.store.differs(field, spec.value))
   local status
@@ -566,9 +511,12 @@ function M.row(ctx, spec)
         end }))
     end
   end
-  table.insert(main, ui.row({ width = M.EDITOR_WIDTH, gap = 6, align = "center", opacity = spec.set and 1 or 0.75 },
-                            controls))
-  table.insert(main, ui.row({ width = M.ACTIONS_WIDTH, gap = 0, justify = "end", align = "center" }, actions))
+  -- Keyed: the badges and Reset before them come and go with edits, and an unkeyed row that moves is rebuilt,
+  -- which would replace the input being typed in.
+  table.insert(main, ui.row({ key = key .. ":controls", width = EDITOR_WIDTH, gap = 6, align = "center",
+                              opacity = spec.set and 1 or 0.75 }, controls))
+  table.insert(main, ui.row({ key = key .. ":actions", width = ACTIONS_WIDTH, gap = 0, justify = "end",
+                              align = "center" }, actions))
   local children = { ui.row({ key = key .. ":main", gap = 12, align = "center" }, main) }
   if below then
     table.insert(children, ui.column({ key = key .. ":list", gap = 4, paddingH = 8 }, below))
@@ -579,7 +527,7 @@ function M.row(ctx, spec)
   end
   if view.openColor == key and kind == "color" then
     table.insert(children, ui.row({ key = key .. ":picker", justify = "end" }, {
-      ui.colorPicker({ key = key .. ":cp", value = type(effective) == "string" and effective or "#000000FF",
+      ui.colorPicker({ key = key .. ":cp", value = type(effective) == "string" and effective or NO_COLOR,
                        alpha = true, inputs = "hex", width = 300, swatches = ctx.swatches(),
                        onChangeEnd = function(color) spec.onSet(string.upper(color)); bump(view, key); ctx.render() end }),
     }))

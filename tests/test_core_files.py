@@ -16,6 +16,7 @@ from umbriel_core.backups import (
 )
 from umbriel_core.cursor_themes import installed_cursor_themes
 from umbriel_core.launch import child_env
+from umbriel_core.legacy import migrate_data_dir
 
 
 class TempDirTestCase(unittest.TestCase):
@@ -88,11 +89,12 @@ class BackupTests(TempDirTestCase):
             create_backup_snapshot(config, os.path.join(self.root, "data"))
         self.assertEqual(len(list_backup_snapshots(directory, config)), MAX_BACKUPS)
 
-    def test_snapshot_file_adopts_the_old_single_backup_as_the_oldest(self):
+    def test_old_single_backup_is_adopted_as_the_oldest(self):
         source = self.write("mimeapps.list", text="new\n")
-        legacy = self.write("desktop", "mimeapps.list.bak", text="old\n")
+        legacy = self.write("data", "backups", "mimeapps.list.bak", text="old\n")
         os.utime(legacy, (0, 86400))
-        directory = os.path.join(self.root, "desktop")
+        directory = os.path.join(self.root, "data", "backups")
+        migrate_data_dir(os.path.join(self.root, "data"))
         newest = snapshot_file(source, directory)
         snapshots = list_backup_snapshots(directory, source)
         self.assertEqual(len(snapshots), 2)

@@ -6,9 +6,9 @@ import tomlkit
 
 from umbriel_core import fields, keybinds
 from umbriel_core.fields import F
-from umbriel_core.help import FIELD_HELP, GROUP_HELP, setting_description
-from umbriel_core.tomlops import MISSING, getp, parse_toml_value
-from umbriel_core.values import apply_value, from_ui, is_overridden, normalize_color, to_ui
+from umbriel_core.help import FIELD_HELP, GROUP_HELP, setting_help_text
+from umbriel_core.tomlops import getp, parse_toml_value
+from umbriel_core.values import apply_value, from_ui, to_ui
 
 SIZE = F("Floating size px", "default_floating_size_px", "table",
          {"width": 800, "height": 600}, ("width", "height"), True)
@@ -101,43 +101,17 @@ class ApplyValueTests(unittest.TestCase):
         self.assertEqual(write(text, width, 4), "[general]\n# keep me\nborder_width = 4 # inline\n")
 
 
-class OverriddenTests(unittest.TestCase):
-    def test_default_comparison_handles_booleans_and_colors(self):
-        optional = F("Optional", "optional", "bool", True, None, True)
-        color = F("Color", "color", "color", "#112233", None, True)
-        for field, current, expected in (
-            (optional, MISSING, False),
-            (optional, True, False),
-            (optional, False, True),
-            (color, "#112233FF", False),
-            (color, "#11223380", True),
-            (color, "#112233", False),
-        ):
-            with self.subTest(field=field.label, current=current):
-                self.assertEqual(is_overridden(field, current, field.default), expected)
-
-    def test_normalize_color(self):
-        self.assertEqual(normalize_color("#aabbcc"), "#AABBCCFF")
-        self.assertEqual(normalize_color("#aabbcc80"), "#AABBCC80")
-        for bad in ("aabbcc", "#abcd", "#zzzzzz", None, 3):
-            with self.subTest(value=bad):
-                self.assertIsNone(normalize_color(bad))
-
-
 class HelpCoverageTests(unittest.TestCase):
-    def test_description_includes_field_help_and_context(self):
+    def test_help_text_includes_field_help(self):
         field = F("Enabled", "general.enabled", "bool", False, None, True)
-        description = " ".join(setting_description(field, "General", "Session").split())
-        self.assertIn(" ".join(FIELD_HELP["Enabled"].split()), description)
-        self.assertIn("Applies to: General > Session", description)
-        self.assertIn("Config key: general.enabled", description)
+        self.assertIn(FIELD_HELP["Enabled"], setting_help_text(field, "Session"))
 
     def test_every_window_rule_match_condition_has_its_own_help(self):
         for field in fields.WINDOW_RULE:
             if field.label.startswith("Match "):
                 with self.subTest(label=field.label):
                     self.assertIn(field.label, FIELD_HELP)
-                    self.assertNotIn("rules rule", setting_description(field, "Window rules", "Match"))
+                    self.assertNotIn("rules rule", setting_help_text(field, "Match"))
 
     def test_help_keys_match_existing_labels_and_groups(self):
         """FIELD_HELP is keyed by label, so renaming a field silently orphans its help."""
@@ -192,11 +166,6 @@ class KeybindCheckTests(unittest.TestCase):
         keybinds.check_shortcut_conflicts(["Super+Q", "Super+W", "", "  "])
         with self.assertRaisesRegex(ValueError, "duplicates"):
             keybinds.check_shortcut_conflicts(["Super+Q", " super+q "])
-
-    def test_options_round_trip_keeps_unknown_keys(self):
-        options = keybinds.parse_opts("repeat=false, cooldown_ms=200, custom=abc")
-        self.assertEqual(options, {"repeat": False, "cooldown_ms": 200, "custom": "abc"})
-        self.assertEqual(keybinds.fmt_opts(options), "repeat=false, cooldown_ms=200, custom=abc")
 
     def test_incomplete_actions_are_rejected(self):
         keybinds.check_action("Super+Return", "spawn kitty")

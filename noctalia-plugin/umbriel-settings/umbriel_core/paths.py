@@ -5,7 +5,6 @@ import fcntl
 import hashlib
 import json
 import os
-import shutil
 import stat
 import tempfile
 import time
@@ -13,6 +12,22 @@ import time
 DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/umbriel/config.toml")
 DATA_DIR_NAME = "umbriel-settings"
 LEGACY_DIR_NAME = "umbriel-config-gui"  # data, config and desktop-entry name before the rename to Umbriel Settings
+DESKTOP_ENTRY = "umbriel-settings.desktop"  # per-user entry the app installs and the plugin launches
+LABELS_FILE_NAME = "gui-labels.json"  # sidecars in each config's GUI data directory
+LOCK_FILE_NAME = "gui-locked-keybinds.json"
+
+
+
+def xdg_config_home():
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+
+
+def xdg_data_home():
+    return os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+
+
+def xdg_data_dirs():
+    return [d for d in (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if d]
 
 
 def default_gui_data_dir():
@@ -21,7 +36,7 @@ def default_gui_data_dir():
     The pre-rename `umbriel-config-gui` directory (backups, labels, locks, last config) is moved there once;
     if that move fails the old directory keeps being used so nothing appears lost.
     """
-    base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    base = xdg_data_home()
     path = os.path.join(base, DATA_DIR_NAME)
     legacy = os.path.join(base, LEGACY_DIR_NAME)
     if not os.path.lexists(path) and os.path.isdir(legacy) and not os.path.islink(legacy):
@@ -59,29 +74,6 @@ def load_saved_config_path(saved_file, default_path):
     except (OSError, UnicodeError):
         pass
     return default_path
-
-
-def migrate_gui_file(legacy_path, new_path):
-    """Move a GUI-owned file from its former location into the application data directory."""
-    if os.path.isfile(legacy_path) and not os.path.exists(new_path):
-        os.makedirs(os.path.dirname(new_path), exist_ok=True)
-        os.replace(legacy_path, new_path)
-
-
-def migrate_gui_directory(legacy_path, new_path):
-    """Move GUI-owned files from a former directory into the application data directory."""
-    if not os.path.isdir(legacy_path):
-        return
-    os.makedirs(new_path, exist_ok=True)
-    for name in os.listdir(legacy_path):
-        source = os.path.join(legacy_path, name)
-        destination = os.path.join(new_path, name)
-        if not os.path.exists(destination):
-            shutil.move(source, destination)
-    try:
-        os.rmdir(legacy_path)
-    except OSError:
-        pass
 
 
 def atomic_write(path, data, mode=None):
@@ -168,17 +160,15 @@ def write_text_file(path, text):
     atomic_write(os.path.realpath(path), text)
 
 
-def labels_file(config_path, config_dir):
-    """Return the GUI-only entry label sidecar, migrating it from next to the config if needed."""
-    sidecar = os.path.join(config_dir, "gui-labels.json")
-    migrate_gui_file(os.path.abspath(config_path) + ".gui-labels.json", sidecar)
-    return sidecar
+def labels_file(config_dir):
+    """Return the GUI-only entry label sidecar inside a per-config GUI data directory."""
+    return os.path.join(config_dir, LABELS_FILE_NAME)
 
 
-def load_all_entry_labels(config_path, config_dir):
+def load_all_entry_labels(config_dir):
     """Return every stored entry label list keyed by entry path, e.g. {"window_rule": ["Foo", ""]}."""
     try:
-        with open(labels_file(config_path, config_dir), encoding="utf-8") as f:
+        with open(labels_file(config_dir), encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError):
         return {}
@@ -189,25 +179,3 @@ def load_all_entry_labels(config_path, config_dir):
         for key, labels in data.items()
         if isinstance(labels, list)
     }
-
-
-def load_entry_labels(config_path, entry_path, config_dir):
-    """Load GUI-only entry labels for one entry path."""
-    return load_all_entry_labels(config_path, config_dir).get(entry_path, [])
-
-
-def save_entry_labels(config_path, entry_path, labels, config_dir):
-    """Save GUI-only entry labels without adding unsupported keys to the Umbriel config."""
-    sidecar = labels_file(config_path, config_dir)
-    try:
-        with open(sidecar, encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            data = {}
-    except (OSError, ValueError):
-        data = {}
-    if any(labels):
-        data[entry_path] = labels
-    else:
-        data.pop(entry_path, None)
-    write_text_file(sidecar, json.dumps(data, indent=2))

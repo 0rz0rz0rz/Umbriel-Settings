@@ -173,8 +173,31 @@ for _, kind in ipairs({ "column", "row", "scroll", "label", "input", "button", "
     return { kind = kind, props = props, children = children or {} }
   end
 end
+-- Noctalia keeps a keyed slider across renders and applies a changed `value` with Slider::setValue, which
+-- reports it through the slider's onValueChanged, i.e. the previous render's onChange, as if it was moved.
+local function echoSliderValues(old, new)
+  local before = {}
+  local function collect(node)
+    if node.kind == "slider" and node.props.key then before[node.props.key] = node end
+    for _, child in ipairs(node.children or {}) do collect(child) end
+  end
+  if old then collect(old) end
+  local function visit(node)
+    local previous = node.kind == "slider" and before[node.props.key]
+    if previous and previous.props.value ~= node.props.value and node.props.value ~= nil and previous.props.onChange then
+      previous.props.onChange(tostring(node.props.value))
+    end
+    for _, child in ipairs(node.children or {}) do visit(child) end
+  end
+  visit(new)
+end
+
 panel = {
-  render = function(value) tree = value end,
+  render = function(value)
+    local old = tree
+    tree = value
+    echoSliderValues(old, value)
+  end,
   close = function() end,
   setNeedsFrameTick = function(value) frameTick = value end,
   openContextMenu = function() return true end,
@@ -311,6 +334,17 @@ H.flushReads, H.texts, H.hasText, H.find, H.clickText, H.lastCall, H.screen =
 H.tree = function() return tree end
 H.walk = walk
 H.clickShortcut = clickShortcut
+-- The input whose key matches the Lua pattern, e.g. H.input("^search:").
+function H.input(pattern)
+  return find("input", function(n) return tostring(n.props.key):match(pattern) end, "no input " .. pattern)
+end
+-- The node keyed `key`, or nil.
+function H.byKey(key) return walk(tree, function(n) return n.props.key == key end) end
+-- Ctrl+F and an empty search: Home, as after opening.
+function H.goHome()
+  entry.onKey("ctrl+f", true)
+  H.input("^search:").props.onChange("")
+end
 -- Drops the drag source keyed `sourceKey` on the zone keyed `zoneKey`, like a completed pointer drag:
 -- Noctalia calls the global the zone names with (payload, value) when the zone accepts the source's type.
 function H.drag(sourceKey, zoneKey)

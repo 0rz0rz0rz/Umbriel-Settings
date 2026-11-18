@@ -131,7 +131,7 @@ config given on the command line, unless the current one has unsaved changes.
 # From a checkout (with a virtual environment, use .venv/bin/python instead of /usr/bin/python3)
 "Mod+Shift+C" = "spawn /usr/bin/python3 /home/you/Applications/Umbriel-Settings/python/umbriel-settings.py"
 # From the AppImage
-"Mod+Shift+C" = "spawn /home/you/Applications/Umbriel-Settings-0.1.0-006-x86_64.AppImage"
+"Mod+Shift+C" = "spawn /home/you/Applications/Umbriel-Settings-<version>-x86_64.AppImage"
 # Works for any install: the desktop entry the app creates on first start
 "Mod+Shift+C" = "spawn gio launch /home/you/.local/share/applications/umbriel-settings.desktop"
 ```
@@ -143,7 +143,8 @@ download is checked against the SHA-256 checksums in `appimage/` (`*.lock`, `pin
 at the AppImage, so keep it at a stable path.
 
 **Upgrading from `umbriel-config-gui`** (the old name): data moves to `$XDG_DATA_HOME/umbriel-settings`
-automatically, and the desktop entry is replaced. By hand: point keybinds at `python/umbriel-settings.py`,
+automatically, and the desktop entry is replaced. Files earlier versions kept next to the config (rule names,
+keybind locks, backups) move into the data folder the first time each config is opened. By hand: point keybinds at `python/umbriel-settings.py`,
 and change the Noctalia palette template's `output_path` (see below); until then the old palette file is
 still read.
 

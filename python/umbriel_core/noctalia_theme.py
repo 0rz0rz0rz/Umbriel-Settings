@@ -6,14 +6,13 @@ Sources, first available wins:
 3. Nothing: the host falls back to the Qt palette.
 """
 
-import configparser
 import os
 import re
 import tomllib
 
 from . import kde
 from .backups import snapshot_file
-from .paths import DATA_DIR_NAME, LEGACY_DIR_NAME, atomic_write
+from .paths import DATA_DIR_NAME, LEGACY_DIR_NAME, atomic_write, xdg_config_home
 
 ROLES = (
     "primary", "on_primary", "primary_container", "on_primary_container", "secondary", "on_secondary",
@@ -34,23 +33,19 @@ PALETTE_TEMPLATE = """\
 ROLE_NAME = re.compile(r"[a-z][a-z0-9_]*")  # role names become CSS custom properties
 
 
-def config_home():
-    return os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-
-
 def palette_file():
     """Where Noctalia writes the palette; templates set up before the rename still write to the old directory."""
-    path = os.path.join(config_home(), DATA_DIR_NAME, "noctalia-palette.conf")
-    legacy = os.path.join(config_home(), LEGACY_DIR_NAME, "noctalia-palette.conf")
+    path = os.path.join(xdg_config_home(), DATA_DIR_NAME, "noctalia-palette.conf")
+    legacy = os.path.join(xdg_config_home(), LEGACY_DIR_NAME, "noctalia-palette.conf")
     return legacy if not os.path.exists(path) and os.path.exists(legacy) else path
 
 
 def template_file():
-    return os.path.join(config_home(), "noctalia", "templates", "umbriel-settings-palette.conf")
+    return os.path.join(xdg_config_home(), "noctalia", "templates", "umbriel-settings-palette.conf")
 
 
 def noctalia_config_file():
-    return os.path.join(config_home(), "noctalia", "noctalia-config.toml")
+    return os.path.join(xdg_config_home(), "noctalia", "noctalia-config.toml")
 
 
 def _hex(value):
@@ -100,18 +95,12 @@ def palette_from_kde_scheme(path):
 
 
 def qt6ct_scheme(config_dir=None):
-    path = os.path.join(config_dir or config_home(), "qt6ct", "qt6ct.conf")
-    parser = configparser.RawConfigParser(strict=False, interpolation=None)
+    """qt6ct's selected KDE scheme even while its custom palette is off (only the colors are used), or None."""
+    path = os.path.join(config_dir, "qt6ct", "qt6ct.conf") if config_dir else None
     try:
-        with open(path, encoding="utf-8") as handle:
-            parser.read_file(handle)
-    except (OSError, UnicodeError, configparser.Error):
+        return kde.qt6ct_scheme_path(path, require_custom=False)
+    except ValueError:
         return None
-    scheme = parser.get("Appearance", "color_scheme_path", fallback="").strip().strip('"')
-    if not scheme:
-        return None
-    scheme = os.path.expanduser(scheme)
-    return scheme if os.path.isabs(scheme) else os.path.join(os.path.dirname(path), scheme)
 
 
 def mix(a, b, amount):
@@ -222,6 +211,13 @@ def template_status(config=None):
     }
 
 
+def _write_config(config, updated, backup_dir):
+    """Replace Noctalia's config with `updated` once it parses, keeping a backup of the old file."""
+    tomllib.loads(updated)
+    snapshot_file(config, backup_dir)
+    atomic_write(config, updated)
+
+
 def write_user_template(key, template, text, entry, backup_dir, config=None):
     """Write a Noctalia user template and make [theme.templates.user.<key>] point at it.
 
@@ -254,10 +250,7 @@ def write_user_template(key, template, text, entry, backup_dir, config=None):
             table = tomlkit.table()
             table.update(entry)
             node[key] = table
-        updated = tomlkit.dumps(document)
-        tomllib.loads(updated)
-        snapshot_file(config, backup_dir)
-        atomic_write(config, updated)
+        _write_config(config, tomlkit.dumps(document), backup_dir)
 
 
 def remove_user_template(key, template, backup_dir, config=None):
@@ -274,10 +267,7 @@ def remove_user_template(key, template, backup_dir, config=None):
             user = user.get(part) if isinstance(user, dict) else None
         if isinstance(user, dict) and key in user:
             del user[key]
-            updated = tomlkit.dumps(document)
-            tomllib.loads(updated)
-            snapshot_file(config, backup_dir)
-            atomic_write(config, updated)
+            _write_config(config, tomlkit.dumps(document), backup_dir)
     if os.path.isfile(template) and not os.path.islink(template):
         os.remove(template)
 
@@ -285,5 +275,5 @@ def remove_user_template(key, template, backup_dir, config=None):
 def install_template(backup_dir, config=None):
     """Write the palette template and add its user-template entry to Noctalia's config (backed up first)."""
     write_user_template(TEMPLATE_KEY, template_file(), PALETTE_TEMPLATE, TEMPLATE_ENTRY, backup_dir, config)
-    os.makedirs(os.path.join(config_home(), DATA_DIR_NAME), exist_ok=True)
+    os.makedirs(os.path.join(xdg_config_home(), DATA_DIR_NAME), exist_ok=True)
     return template_status(config)

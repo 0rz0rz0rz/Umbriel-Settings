@@ -1,36 +1,12 @@
 import os
 import sys
-import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-try:
-    import lupa  # noqa: F401
-except ImportError:  # pragma: no cover - lupa is a runtime dependency of the app
-    lupa = None
+from host_support import CONFIG, isolated_home, lupa
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG = textwrap.dedent("""\
-    # my config
-    [general]
-    mod_key = "Super" # main modifier
-
-    [keybinds]
-    "Mod+Return" = "spawn kitty"
-
-    [[window_rule]]
-    match = { app_id = "^org.mozilla.firefox$" }
-""")
-FAKE_UMBRIEL = textwrap.dedent("""\
-    import json, sys
-    if sys.argv[1:3] == ["config", "schema"]:
-        print(json.dumps({"version": "test", "revision": "r1", "options": [
-            {"path": "general.mod_key", "type": "enum", "default": "Super", "values": ["Super", "Alt"]}]}))
-        raise SystemExit(0)
-    print(json.dumps({"valid": True, "diagnostics": []}))
-""")
 
 
 def walk(node, visit):
@@ -52,21 +28,8 @@ class HostRuntimeTests(unittest.TestCase):
         from umbriel_settings.host.paths import shared_ui_dir
         from umbriel_settings.host.runtime import LuaHost
 
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        root = Path(self.temp.name)
-        self.config = root / "config.toml"
-        self.config.write_text(CONFIG)
-        bin_dir = root / "bin"
-        bin_dir.mkdir()
-        (bin_dir / "umbriel").write_text(f"#!{sys.executable}\n" + FAKE_UMBRIEL)
-        (bin_dir / "umbriel").chmod(0o755)
-        # XDG_DATA_DIRS: the desktop page lists installed apps; the machine's own must not decide the result.
-        env = patch.dict(os.environ, {"XDG_DATA_HOME": str(root / "data"), "XDG_CONFIG_HOME": str(root / "xdg"),
-                                      "XDG_DATA_DIRS": str(root / "share"),
-                                      "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]})
-        env.start()
-        self.addCleanup(env.stop)
+        root, self.config = isolated_home(self)
+        self.root = root
         self.scheduler = ManualScheduler()
         self.host = LuaHost(shared_ui_dir(), on_error=lambda error: None)
         self.states = {}
@@ -115,7 +78,7 @@ class HostRuntimeTests(unittest.TestCase):
         self.assertEqual(self.states.get("umbriel.pending"), 0)
 
     def test_a_second_launch_opens_its_config_unless_edits_would_be_lost(self):
-        other = Path(self.temp.name) / "other.toml"
+        other = self.root / "other.toml"
         other.write_text(CONFIG.replace('"Super"', '"Alt"'))
         self.host.call("onRelaunch", str(other))
         self.settle()
@@ -141,7 +104,7 @@ class HostRuntimeTests(unittest.TestCase):
         from umbriel_settings.host.paths import shared_ui_dir
 
         before = list(sys.path)
-        api = NoctaliaApi(self.host, ManualScheduler(), self.temp.name)
+        api = NoctaliaApi(self.host, ManualScheduler(), str(self.root))
         helper = api._helper(os.path.join(shared_ui_dir(), "umbriel_settings.py"))
         self.assertTrue(hasattr(helper, "run"))
         self.assertEqual(sys.path, before)
@@ -154,7 +117,7 @@ class HostRuntimeTests(unittest.TestCase):
         from umbriel_settings.host.api import NoctaliaApi
         from umbriel_settings.host.runtime import LuaHost
         host = LuaHost(self.host.ui_dir, on_error=lambda error: None)
-        api = NoctaliaApi(host, self.scheduler, str(Path(self.temp.name) / "app-ui-2"))
+        api = NoctaliaApi(host, self.scheduler, str(self.root / "app-ui-2"))
         host.start("app.luau", {}, api.globals())
         host.call("onOpen")
         while self.scheduler.drain():
@@ -184,7 +147,7 @@ class HostRuntimeTests(unittest.TestCase):
             def run(self, argv):
                 raise RuntimeError("helper exploded")
 
-        api = self.new_app(str(Path(self.temp.name) / "app-ui-broken"))
+        api = self.new_app(str(self.root / "app-ui-broken"))
         helper = os.path.abspath(os.path.join(shared_ui_dir(), "umbriel_settings.py"))
         api._helpers[helper] = Broken()
         with patch("sys.stderr"):
@@ -203,7 +166,7 @@ class HostRuntimeTests(unittest.TestCase):
         self.assertEqual(self.states.get("umbriel.pending"), 1)
         self.host.call("onClose")
         self.states.clear()
-        self.new_app(str(Path(self.temp.name) / "app-ui"))
+        self.new_app(str(self.root / "app-ui"))
         self.host.call("onOpen")
         self.settle()
         self.assertEqual(self.states.get("umbriel.pending"), 1, "the folder edit came back")

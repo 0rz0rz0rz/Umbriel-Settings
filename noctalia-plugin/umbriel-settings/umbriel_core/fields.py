@@ -610,3 +610,32 @@ NAV_SECTIONS = [
     ("Rules and devices", ["Window rules", "Layer rules", "Workspace rules", "Outputs",
                            "Scratchpads", "Input devices", "Security rules", "Environment"]),
 ]
+
+# Entry editors and key/value maps (plain data here, so schema checks need no tomlkit; entry_ops edits them).
+# id: (page, title, TOML path, mode, groups, collapsible)
+ENTRY_EDITORS = {
+    "output": ("Outputs", "Outputs (connector or monitor)", "output", "map", OUTPUT_GROUPS, True),
+    "window_rule": ("Window rules", "[[window_rule]]", "window_rule", "aot", WINDOW_RULE_GROUPS, True),
+    "layer_rule": ("Layer rules", "[[layer_rule]]", "layer_rule", "aot", [("Layer rule", LAYER_RULE)], False),
+    "workspace": ("Workspace rules", "[[workspace]]", "workspace", "aot", WORKSPACE_RULE_GROUPS, True),
+    "security_context_rule": ("Security rules", "[[security_context_rule]]", "security_context_rule", "aot",
+                              [("Security context rule", SECURITY_RULE)], False),
+    "scratchpad": ("Scratchpads", "[[scratchpad]]", "scratchpad", "aot", [("Scratchpad", SCRATCHPAD)], False),
+    "input_device": ("Input devices", "[[input.device]]", "input.device", "aot",
+                     [("Device override", INPUT_DEVICE)], False),
+    "effect_preset": ("Effects", "Effect presets", "effects.preset", "map", EFFECT_PRESET_GROUPS, True),
+    "effect_pool": ("Effects", "Effect pools", "effects.pool", "map", EFFECT_POOL_GROUPS, True),
+}
+
+# id: (page, title, TOML path, value kind: "string" | "array" | "table")
+MAP_EDITORS = {
+    "environment": ("Environment", "Environment variables", "environment", "string"),
+    "beziers": ("Animation curves", "Named Bézier curves", "animation.beziers", "array"),
+    "springs": ("Animation curves", "Named spring curves", "animation.springs", "table"),
+}
+
+
+def schema_prefix(editor_id):
+    """Schema path prefix of an entry editor's fields, e.g. 'window_rule[]' or 'output.<name>'."""
+    _, _, path, mode, _, _ = ENTRY_EDITORS[editor_id]
+    return path + (".<name>" if mode == "map" else "[]")

@@ -2,32 +2,30 @@
 local kit = require("../ui/kit.luau")
 local search = require("../lib/search.luau")
 local fields = require("../ui/fields.luau")
+local format = require("../ui/format.luau")
 
 local M = {}
 
-function M.pageCounts(store, name)
+-- Unsaved changes and customized items of a page (home cards).
+local function pageCounts(store, name)
   local page = store.meta.pages[name]
-  local changed, customized = 0, 0
   if page.kind == "form" then
+    local changed, customized = 0, 0
     for _, group in ipairs(page.groups) do
       local c, o = store.groupCounts(group.fields)
       changed, customized = changed + c, customized + o
     end
-  elseif page.kind == "entries" then
-    for _, eid in ipairs(page.editors) do
-      changed = changed + store.entryOpCount(eid)
-      customized = customized + #store.entryItems(eid)
-    end
+    return changed, customized
+  end
+  local customized = 0
+  if page.kind == "entries" then
+    for _, eid in ipairs(page.editors) do customized = customized + #store.entryItems(eid) end
   elseif page.kind == "map" then
-    for _, eid in ipairs(page.maps) do
-      changed = changed + store.mapOpCount(eid)
-      customized = customized + #store.mapRows(eid)
-    end
+    for _, eid in ipairs(page.maps) do customized = customized + #store.mapRows(eid) end
   elseif page.kind == "keybinds" then
-    changed = store.keybindsDirty and 1 or 0
     customized = store.keybinds and #store.keybinds.rows or 0
   end
-  return changed, customized
+  return M.pageChanges(store, name), customized
 end
 
 -- Only the unsaved changes of a page: the app's sidebar shows them on every render, so this skips the
@@ -55,15 +53,14 @@ end
 local function countLabel(kind, count)
   if kind == "form" then return kit.plural(count, "customized setting") end
   if kind == "keybinds" then return kit.plural(count, "shortcut") end
-  if kind == "map" then return kit.plural(count, "entry", "entries") end
-  if kind == "entries" then return kit.plural(count, "entry", "entries") end
+  if kind == "map" or kind == "entries" then return kit.plural(count, "entry", "entries") end
   return nil
 end
 
 local function pageCard(ctx, name)
   local store = ctx.store
   local page = store.meta.pages[name]
-  local changed, customized = M.pageCounts(store, name)
+  local changed, customized = pageCounts(store, name)
   local badges = {}
   if changed > 0 then table.insert(badges, kit.badge(changed .. " unsaved", "primary", "b-" .. name)) end
   local summary = countLabel(page.kind, customized)
@@ -102,15 +99,11 @@ local function results(ctx, query)
       local badges = {}
       if store.isChanged(hit.id) then table.insert(badges, kit.badge("changed", "primary", key .. "-c")) end
       if where and not where.editor and set then
-        table.insert(badges, kit.badge(fields.format(field, value), "secondary", key .. "-v"))
+        table.insert(badges, kit.badge(format.value(field, value), "secondary", key .. "-v"))
       end
       table.insert(rows, kit.navRow({ key = key, glyph = "adjustments", title = field.label, subtitle = subtitle,
         badges = badges, tooltip = field.help, onClick = function()
-          if where and where.editor then
-            ctx.openPage(where.page)
-          elseif where then
-            ctx.openPage(where.page, { group = where.group, focus = hit.id, reveal = "f:" .. hit.id })
-          end
+          ctx.openField(hit.id, where)
         end }))
     elseif hit.kind == "entry" then
       local editor = store.meta.editors[hit.editor]
@@ -149,13 +142,13 @@ local function customizedRows(ctx, limit, sections)
               first = false
               local field = store.meta.fields[fid]
               local value = store.value(fid)
-              local badges = { kit.badge(fields.format(field, value), "secondary", "cv-" .. fid) }
+              local badges = { kit.badge(format.value(field, value), "secondary", "cv-" .. fid) }
               if store.isChanged(fid) then table.insert(badges, 1, kit.badge("unsaved", "primary", "cc-" .. fid)) end
               local where = sections and group.title or (name .. " › " .. group.title)
               table.insert(rows, kit.navRow({ key = "cust-" .. fid, glyph = page.glyph, title = field.label,
-                subtitle = where .. (field.default ~= nil and ("  ·  default " .. fields.format(field, field.default)) or ""),
+                subtitle = where .. (field.default ~= nil and ("  ·  default " .. format.value(field, field.default)) or ""),
                 badges = badges, tooltip = field.help, onClick = function()
-                  ctx.openPage(name, { group = group.title, focus = fid, reveal = "f:" .. fid })
+                  ctx.openPage(name, { group = group.title, reveal = fields.rowKey(fid) })
                 end }))
             end
           end
@@ -185,12 +178,17 @@ local function openInEditor(ctx, path)
     if err then ctx.flash(err.error, "error") end
   end)
 end
-M.openInEditor = openInEditor
+
+local function editFileButton(ctx, path, variant)
+  return ui.button({ text = "Edit file", glyph = "file-text", controlSize = "sm", variant = variant,
+                     tooltip = "Open the config in your editor (set under About)",
+                     onClick = function() openInEditor(ctx, path) end })
+end
 
 local function pathRow(ctx, path)
   local view = ctx.view
   return ui.row({ key = "path-row", gap = 8, align = "center" }, {
-    ui.input({ key = "path:" .. tostring(view.gen.path or 0), value = path, flexGrow = 1, controlSize = "sm",
+    ui.input({ key = "path:" .. ctx.gen("path"), value = path, flexGrow = 1, controlSize = "sm",
                placeholder = "~/.config/umbriel/config.toml",
                onChange = function(text) view.pathDraft = text end,
                onSubmit = function(text) view.pathDraft = text; ctx.switchConfig() end }),
@@ -211,9 +209,7 @@ local function footer(ctx)
                 onClick = function() ctx.go({ name = "customized" }) end }),
     ui.button({ text = "Backups", glyph = "history", controlSize = "sm", variant = "outline",
                 onClick = function() ctx.go({ name = "backups" }) end }),
-    ui.button({ text = "Edit file", glyph = "file-text", controlSize = "sm", variant = "outline",
-                tooltip = "Open the config in your editor (set under About)",
-                onClick = function() openInEditor(ctx, path) end }),
+    editFileButton(ctx, path, "outline"),
   }
   if not ctx.isApp then  -- the app is the standalone app
     table.insert(tools, ui.button({ text = "Standalone app", glyph = "external-link", controlSize = "sm",
@@ -262,7 +258,7 @@ local function recentBackups(ctx, path)
     table.insert(rows, ui.row({ key = "home-bk-" .. index, gap = 8, align = "center", paddingH = 4 }, {
       ui.glyph({ name = "history", size = 16, color = kit.MUTED }),
       kit.label(item.time, { flexGrow = 1 }),
-      kit.muted(string.format("%.1f KB", item.size / 1024)),
+      kit.muted(kit.fileSize(item.size)),
     }))
   end
   if #rows == 0 then table.insert(rows, kit.muted("No backups yet; one is taken before every save.")) end
@@ -274,9 +270,7 @@ local function dashboard(ctx, content)
   local path = store.state.path
   local pending = store.pendingCount()
   table.insert(content, card("home-config", "Config file", "file-settings", {
-    ui.button({ text = "Edit file", glyph = "file-text", controlSize = "sm", variant = "ghost",
-                tooltip = "Open the config in your editor (set under About)",
-                onClick = function() openInEditor(ctx, path) end }),
+    editFileButton(ctx, path, "ghost"),
   }, {
     pathRow(ctx, path),
     kit.muted(pending > 0 and (kit.plural(pending, "unsaved change") .. " — review them with Ctrl+S.")
