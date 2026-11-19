@@ -6,6 +6,9 @@ local json, fixtures, files, calls, replies, loaded, pluginDir = H.json, H.fixtu
 local flushReads, hasText, find, clickText, lastCall, screen = H.flushReads, H.hasText, H.find, H.clickText, H.lastCall, H.screen
 
 -- ------------------------------------------------------------------ scenario
+replies.outputs = function()
+  return true, json.encode({ outputs = { { name = "HDMI-A-1", config_name = "Acme 2", modes = {} } } })
+end
 entry.onOpen()
 flushReads()
 assert(lastCall("meta") and lastCall("read") and lastCall("desktop"), "loads meta, config and desktop")
@@ -336,6 +339,162 @@ clickText("Inspect connected outputs")
 clickText("Use for this output")
 local last = store.entryOps[#store.entryOps]
 assert(last.editor == "output" and last.field == "mode" and last.value == "2560x1440@164.999", last.value)
+
+-- rule matches picked from open windows and layers
+replies.windows = function()
+  return true, json.encode({ windows = {
+    { app_id = "firefox", title = "Docs", count = 2, pattern = "^firefox$", title_pattern = "^Docs$" },
+    { app_id = "org.gajim.Gajim", title = "Gajim", count = 1, pattern = "^org\\.gajim\\.Gajim$",
+      title_pattern = "^Gajim$" } } })
+end
+goHome()
+clickText("Window rules")
+clickText("Add")
+local ruleIndex = #store.entryItems("window_rule")
+clickText("Pick from open windows")
+assert(hasText("firefox · 2 windows") and hasText("org.gajim.Gajim"), screen())
+H.input("^live%-filter:").props.onChange("gajim")
+assert(not hasText("firefox · 2 windows"), "the filter hides other windows: " .. screen())
+clickText("App and title")
+local item = store.entryItems("window_rule")[ruleIndex]
+assert(item.values["match.app_id"] == "^org\\.gajim\\.Gajim$" and item.values["match.title"] == "^Gajim$",
+  "app id and title set: " .. tostring(item.values["match.app_id"]))
+assert(hasText("Pick from open windows") and hasText("The rule now matches “org.gajim.Gajim”."), screen())
+replies.windows = function() return false, "Umbriel is not running" end
+clickText("Pick from open windows")
+assert(hasText("Umbriel is not running") and hasText("Try again"), screen())
+replies.layers = function()
+  return true, json.encode({ layers = { { namespace = "noctalia-bar", layer = "top", outputs = { "DP-1" },
+                                          pattern = "^noctalia-bar$" } } })
+end
+goHome()
+clickText("Layer rules")
+clickText("Add")
+clickText("Pick from open layers")
+assert(hasText("top · DP-1"), screen())
+clickText("Match")
+local layerRule = store.entryItems("layer_rule")[#store.entryItems("layer_rule")]
+assert(layerRule.values["match.namespace"] == "^noctalia-bar$", "namespace set")
+
+-- curve and effect choices include the config's own named curves and presets
+store.meta.fields["animation.windows_in.curve"].names_from = "curve"
+local effectField = store.meta.fields["animation.windows_in.effect"]
+effectField.kind, effectField.choices, effectField.names_from, effectField.default = "combo", { "" }, "effect", ""
+store.mapSet("beziers", "soft", "[0.05, 0.9, 0.1, 1.0]")
+store.entryOp("effect_preset", { op = "add", name = "glow" })
+goHome()
+clickText("Animation")
+clickText("Windows opening")
+local function options(fid)
+  return table.concat(find("select", function(n) return n.props.key == "f:" .. fid .. ":select" end).props.options, ",")
+end
+assert(options("animation.windows_in.curve"):find(",soft,Custom…$"), options("animation.windows_in.curve"))
+assert(options("animation.windows_in.effect") == "None,glow,Custom…", options("animation.windows_in.effect"))
+find("select", function(n) return n.props.key == "f:animation.windows_in.effect:select" end).props.onChange("1")
+assert(store.value("animation.windows_in.effect") == "glow", "picked the preset")
+
+-- the keyboard layout picker writes layouts, aligned variants and options
+replies.xkb = function()
+  return true, json.encode({ current = "German",
+    layouts = { { name = "us", desc = "English (US)" }, { name = "de", desc = "German" } },
+    variants = { de = { { name = "nodeadkeys", desc = "German (no dead keys)" } } },
+    options = { { name = "caps", desc = "Caps Lock behavior",
+                  items = { { name = "caps:escape", desc = "Make Caps Lock an additional Esc" } } } } })
+end
+goHome()
+clickText("Input")
+clickText("Keyboard")
+clickText("Choose…")
+assert(hasText("Active now: German"), screen())
+local function addFrom(query, inputKey, rowKey)
+  H.input("^" .. inputKey .. ":").props.onChange(query)
+  H.walk(H.byKey(rowKey), function(n) return n.kind == "button" end).props.onClick()
+end
+addFrom("german", "xkb%-layout%-q", "xkb-add-de")
+find("select", function(n) return n.props.key == "xkb-variant-1-de" end).props.onChange("1")
+addFrom("us", "xkb%-layout%-q", "xkb-add-us")
+assert(store.value("input.keyboard.layout") == "de,us" and store.value("input.keyboard.variant") == "nodeadkeys,",
+  tostring(store.value("input.keyboard.variant")))
+find("button", function(n) return n.props.key == "xkb-up-2" end).props.onClick()
+assert(store.value("input.keyboard.layout") == "us,de" and store.value("input.keyboard.variant") == ",nodeadkeys")
+addFrom("caps", "xkb%-option%-q", "xkb-opt-caps:escape")
+assert(store.value("input.keyboard.options") == "caps:escape")
+find("button", function(n) return n.props.key == "xkb-opt-off-caps:escape" end).props.onClick()
+find("button", function(n) return n.props.key == "xkb-remove-2" end).props.onClick()
+assert(store.value("input.keyboard.variant") == nil and store.value("input.keyboard.options") == nil,
+  "an empty list unsets the key")
+
+-- Run now: two clicks send the action; blocked actions can't be run
+goHome()
+clickText("Keybinds")
+H.clickShortcut(launcher)
+local run = function() return find("button", function(n) return n.props.key == "kb-run" end) end
+assert(run().props.enabled, "spawn kitty may run")
+run().props.onClick()
+assert(not lastCall("run-action") and hasText("Click again to run"), "the first click only arms it")
+run().props.onClick()
+assert(lastCall("run-action").request.action == "spawn kitty", "sent the action")
+entry.onKey("alt+Left", true)
+H.clickShortcut(closer)
+assert(not run().props.enabled and run().props.tooltip:find("close"), "window-close is blocked")
+
+-- output settings offer the config's outputs and the connected ones
+goHome()
+clickText("General")
+clickText("XWayland")
+local outputOptions = table.concat(find("select", function(n)
+  return n.props.key == "f:general.xwayland_primary_output:select" end).props.options, ",")
+assert(outputOptions:find("DP-1", 1, true) and outputOptions:find("HDMI-A-1,Acme 2", 1, true)
+       and outputOptions:find("Custom…$"), outputOptions)
+
+-- the first argument of an action is offered from the config's names
+goHome()
+clickText("Keybinds")
+H.clickShortcut(launcher)
+local function argSelect() return find("select", function(n) return n.props.key == "kb-arg-select" end) end
+local function pickArg(choice)
+  for i, option in ipairs(argSelect().props.options) do
+    if option == choice then argSelect().props.onChange(tostring(i - 1)); return end
+  end
+  error("no argument choice " .. choice .. ": " .. table.concat(argSelect().props.options, ","))
+end
+local function launcherAction()
+  for _, row in ipairs(store.keybinds.rows) do if row.key == launcher then return row.action end end
+end
+H.input("^kb%-action%-").props.onChange("effect-border-set")
+assert(table.concat(argSelect().props.options, ",") == "Choose name…,off,glow", "presets plus off")
+pickArg("glow")
+assert(launcherAction() == "effect-border-set glow" and H.input("^kb%-action%-").props.value ==
+       "effect-border-set glow", "the argument is filled in and shown")
+-- presets from include files are offered too; a name defined nowhere is still shown as the choice
+store.state.included = { effect_preset = { "pulse" } }
+H.input("^kb%-action%-").props.onChange("effect-border-set mystery")
+local argOptions = table.concat(argSelect().props.options, ",")
+assert(argOptions == "Choose name…,off,glow,pulse,mystery (not defined here)", argOptions)
+assert(argSelect().props.selectedIndex == 4, "the typed name stays selected")
+H.input("^kb%-action%-").props.onChange("workspace-move-to-output DP-1 --output HDMI-A-1")
+pickArg("HDMI-A-1")
+assert(launcherAction() == "workspace-move-to-output HDMI-A-1 --output HDMI-A-1",
+  "replaces only the first argument: " .. launcherAction())
+H.input("^kb%-action%-").props.onChange("spawn kitty")
+assert(not H.byKey("kb-arg"), "no picker for a command line")
+
+-- Browse… fills path settings from a file chooser
+replies["pick-file"] = function(request)
+  assert(request.filter[2] == "*.toml" and request.config, "TOML filter and the config for relative paths")
+  return true, json.encode({ path = "/usr/share/umbriel/effects/border/pulse/effect.toml" })
+end
+goHome()
+clickText("General")
+clickText("Includes")
+find("button", function(n) return n.props.key == "f:include.files:browse" end).props.onClick()
+flushReads()
+local includes = store.value("include.files")
+assert(includes[#includes] == "/usr/share/umbriel/effects/border/pulse/effect.toml", "appended to the list")
+replies["pick-file"] = function() return true, json.encode({ cancelled = true }) end
+find("button", function(n) return n.props.key == "f:include.files:browse" end).props.onClick()
+flushReads()
+assert(#store.value("include.files") == #includes, "cancelling changes nothing")
 
 -- maps: edit a row in place
 goHome()

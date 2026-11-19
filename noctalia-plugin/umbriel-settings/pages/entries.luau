@@ -12,6 +12,7 @@ local function fieldSpec(ctx, eid, index, fid)
   local value = item.values[fpath]
   return {
     key = "e:" .. eid .. ":" .. index .. ":" .. fid, field = field, value = value, set = value ~= nil, changed = false,
+    entry = { editor = eid, index = index },
     onSet = function(v) store.entryOp(eid, { op = "set", index = index - 1, field = fpath, value = v }) end,
     onUnset = field.opt and function() store.entryOp(eid, { op = "unset", index = index - 1, field = fpath }) end or nil,
   }
@@ -105,6 +106,20 @@ local function listPage(ctx, route)
   return { header = header, content = content }
 end
 
+-- "windows" when the editor matches windows by app id, "layers" when it matches layer surfaces, else nil
+-- (read from the field paths in meta).
+local function liveKind(editor, eid)
+  local found = nil
+  for _, group in ipairs(editor.groups) do
+    for _, fid in ipairs(group.fields) do
+      local fpath = string.sub(fid, #eid + 2)
+      if fpath == "match.app_id" then return "windows" end
+      if fpath == "match.namespace" then found = "layers" end
+    end
+  end
+  return found
+end
+
 local function entryPage(ctx, route)
   local store = ctx.store
   local eid, index = route.editor, route.index
@@ -154,6 +169,18 @@ local function entryPage(ctx, route)
     ctx.back()
   end))
   local content = { ui.row({ key = "entry-actions", gap = 6, align = "center" }, actions) }
+  local live = liveKind(editor, eid)
+  if live then
+    table.insert(content, ui.row({ key = "entry-live", gap = 6, align = "center" }, {
+      ui.button({ text = live == "windows" and "Pick from open windows" or "Pick from open layers",
+                  glyph = live == "windows" and "app-window" or "stack-2", controlSize = "sm", variant = "outline",
+                  onClick = function()
+                    ctx.view.live, ctx.view.liveFilter = nil, nil
+                    ctx.bump("live-filter")
+                    ctx.go({ name = "pick-live", editor = eid, index = index, kind = live })
+                  end }),
+    }))
+  end
   if editor.mode == "map" then
     table.insert(content, nameForm(ctx, "dup-" .. eid, "Name for a copy", "Duplicate", function(name)
       if name == "" or nameTaken(store, eid, name) then ctx.flash("Choose a new, unused name.", "warning"); return end
@@ -171,6 +198,103 @@ local function entryPage(ctx, route)
       return 0, set
     end)
   for _, row in ipairs(groups) do table.insert(content, row) end
+  return { header = header, content = content }
+end
+
+local LIVE_ROWS = 40
+
+-- Pick a rule's match from what the running Umbriel shows: open windows (app id, title) or layer surfaces.
+local function pickLivePage(ctx, route)
+  local store, view = ctx.store, ctx.view
+  local eid, index, kind = route.editor, route.index, route.kind
+  local windows = kind == "windows"
+  local rule = store.entryItems(eid)[index]
+  local title = windows and "Open windows" or "Open layers"
+  if not rule then
+    return { header = { kit.header(ctx, title) }, content = { kit.empty("This entry no longer exists.", "trash") } }
+  end
+  local header = { kit.header(ctx, title, "Pick one for " .. store.entryTitle(eid, index, rule)) }
+  if view.live == nil or view.live.kind ~= kind then
+    view.live = { kind = kind, loading = true }
+    ctx.helper.call(kind, {}, function(err, data)
+      if not view.live or view.live.kind ~= kind then return end
+      view.live = { kind = kind, items = (not err) and data[kind] or nil, error = err and err.error or nil }
+      ctx.render()
+    end)
+  end
+  local live = view.live
+  if live.loading then
+    return { header = header, content = { kit.empty("Asking Umbriel…", "loader") } }
+  end
+  if live.error then
+    return { header = header, content = {
+      kit.notice(live.error, "error", nil, "live-error"),
+      ui.row({ key = "live-retry" }, {
+        ui.button({ text = "Try again", glyph = "refresh", variant = "primary", onClick = function()
+          view.live = nil
+          ctx.render()
+        end }),
+      }),
+    } }
+  end
+  local function choose(values, shown)
+    for _, pair in ipairs(values) do
+      store.entryOp(eid, { op = "set", index = index - 1, field = pair[1], value = pair[2] })
+    end
+    ctx.back()
+    ctx.flash("The rule now matches “" .. shown .. "”.", "info")
+  end
+  local filter = string.lower(noctalia.string.trim(view.liveFilter or ""))
+  local content = {
+    ui.input({ key = "live-filter:" .. ctx.gen("live-filter"), value = view.liveFilter or "", controlSize = "sm",
+               placeholder = windows and "Filter by app id or title" or "Filter by namespace",
+               onChange = function(text) view.liveFilter = text; ctx.render() end }),
+  }
+  local shown, matches = 0, 0
+  for position, item in ipairs(live.items or {}) do
+    local name = windows and item.app_id or item.namespace
+    local detail = windows and item.title or (item.layer .. " · " .. table.concat(item.outputs or {}, ", "))
+    if filter == "" or string.find(string.lower(name .. " " .. detail), filter, 1, true) then
+      matches = matches + 1
+      if shown < LIVE_ROWS then
+        shown = shown + 1
+        local buttons = {}
+        if windows then
+          table.insert(buttons, ui.button({ text = "Match app", glyph = "check", variant = "primary", controlSize = "sm",
+            tooltip = "Sets App ID to " .. item.pattern,
+            onClick = function() choose({ { "match.app_id", item.pattern } }, name) end }))
+          if item.title ~= "" then
+            table.insert(buttons, ui.button({ text = "App and title", variant = "outline", controlSize = "sm",
+              tooltip = "Also sets Title to this window's title",
+              onClick = function()
+                choose({ { "match.app_id", item.pattern }, { "match.title", item.title_pattern } }, name)
+              end }))
+          end
+        else
+          table.insert(buttons, ui.button({ text = "Match", glyph = "check", variant = "primary", controlSize = "sm",
+            tooltip = "Sets Namespace to " .. item.pattern,
+            onClick = function() choose({ { "match.namespace", item.pattern } }, name) end }))
+        end
+        local count = windows and item.count > 1 and (" · " .. item.count .. " windows") or ""
+        table.insert(content, kit.card({ key = "live-" .. position }, {
+          ui.row({ gap = 8, align = "center" }, {
+            ui.column({ gap = 2, flexGrow = 1 }, {
+              ui.label({ text = name .. count, fontSize = 14, fontWeight = "bold" }),
+              kit.muted(detail ~= "" and detail or "(no title)", { maxLines = 1 }),
+            }),
+            ui.row({ gap = 6 }, buttons),
+          }),
+        }))
+      end
+    end
+  end
+  if matches == 0 then
+    table.insert(content, kit.empty(#(live.items or {}) == 0
+      and (windows and "Umbriel reported no open windows." or "Umbriel reported no layer surfaces.")
+      or "No matches.", "search"))
+  elseif matches > shown then
+    table.insert(content, kit.muted(kit.plural(matches - shown, "more match", "more matches") .. "; filter to narrow."))
+  end
   return { header = header, content = content }
 end
 
@@ -263,6 +387,7 @@ end
 function M.render(ctx, route)
   if route.name == "entry" then return entryPage(ctx, route) end
   if route.name == "outputs" then return outputsPage(ctx) end
+  if route.name == "pick-live" then return pickLivePage(ctx, route) end
   return listPage(ctx, route)
 end
 

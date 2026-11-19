@@ -15,6 +15,7 @@ import tomlkit
 from . import entry_ops, keybinds, legacy, values
 from .backups import create_backup_snapshot
 from .fields import TABS
+from .included import included_names
 from .layout import (
     BANNER_RE,
     add_entry_name_comments,
@@ -158,6 +159,7 @@ class ConfigSession:
             "fields": fields,
             "editors": editors,
             "maps": maps,
+            "included": included_names(py(doc), os.path.dirname(os.path.abspath(self.path))),
             "keybinds": {
                 "rows": [
                     {"key": key, "action": action, "opts": opts, "group": assignments.get(key, ""),

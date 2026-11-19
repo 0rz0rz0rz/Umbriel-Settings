@@ -16,6 +16,7 @@ local keybinds = require("../pages/keybinds.luau")
 local desktop = require("../pages/desktop.luau")
 local review = require("../pages/review.luau")
 local about = require("../pages/about.luau")
+local xkb = require("../pages/xkb.luau")
 
 local M = {}
 
@@ -77,7 +78,10 @@ function M.create(layout, options)
     local name = current.name
     if name == "home" then return home.render(ctx) end
     if name == "form" then return form.render(ctx, current) end
-    if name == "entries" or name == "entry" or name == "outputs" then return entries.render(ctx, current) end
+    if name == "entries" or name == "entry" or name == "outputs" or name == "pick-live" then
+      return entries.render(ctx, current)
+    end
+    if name == "xkb" then return xkb.render(ctx, current) end
     if name == "map" then return maps.render(ctx, current) end
     if name == "keybinds" or name == "keybind" or name == "actions" then return keybinds.render(ctx, current) end
     if name == "folders" or name == "apps" or name == "appPicker" then return desktop.render(ctx, current) end
@@ -343,6 +347,33 @@ function M.create(layout, options)
   end
 
   -- ---------------------------------------------------------------- entry points
+  -- Names of the connected outputs (connector and monitor names) for output choices: asked once per open,
+  -- empty until Umbriel answers (or when it can't).
+  local liveOutputs = nil
+  function ctx.liveOutputs()
+    if liveOutputs == nil then
+      liveOutputs = { loading = true, names = {} }
+      helper.call("outputs", {}, function(err, data)
+        local names = {}
+        for _, output in ipairs((not err and data.outputs) or {}) do
+          table.insert(names, output.name)
+          if type(output.config_name) == "string" and output.config_name ~= "" then table.insert(names, output.config_name) end
+        end
+        liveOutputs = { names = names }
+        ctx.render()
+      end)
+    end
+    return liveOutputs.names
+  end
+  function ctx.forgetLiveOutputs() liveOutputs = nil end
+
+  -- Busy flags of the live pickers (open windows/layers, XKB list, Run now): a dropped answer never clears them.
+  function ctx.clearPickerBusy()
+    view.kbRunning, view.xkbLoading, view.browsing = false, false, false
+    if view.live and view.live.loading then view.live = nil end
+    if liveOutputs and liveOutputs.loading then liveOutputs = nil end
+  end
+
   local handlers = {}
 
   function handlers.onOpen()
@@ -351,6 +382,8 @@ function M.create(layout, options)
     -- Answers to requests from before the panel closed are dropped, so their busy flags would stay set.
     view.browsing, view.outputsLoading, view.titlebarLoading = false, false, false
     view.titlebarBusy, view.titlebarQueued = {}, {}
+    ctx.clearPickerBusy()
+    ctx.forgetLiveOutputs()  -- monitors may have changed while the panel was closed
     for _, entry in ipairs(stack) do
       if entry.state then entry.state.loading, entry.state.saving = false, false end
     end
@@ -442,6 +475,7 @@ function M.create(layout, options)
   function handlers.onRecover()
     for name in pairs(loading) do loading[name] = false end
     ctx.saving, ctx.changedDuringSave = false, false
+    ctx.clearPickerBusy()
     for _, entry in ipairs(stack) do
       if type(entry.state) == "table" then entry.state.saving, entry.state.loading = false, false end
     end

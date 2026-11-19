@@ -281,6 +281,63 @@ end
 
 function M.mapOpCount(eid) return countOps(M.mapOps, eid) end
 
+-- Names the config defines, for choices: `base` first, then (by kind) curve names (beziers, springs), effect
+-- presets and pools ("effect"), pools only ("pool"), outputs ("output": entries plus `extra`, the connected
+-- ones), scratchpad and workspace names, or the submaps keybinds use. Unsaved edits count, and so do curves,
+-- presets and pools from include files (`state.included`). Cached until those lists can have changed.
+local namedCache = {}
+-- presets, pools and curves can also come from include files (as of the last read)
+local function includedNames(add, eid)
+  local included = M.state and M.state.included
+  for _, name in ipairs(included and included[eid] or {}) do add(name) end
+end
+local function entryNames(add, eid, field)
+  for _, item in ipairs(M.entryItems(eid)) do
+    if field then add(item.values and item.values[field]) else add(item.name) end
+  end
+  includedNames(add, eid)
+end
+function M.namedChoices(kind, base, extra)
+  local c = namedCache
+  if c.serial ~= M.serial or c.state ~= M.state or c.entries ~= M.entries or c.maps ~= M.maps
+     or c.keybinds ~= M.keybinds or c.entryOps ~= #M.entryOps or c.mapOps ~= #M.mapOps then
+    namedCache = { serial = M.serial, state = M.state, entries = M.entries, maps = M.maps, keybinds = M.keybinds,
+                   entryOps = #M.entryOps, mapOps = #M.mapOps, lists = {} }
+  end
+  local cached = namedCache.lists[kind]
+  if cached and cached.base == base and cached.extra == extra then return cached.list end
+  local list, seen = {}, {}
+  local function add(name)
+    if type(name) == "string" and not seen[name] and (name ~= "" or #list == 0) then
+      seen[name] = true
+      table.insert(list, name)
+    end
+  end
+  for _, choice in ipairs(base or {}) do add(choice) end
+  if kind == "curve" then
+    for _, eid in ipairs({ "beziers", "springs" }) do
+      for _, row in ipairs(M.mapRows(eid)) do add(row[1]) end
+      includedNames(add, eid)
+    end
+  elseif kind == "effect" then
+    entryNames(add, "effect_preset")
+    entryNames(add, "effect_pool")
+  elseif kind == "pool" then
+    entryNames(add, "effect_pool")
+  elseif kind == "output" then
+    entryNames(add, "output")
+    for _, name in ipairs(extra or {}) do add(name) end
+  elseif kind == "scratchpad" then
+    entryNames(add, "scratchpad", "name")
+  elseif kind == "workspace" then
+    entryNames(add, "workspace", "name")
+  elseif kind == "submap" then
+    for _, row in ipairs((M.keybinds or {}).rows or {}) do add(row.opts and row.opts.submap) end
+  end
+  namedCache.lists[kind] = { base = base, extra = extra, list = list }
+  return list
+end
+
 -- ------------------------------------------------------------------ keybinds
 -- The keybinds page edits rows in place and then calls this; `shadow` is the list as of the last recorded
 -- step, which is what an undo returns to. `step` names the edit (e.g. "key:3"); repeats of it are one step.

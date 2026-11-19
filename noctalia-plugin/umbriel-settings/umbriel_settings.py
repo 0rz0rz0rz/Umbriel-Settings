@@ -288,20 +288,65 @@ def cmd_extension(request):
     return {"mime": extension_mime(str(request.get("extension", "")))}
 
 
-def cmd_outputs(request):
+def ask_umbriel(command, read):
+    """Run `read()` (which asks the running Umbriel), mapping its failures to readable helper errors."""
     try:
-        outputs = schema.run_umbriel_json(["outputs", "--json"], timeout=5)
+        return read()
     except FileNotFoundError as error:
         raise HelperError("The umbriel command was not found.", "missing_umbriel") from error
     except subprocess.TimeoutExpired as error:
-        raise HelperError("`umbriel outputs --json` did not finish within 5 seconds. "
+        raise HelperError(f"`umbriel {command}` did not finish within 5 seconds. "
                           "Make sure Umbriel is running in this session.") from error
     except (RuntimeError, ValueError) as error:
         raise HelperError(str(error)) from error
-    if not isinstance(outputs, list) or any(not isinstance(o, dict) or not isinstance(o.get("name"), str)
-                                            for o in outputs):
-        raise HelperError("`umbriel outputs --json` returned an unexpected output list.")
-    return {"outputs": outputs}
+
+
+def cmd_outputs(request):
+    from umbriel_core import live
+    return {"outputs": ask_umbriel("outputs --json", live.connected_outputs)}
+
+
+def cmd_windows(request):
+    from umbriel_core import live
+    return {"windows": ask_umbriel("windows --json", live.open_windows)}
+
+
+def cmd_layers(request):
+    from umbriel_core import live
+    return {"layers": ask_umbriel("layers --json", live.open_layers)}
+
+
+def cmd_xkb(request):
+    from umbriel_core import live, xkb
+    catalog = xkb.catalog()
+    if not catalog["layouts"]:
+        raise HelperError(f"XKB's layout list {xkb.rules_file()} could not be read.", "missing_xkb")
+    return {**catalog, "current": live.keyboard_layout()}
+
+
+def cmd_run_action(request):
+    """Send one keybind action to the running Umbriel (`umbriel msg`), unless it is one "Run now" refuses."""
+    from umbriel_core.actions import msg_argv, run_block_reason
+    action = str(request.get("action", "")).strip()
+    reason = run_block_reason(action)
+    if reason:
+        raise HelperError(f"Not run: {reason}.", "blocked")
+    executable = shutil.which("umbriel")
+    if not executable:
+        raise HelperError("The umbriel command was not found.", "missing_umbriel")
+    try:
+        argv = msg_argv(action)
+    except ValueError as error:  # unbalanced quotes
+        raise HelperError(f"Can't read the action: {error}.") from error
+    try:
+        result = subprocess.run([executable, *argv], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                timeout=5, check=False, env=child_env())
+    except subprocess.TimeoutExpired as error:
+        raise HelperError("Umbriel did not answer within 5 seconds.") from error
+    if result.returncode:
+        detail = (result.stderr.strip() or result.stdout.strip()).splitlines()
+        raise HelperError(detail[-1] if detail else f"umbriel msg failed (exit code {result.returncode}).")
+    return {}
 
 
 def cmd_kde_colors(request):
@@ -321,6 +366,16 @@ def cmd_kde_colors(request):
     }
 
 
+def run_chooser(argv, what):
+    """Run a zenity/kdialog chooser; the chosen path, or None when cancelled."""
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=55, check=False, env=child_env())
+    except subprocess.TimeoutExpired as error:
+        raise HelperError(f"The {what} chooser was open too long and was closed.") from error
+    chosen = result.stdout.strip()
+    return chosen if result.returncode == 0 and chosen else None
+
+
 def cmd_pick_folder(request):
     start = request.get("start") or os.path.expanduser("~")
     start = os.path.expanduser(str(start).replace("$HOME", os.path.expanduser("~"), 1))
@@ -330,16 +385,40 @@ def cmd_pick_folder(request):
         argv = ["kdialog", "--getexistingdirectory", start]
     else:
         raise HelperError("Install zenity or kdialog to browse for folders, or type the path.", "missing_chooser")
-    try:
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=55, check=False, env=child_env())
-    except subprocess.TimeoutExpired as error:
-        raise HelperError("The folder chooser was open too long and was closed.") from error
-    chosen = result.stdout.strip()
-    if result.returncode != 0 or not chosen:
+    chosen = run_chooser(argv, "folder")
+    if not chosen:
         return {"cancelled": True}
     home = os.path.expanduser("~")
     if chosen == home or chosen.startswith(home + "/"):
         chosen = "$HOME" + chosen[len(home):]
+    return {"path": chosen}
+
+
+def cmd_pick_file(request):
+    """Choose one file: an absolute path, or relative to the config's folder (`relative`) when inside it."""
+    config = str(request.get("config") or "")
+    folder = os.path.dirname(os.path.abspath(os.path.expanduser(config))) if config else ""
+    start = str(request.get("start") or "")
+    if not os.path.isdir(start):
+        start = folder if os.path.isdir(folder) else os.path.expanduser("~")
+    title = str(request.get("title") or "Choose a file")
+    pattern = request.get("filter")
+    pattern = pattern if isinstance(pattern, list) and len(pattern) == 2 else None
+    if shutil.which("zenity"):
+        argv = ["zenity", "--file-selection", f"--title={title}", f"--filename={start.rstrip('/')}/"]
+        if pattern:
+            argv += [f"--file-filter={pattern[0]} | {pattern[1]}", "--file-filter=All files | *"]
+    elif shutil.which("kdialog"):
+        argv = ["kdialog", "--title", title, "--getopenfilename", start]
+        if pattern:
+            argv.append(f"{pattern[1]}|{pattern[0]}")
+    else:
+        raise HelperError("Install zenity or kdialog to browse for files, or type the path.", "missing_chooser")
+    chosen = run_chooser(argv, "file")
+    if not chosen:
+        return {"cancelled": True}
+    if request.get("relative") and folder and chosen.startswith(folder + os.sep):
+        chosen = os.path.relpath(chosen, folder)
     return {"path": chosen}
 
 
@@ -454,9 +533,10 @@ COMMANDS = {
     "backups": cmd_backups, "backup-diff": cmd_backup_diff, "restore": cmd_restore,
     "delete-backups": cmd_delete_backups, "desktop": cmd_desktop, "desktop-save": cmd_desktop_save,
     "extension": cmd_extension, "outputs": cmd_outputs, "kde-colors": cmd_kde_colors,
-    "pick-folder": cmd_pick_folder, "launch-app": cmd_launch_app, "open-config": cmd_open_config,
+    "pick-folder": cmd_pick_folder, "pick-file": cmd_pick_file, "launch-app": cmd_launch_app, "open-config": cmd_open_config,
     "set-editor": cmd_set_editor, "about": cmd_about, "palette-template": cmd_palette_template,
-    "titlebar": cmd_titlebar, "titlebar-follow": cmd_titlebar_follow,
+    "titlebar": cmd_titlebar, "titlebar-follow": cmd_titlebar_follow, "windows": cmd_windows,
+    "layers": cmd_layers, "xkb": cmd_xkb, "run-action": cmd_run_action,
 }
 
 # Commands that write the config, its sidecars, backups or desktop files; they run one at a time across the

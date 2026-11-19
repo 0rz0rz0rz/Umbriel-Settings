@@ -7,6 +7,41 @@ local M = {}
 local MODIFIERS = { "Mod", "Super", "Ctrl", "Alt", "Shift" }
 local OPTION_CHOICES = { "Default", "On", "Off" }
 
+-- Why "Run now" refuses an action (same rules as the helper's `run_block_reason`), or nil.
+local function blockReason(meta, action)
+  local words = {}
+  for word in string.gmatch(action or "", "%S+") do table.insert(words, word) end
+  if #words == 0 then return "Enter an action first" end
+  local blocked = meta.actions.blocked or { heads = {}, spawn = {} }
+  local head, rest = words[1], table.concat(words, " ", 2)
+  if blocked.heads[head] then return blocked.heads[head] end
+  if head == "submap" and rest ~= "reset" then return blocked.submap end
+  if head == "spawn" then
+    for phrase, reason in pairs(blocked.spawn) do
+      if string.find(rest, phrase, 1, true) then return reason end
+    end
+  end
+  return nil
+end
+
+local function runButton(ctx, action)
+  local reason = blockReason(ctx.store.meta, action)
+  local view = ctx.view
+  return kit.confirmButton(ctx, { key = "kb-run", text = view.kbRunning and "Running…" or "Run now",
+                                  armedText = "Click again to run", glyph = "player-play", controlSize = "sm",
+                                  enabled = reason == nil and not view.kbRunning,
+                                  tooltip = reason or "Send this action to Umbriel once, to see what it does" },
+    function()
+      view.kbRunning = true
+      ctx.render()
+      ctx.helper.call("run-action", { action = action }, function(err)
+        view.kbRunning = false
+        if err then ctx.flash(err.error, "error") else ctx.flash("Sent “" .. action .. "” to Umbriel.", "info") end
+        ctx.render()
+      end)
+    end)
+end
+
 local function normalizeKey(key) return string.lower((string.gsub(noctalia.string.trim(key), "%s+", " "))) end
 
 local function splitShortcut(key)
@@ -62,6 +97,53 @@ local function argHelp(meta, template)
     if help then table.insert(lines, "<" .. name .. ">: " .. help) end
   end
   return table.concat(lines, "\n")
+end
+
+-- Choices for an action's first argument, by its placeholder in the catalog template: names the config defines
+-- (and the connected outputs). Base lists are module constants so the store's cache can keep them.
+local EFFECT_OFF, SUBMAP_RESET = { "off" }, { "reset" }
+local function argumentKind(head, placeholder)
+  if placeholder == "output" or placeholder == "destination" then return "output" end
+  if placeholder == "pool" or placeholder == "scratchpad" or placeholder == "workspace" then return placeholder end
+  if placeholder == "name" and head == "submap" then return "submap", SUBMAP_RESET end
+  if placeholder == "name" and string.match(head, "^effect%-") then
+    return "effect", string.match(head, "%-set$") and EFFECT_OFF or nil
+  end
+  return nil
+end
+
+-- A select that fills in the first argument of the action (keeping the rest), or nil when there is nothing
+-- to offer.
+local function argumentPicker(ctx, action, template, enabled, onPick)
+  local head, rest = string.match(template or "", "^(%S+)%s+(.*)$")
+  local placeholder = rest and string.match(rest, "^%[?<([%w-]+)>")
+  if not placeholder then return nil end
+  local kind, base = argumentKind(head, placeholder)
+  if not kind then return nil end
+  local known = ctx.store.namedChoices(kind, base, kind == "output" and ctx.liveOutputs() or nil)
+  if #known == 0 then return nil end
+  local words = {}
+  for word in string.gmatch(action or "", "%S+") do table.insert(words, word) end
+  local current = words[2] and not string.match(words[2], "^%-") and words[2] or nil
+  local choices, options, selected = known, { "Choose " .. placeholder .. "…" }, 0
+  for i, choice in ipairs(choices) do
+    table.insert(options, choice)
+    if choice == current then selected = i end
+  end
+  if current and selected == 0 then  -- a name the config doesn't define (yet) is still shown as chosen
+    choices = { table.unpack(known) }
+    table.insert(choices, current)
+    table.insert(options, current .. " (not defined here)")
+    selected = #choices
+  end
+  return kit.optionRow("kb-arg", "<" .. placeholder .. ">", ui.select({
+    key = "kb-arg-select", options = options, selectedIndex = selected, width = 220, controlSize = "sm",
+    enabled = enabled, onChange = function(value)
+      local choice = choices[tonumber(value) or 0]
+      if not choice then return end
+      if current then words[2] = choice else table.insert(words, 2, choice) end
+      onPick(table.concat(words, " "))
+    end }))
 end
 
 local function conflict(store, key, index)
@@ -314,6 +396,18 @@ local function detailPage(ctx, route)
   if desc then table.insert(actionCard, kit.muted(desc, { maxLines = 3 })) end
   local args = argHelp(store.meta, template)
   if args ~= "" then table.insert(actionCard, kit.muted(args, { maxLines = 6 })) end
+  local picker = argumentPicker(ctx, row.action, template, not locked, function(action)
+    row.action = action
+    edit("action")
+    ctx.bump("kbaction")  -- the action box shows the new text
+    ctx.render()
+  end)
+  if picker then table.insert(actionCard, picker) end
+  table.insert(actionCard, ui.row({ key = "kb-run-row", gap = 8, align = "center" }, {
+    runButton(ctx, noctalia.string.trim(row.action or "")),
+    kit.muted(ctx.isApp and "Window actions act on the focused window: this one."
+              or "Window actions act on the window behind this panel.", { flexGrow = 1, maxLines = 2 }),
+  }))
   table.insert(content, kit.card({ key = "action" }, actionCard))
   -- options
   local optionRows = {}

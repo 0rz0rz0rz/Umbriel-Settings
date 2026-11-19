@@ -67,7 +67,7 @@ function M.confirmButton(ctx, props, action)
   local armed = view.confirm == props.key
   return ui.button({ key = props.key, text = armed and props.armedText or props.text, glyph = props.glyph,
                      variant = armed and "destructive" or "outline", controlSize = props.controlSize,
-                     enabled = props.enabled, onClick = function()
+                     enabled = props.enabled, tooltip = props.tooltip, onClick = function()
                        if props.check and not props.check() then return end
                        if view.confirm ~= props.key then view.confirm = props.key; ctx.render(); return end
                        view.confirm = nil

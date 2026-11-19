@@ -60,5 +60,42 @@ keyInput().props.onChange("F12")
 keyInput().props.onChange("F11")
 entry.onKey("ctrl+z", true)
 assert(not store.keybindsDirty, "undone")
+-- the keyboard layout picker with XKB-sized lists (100 layouts, 500 variants, 200 options), searching each
+local layouts, variants, options = {}, {}, {}
+for i = 1, 100 do
+  local name = "l" .. i
+  table.insert(layouts, { name = name, desc = "Layout number " .. i })
+  variants[name] = {}
+  for j = 1, 5 do table.insert(variants[name], { name = "v" .. j, desc = "Variant " .. j .. " of layout " .. i }) end
+end
+for g = 1, 20 do
+  local group = { name = "g" .. g, desc = "Option group " .. g, items = {} }
+  for j = 1, 10 do table.insert(group.items, { name = "g" .. g .. ":o" .. j, desc = "Option " .. j }) end
+  table.insert(options, group)
+end
+H.replies.xkb = function()
+  return true, H.json.encode({ layouts = layouts, variants = variants, options = options, current = "Layout number 1" })
+end
+search("")
+assert(click("Input"), "Input card")
+click("Keyboard")
+assert(click("Choose…"), "Choose button\nScreen: " .. H.screen())
+for i = 1, 4 do
+  H.input("^xkb%-layout%-q:").props.onChange("layout")
+  H.walk(H.byKey("xkb-add-l" .. i), function(n) return n.kind == "button" end).props.onClick()
+end
+H.input("^xkb%-option%-q:").props.onChange("o")
+-- open windows: many of them, filtered as the user types
+local windows = {}
+for i = 1, 300 do
+  table.insert(windows, { app_id = "app" .. i, title = "Window " .. i, count = 1, pattern = "^app" .. i .. "$",
+                          title_pattern = "^Window " .. i .. "$" })
+end
+H.replies.windows = function() return true, H.json.encode({ windows = windows }) end
+search("")
+assert(click("Window rules"), "Window rules card")
+click("budget-entry-150")
+assert(click("Pick from open windows"), "picker button\nScreen: " .. H.screen())
+H.input("^live%-filter:").props.onChange("app1")
 H.checkBudget("budget " .. layout, 0.025)
 print("budget ok")

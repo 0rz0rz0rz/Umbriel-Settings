@@ -107,7 +107,7 @@ function M.render(ctx, route)
   if not store.state then return { header = header, content = { kit.empty("Loading config…", "loader") } } end
   local content = {}
   if route.page == "Animation curves" then
-    table.insert(content, kit.muted("Name a curve here, then type that name into an animation's Curve setting. "
+    table.insert(content, kit.muted("Name a curve here, then pick it in an animation's Curve setting. "
       .. "Bézier x values (first and third numbers) must be between 0 and 1.", { maxLines = 3 }))
   end
   for _, eid in ipairs(page.maps) do

@@ -12,6 +12,7 @@ paths:
 | `test_core.py` | import rules (no Qt; desktop modules without tomlkit), entry names, keybind apply, layout rebuild (lossless, stable), paths, legacy sidecar migration (`legacy.migrate_config`, runs once), schema coverage rules + speed bound, KDE lookup |
 | `test_core_values.py` | `from_ui`/`to_ui`/`apply_value`, help coverage, keybind checks |
 | `test_core_files.py` | backups/snapshots (old rolling `.bak` adopted by `legacy.migrate_data_dir`), atomic writes, write lock, cursor themes, KDE colors, Noctalia templates, title-bar follow/apply, `child_env` |
+| `test_core_live.py` | `live` (open windows/layers, exact patterns, keyboard layout hint) with `run_umbriel_json` patched, `xkb` parser/catalog, `included_names`, Run-now blocking and `msg_argv`, meta `names_from`/`picker`/`file`/`actions.blocked` |
 | `test_core_session.py` | `ConfigSession.save` without the CLI: odd `[keybinds]` headers, dotted/inline keybinds, non-table shapes, text that lost a setting is refused, lock file shape |
 | `test_host_runtime.py` | callback ids per render, Lua sandbox; lupa runs `app.luau` with the real core in `host_support.isolated_home(self)` (temp config, XDG dirs, fake `umbriel`; also used by `test_app_render.py`); `find`/`click`/`host.invoke` + `settle()`; `new_app(dir)` = restart; fake a crash via `api._helpers[path]` |
 | `test_host_bridge.py` | `Bridge`, `QtScheduler` (incl. failing work), single instance (temp socket path), glyph names |

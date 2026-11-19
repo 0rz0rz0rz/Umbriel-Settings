@@ -25,9 +25,21 @@ same core and interface code, so they look and behave alike; the app adds a side
   narrow window (widen it again to use the search box).
 - **Undo** (Ctrl+Z or the save bar) steps back through unsaved edits, one setting, rule or shortcut at a time.
 - **Lists** for rules, outputs, devices and effects: edit, name, reorder, duplicate, delete.
-  **Inspect connected outputs** adds a monitor with one of its real modes.
+  **Inspect connected outputs** adds a monitor with one of its real modes; **Pick from open windows** (window,
+  workspace and security rules) and **Pick from open layers** (layer rules) fill a rule's match with an exact
+  pattern such as `^org\.gajim\.Gajim$`, optionally with the window's title.
+- **Names instead of typing**: an animation's Curve offers your own named Bézier and spring curves next to
+  the built-in ones, effect settings offer your effect presets and pools, and output settings (X11 primary
+  output, tablet/touch mapping, a rule's output) offer your configured and connected outputs, all still with
+  **Custom…**. Curves, presets and pools from your include files count too. **Browse…** picks the files for
+  includes, effect shaders (relative to the config when inside its folder) and ICC color profiles.
+- **Keyboard layouts**: **Choose…** next to Layout, Variant and XKB options (also for input devices) picks
+  layouts in order, a variant for each and options from XKB's own list, and shows the active layout.
 - **Keybinds** in groups: build shortcuts from modifier chips, pick actions from a searchable catalog, set
-  repeat/locked options, and lock shortcuts against accidental changes. Drag groups and shortcuts by their
+  repeat/locked options, and lock shortcuts against accidental changes. **Run now** (click twice) sends the
+  action to Umbriel once so you can see what it does; actions that end the session, close or kill the focused
+  window, turn screens off or enter a submap are refused. When an action takes an output, effect preset or
+  pool, submap, scratchpad or named workspace, a list offers the ones you have. Drag groups and shortcuts by their
   grip to reorder them, or move them into another group (↑/↓ buttons do the same without a mouse); the
   `[keybinds]` table is saved in that order.
 - **User folders and default apps** with folder pickers, a searchable app list and per-MIME-type choices.

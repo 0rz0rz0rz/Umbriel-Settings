@@ -1,5 +1,7 @@
 """Umbriel keybind action catalog."""
 
+import shlex
+
 ACTION_DOCS = """
 [Apps]
 spawn <cmd...> | Run a command (through the shell) with a launch activation token
@@ -297,3 +299,43 @@ def _action_index(categories):
 
 
 ACTION_INFO, REQUIRED_ARG_ACTIONS = _action_index(ACTION_CATEGORIES)
+
+
+# Actions "Run now" refuses: they end the session, close or kill the focused window (in the app, the app
+# itself), turn screens off or leave the keyboard in a submap. Luau gets the same lists through `meta`.
+RUN_BLOCKED = {
+    "session-quit": "Ends the session",
+    "window-close": "Would close the focused window (this one)",
+    "window-kill": "Would kill the focused window (this one)",
+    "dpms-off": "Turns screens off",
+    "output-disable": "Can remove the only output",
+    "output-toggle": "Can remove the only output",
+    "shortcuts-inhibit-toggle": "Would block shortcuts in this window",
+}
+RUN_BLOCKED_SPAWN = {"noctalia msg session": "Locks, suspends or ends the session"}
+SUBMAP_REASON = "Would leave the keyboard in the submap"
+
+
+def run_block_reason(action):
+    """Why "Run now" refuses `action`, or None when it may run."""
+    words = action.split()
+    if not words:
+        return "No action"
+    head, rest = words[0], " ".join(words[1:])
+    if head in RUN_BLOCKED:
+        return RUN_BLOCKED[head]
+    if head == "submap" and rest != "reset":
+        return SUBMAP_REASON
+    if head == "spawn":
+        for phrase, reason in RUN_BLOCKED_SPAWN.items():
+            if phrase in rest:
+                return reason
+    return None
+
+
+def msg_argv(action):
+    """`umbriel` arguments that run `action` once: `spawn` keeps its command as one word."""
+    head, _, rest = action.strip().partition(" ")
+    if head == "spawn":
+        return ["msg", "spawn", rest.strip()]
+    return ["msg", *shlex.split(action)]

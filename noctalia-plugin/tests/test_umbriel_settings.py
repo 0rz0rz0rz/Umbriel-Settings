@@ -475,3 +475,74 @@ class TitlebarFollowTests(HelperTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveTests(HelperTestCase):
+    def test_windows_and_layers_from_the_running_umbriel(self):
+        windows = self.ok("windows")["windows"]
+        self.assertEqual([(w["app_id"], w["count"], w["pattern"]) for w in windows],
+                         [("firefox", 2, "^firefox$"), ("org.gajim.Gajim", 1, r"^org\.gajim\.Gajim$")])
+        self.assertEqual(self.ok("layers")["layers"][0]["pattern"], "^noctalia-bar-default$")
+        env = {**self.env, "PATH": str(self.root / "nowhere")}
+        self.assertEqual(self.fails("windows", env=env)["code"], "missing_umbriel")
+
+    def test_xkb_lists_layouts_with_the_active_one(self):
+        rules = self.root / "xkb" / "rules"
+        rules.mkdir(parents=True)
+        (rules / "evdev.lst").write_text("! layout\n  de  German\n! variant\n  nodeadkeys  de: German (nd)\n")
+        data = self.ok("xkb", env={**self.env, "XKB_CONFIG_ROOT": str(self.root / "xkb")})
+        self.assertEqual((data["layouts"], data["current"]), ([{"name": "de", "desc": "German"}], "German"))
+        missing = self.fails("xkb", env={**self.env, "XKB_CONFIG_ROOT": str(self.root / "none")})
+        self.assertEqual(missing["code"], "missing_xkb")
+
+    def test_run_action_sends_allowed_actions_only(self):
+        log = self.root / "msg.log"
+        env = {**self.env, "MSG_LOG": str(log)}
+        self.ok("run-action", {"action": "spawn kitty --title 'a b'"}, env=env)
+        self.ok("run-action", {"action": "window-focus-left"}, env=env)
+        blocked = self.fails("run-action", {"action": "session-quit"}, env=env)
+        self.assertEqual(blocked["code"], "blocked")
+        self.assertEqual([json.loads(line) for line in log.read_text().splitlines()],
+                         [["spawn", "kitty --title 'a b'"], ["window-focus-left"]])
+        failed = self.fails("run-action", {"action": "nonsense"}, env={**env, "MSG_FAIL": "1"})
+        self.assertEqual(failed["error"], "unknown action: nonsense")
+
+
+class ChooserTests(HelperTestCase):
+    """`pick-file` / `pick-folder` with a fake zenity that logs its arguments and prints $CHOSEN."""
+
+    def setUp(self):
+        super().setUp()
+        bin_dir = self.root / "chooser-bin"
+        bin_dir.mkdir()
+        self.log = self.root / "chooser.log"
+        fake = bin_dir / "zenity"
+        fake.write_text(f"#!{sys.executable}\n"
+                        "import json, os, sys\n"
+                        f"open({str(self.log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                        "chosen = os.environ.get('CHOSEN', '')\n"
+                        "print(chosen)\n"
+                        "raise SystemExit(0 if chosen else 1)\n")
+        fake.chmod(0o755)
+        self.env["PATH"] = str(bin_dir) + os.pathsep + self.env["PATH"]
+
+    def test_pick_file_filters_and_writes_paths_relative_to_the_config_when_asked(self):
+        folder = self.config.parent
+        inside = str(folder / "shaders" / "glow.frag")
+        request = {"config": str(self.config), "relative": True, "title": "Choose a shader file"}
+        self.assertEqual(self.ok("pick-file", request, env={**self.env, "CHOSEN": inside})["path"], "shaders/glow.frag")
+        self.assertEqual(self.ok("pick-file", {**request, "relative": False}, env={**self.env, "CHOSEN": inside})["path"],
+                         inside)
+        self.assertEqual(self.ok("pick-file", request, env={**self.env, "CHOSEN": "/usr/share/x.frag"})["path"],
+                         "/usr/share/x.frag")
+        self.ok("pick-file", {"config": str(self.config), "filter": ["ICC profiles", "*.icc *.icm"]},
+                env={**self.env, "CHOSEN": "/tmp/a.icc"})
+        last = json.loads(self.log.read_text().splitlines()[-1])
+        self.assertIn("--file-filter=ICC profiles | *.icc *.icm", last)
+        self.assertIn(f"--filename={folder}/", last)  # starts in the config's folder
+        self.assertEqual(self.ok("pick-file", request), {"cancelled": True})
+
+    def test_choosers_need_zenity_or_kdialog(self):
+        env = {**self.env, "PATH": str(self.root / "nowhere")}
+        self.assertEqual(self.fails("pick-file", {}, env=env)["code"], "missing_chooser")
+        self.assertEqual(self.fails("pick-folder", {}, env=env)["code"], "missing_chooser")

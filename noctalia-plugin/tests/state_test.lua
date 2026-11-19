@@ -64,9 +64,10 @@ assert(hasText("Asking Umbriel for outputs…"), screen())
 noctalia.runAsync = runAsync
 entry.onClose()
 replies.outputs = function() return false, "no compositor socket" end
+local outputCalls = countCalls("outputs")  -- earlier ones include the output names for output settings
 entry.onOpen()
 flushReads()
-assert(countCalls("outputs") == 1, "outputs requested again after reopening")
+assert(countCalls("outputs") == outputCalls + 1, "outputs requested again after reopening")
 assert(hasText("no compositor socket") and not hasText("Umbriel reported no outputs."), "the error is shown: " .. screen())
 replies.outputs = function()
   return true, json.encode({ outputs = { { name = "DP-7", description = "Test monitor", modes = {} } } })

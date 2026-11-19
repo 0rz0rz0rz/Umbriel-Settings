@@ -42,6 +42,23 @@ FAKE_UMBRIEL = textwrap.dedent("""\
             {"path": "general.show_cheatsheet", "type": "bool", "default": True},
         ]}))
         raise SystemExit(0)
+    if sys.argv[1:] == ["windows", "--json"]:
+        print(json.dumps([{"app_id": "firefox", "title": "Docs"}, {"app_id": "firefox", "title": "Mail"},
+                          {"app_id": "org.gajim.Gajim", "title": "Gajim"}]))
+        raise SystemExit(0)
+    if sys.argv[1:] == ["layers", "--json"]:
+        print(json.dumps([{"namespace": "noctalia-bar-default", "layer": "top", "output": "DP-1"}]))
+        raise SystemExit(0)
+    if sys.argv[1:] == ["keyboard-layouts", "--json"]:
+        print(json.dumps({"current_index": 0, "names": ["German"]}))
+        raise SystemExit(0)
+    if sys.argv[1:2] == ["msg"]:
+        with open(os.environ["MSG_LOG"], "a") as log:
+            log.write(json.dumps(sys.argv[2:]) + "\\n")
+        if os.environ.get("MSG_FAIL"):
+            print("unknown action: " + sys.argv[2], file=sys.stderr)
+            raise SystemExit(1)
+        raise SystemExit(0)
     valid = os.environ.get("VALID", "yes") == "yes"
     print(json.dumps({"valid": valid, "diagnostics": [] if valid else
                       [{"severity": "error", "message": "bad value for general.mod_key", "line": 3}]}))

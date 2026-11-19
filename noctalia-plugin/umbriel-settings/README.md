@@ -20,9 +20,10 @@ The same interface also runs as a standalone app: see the
 - Noctalia 5.4.0 or newer (plugin API 43) and `python3` 3.11+ (runs the bundled helper).
 - `python-tomlkit`: edits the config while keeping its formatting. Without it the panel says what to
   install; user folders and default apps still work.
-- `umbriel` on `PATH`: defaults, ranges, validation before saving and **Inspect connected outputs**.
+- `umbriel` on `PATH`: defaults, ranges, validation before saving, **Inspect connected outputs**, **Pick
+  from open windows/layers** and **Run now**.
   Without it settings can still be edited, but aren't checked before writing.
-- Optional: `zenity` or `kdialog` (folder **Browse**), `gio` (open the standalone app), `xdg-open` or an
+- Optional: `zenity` or `kdialog` (**Browse** for folders and files), `gio` (open the standalone app), `xdg-open` or an
   editor command set under **About** (**Edit file**). Buttons explain what's missing.
 
 ## Usage
@@ -50,9 +51,18 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
   twice to confirm) removes the key so Umbriel's default applies. Units sit next to
   the number, special values such as “Automatic” (-1) have their own switch, and ↻ marks settings that need
   an Umbriel restart. **Only customized** hides settings at their default.
-- **Rules, outputs, devices and effects** are lists: edit, name, reorder, duplicate, delete.
+- **Rules, outputs, devices and effects** are lists: edit, name, reorder, duplicate, delete. **Pick from
+  open windows** / **Pick from open layers** on a rule fill its match (app id, optionally title, or layer
+  namespace) with an exact pattern from what Umbriel shows.
+- **Curve, effect and output settings** offer your own named curves, effect presets and pools (also from
+  include files) and your configured and connected outputs; **Browse…** picks include files, effect shaders
+  and ICC profiles. A keybind action's first argument (output, preset, pool, submap, scratchpad, named
+  workspace) has a list too.
+- **Keyboard layouts**: **Choose…** next to Layout, Variant and XKB options picks from XKB's list.
 - **Keybinds** are grouped: build shortcuts from modifier chips, pick actions from a searchable catalog,
-  lock shortcuts against accidental changes. Drag groups and shortcuts by their grip to reorder them or
+  lock shortcuts against accidental changes. **Run now** (click twice) sends the action to Umbriel once;
+  session, close/kill, screen-off and submap actions are refused. Window actions act on the window behind
+  the panel. Drag groups and shortcuts by their grip to reorder them or
   move a shortcut into another group (↑/↓ buttons on the group list and a shortcut's page do the same);
   the `[keybinds]` table is saved in that order.
 - **User folders** and **Default apps** edit `user-dirs.dirs` and `mimeapps.list`.
@@ -98,7 +108,9 @@ box next to it.
 
 - **Files read**: the Umbriel config (last chosen in the panel or app, else `~/.config/umbriel/config.toml`),
   `user-dirs.dirs`, `mimeapps.list`, installed `.desktop` files, qt6ct/KDE color files (KDE title-bar colors),
-  `noctalia-config.toml` and the palette file (title bars that follow Noctalia).
+  `noctalia-config.toml` and the palette file (title bars that follow Noctalia), XKB's
+  `rules/evdev.lst` (keyboard layout picker; `$XKB_CONFIG_ROOT` or `/usr/share/X11/xkb`) and the files your
+  config includes (`[include]`, for the effect presets, pools and curves they define).
 - **Files written**, only when you save, restore or delete backups: the Umbriel config (validated, written
   atomically, symlinks refused), `$XDG_CONFIG_HOME/user-dirs.dirs` and `$XDG_CONFIG_HOME/mimeapps.list` (other
   entries and MIME fallbacks kept). Each write is preceded by a timestamped backup (newest 10 per file) in
@@ -113,7 +125,8 @@ box next to it.
   Noctalia's umbriel template always loads `noctalia.toml` last).
 - **Processes**: `python3 umbriel_settings.py <command>` (JSON request/response files and the helper's
   bytecode cache in the plugin data directory); `umbriel config validate` (on a temporary `.umbriel-settings-*.toml` next to the config,
-  removed afterwards), `umbriel config schema --json`, `umbriel outputs --json`; on button press only:
+  removed afterwards), `umbriel config schema --json`, `umbriel outputs --json`, `umbriel windows --json`, `umbriel layers --json`,
+  `umbriel keyboard-layouts --json`; on button press only: `umbriel msg <action>` (**Run now**),
   `zenity`/`kdialog`, `gio launch`, `xdg-open` or your editor. Noctalia runs `python3 titlebar_apply.py`
   after palette changes while a title-bar color follows it.
 - **Network**: none.

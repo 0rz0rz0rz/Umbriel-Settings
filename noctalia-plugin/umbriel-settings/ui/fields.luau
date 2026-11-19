@@ -230,11 +230,18 @@ end
 local function choiceControl(ctx, spec, effective)
   local field, key, view = spec.field, spec.key, ctx.view
   local choices = field.choices or {}
+  if field.names_from then
+    local extra = field.names_from == "output" and ctx.liveOutputs() or nil
+    choices = ctx.store.namedChoices(field.names_from, choices, extra)
+  end
   local options, offset = {}, 0
   local unsettable = spec.onUnset ~= nil and not hasDefault(field)
   if unsettable then table.insert(options, unsetLabel(field)); offset = 1 end
   local labels = field.choice_labels or choices
-  for i, choice in ipairs(choices) do table.insert(options, labels[i] or choice) end
+  for i, choice in ipairs(choices) do
+    local label = labels[i] or choice
+    table.insert(options, label == "" and "None" or label)
+  end
   local index = indexOf(choices, effective)
   local custom = field.kind == "combo" and (view.custom[key] or (effective ~= nil and index == nil))
   if field.kind == "combo" then table.insert(options, "Custom…") end
@@ -346,6 +353,26 @@ local function tableControl(ctx, spec, effective)
 end
 
 -- Lists get one row per item below the label.
+-- Browse… for path fields (meta `picker = "file"`): `onChosen(path)` gets the chosen file.
+local function browseButton(ctx, spec, onChosen)
+  local field, view = spec.field, ctx.view
+  local options = field.file or {}
+  return ui.button({ key = spec.key .. ":browse", text = "Browse…", glyph = "folder-open", controlSize = "sm",
+    variant = "outline", enabled = not view.browsing, tooltip = options.title,
+    onClick = function()
+      view.browsing = true
+      ctx.render()
+      ctx.helper.call("pick-file", { title = options.title, filter = options.filter, start = options.start,
+                                     relative = options.relative, config = ctx.store.state and ctx.store.state.path },
+        function(err, data)
+          view.browsing = false
+          if err then ctx.flash(err.error, "warning")
+          elseif data.path then onChosen(data.path) end
+          ctx.render()
+        end)
+    end })
+end
+
 local function listRows(ctx, spec, effective)
   local key, view = spec.key, ctx.view
   local items = type(effective) == "table" and effective or {}
@@ -376,15 +403,18 @@ local function listRows(ctx, spec, effective)
                   end }),
     }))
   end
-  table.insert(rows, ui.row({ key = key .. ":add", gap = 6 }, {
+  local function append(value)
+    local next = {}
+    for i, old in ipairs(items) do next[i] = old end
+    table.insert(next, value)
+    spec.onSet(next); bump(view, key)
+  end
+  local addRow = {
     ui.button({ text = "Add", glyph = "plus", controlSize = "sm", variant = "outline",
-                onClick = function()
-                  local next = {}
-                  for i, old in ipairs(items) do next[i] = old end
-                  table.insert(next, "")
-                  spec.onSet(next); bump(view, key); ctx.render()
-                end }),
-  }))
+                onClick = function() append(""); ctx.render() end }),
+  }
+  if spec.field.picker == "file" then table.insert(addRow, browseButton(ctx, spec, append)) end
+  table.insert(rows, ui.row({ key = key .. ":add", gap = 6 }, addRow))
   return rows
 end
 
@@ -442,6 +472,9 @@ function M.row(ctx, spec)
     controls = colorControl(ctx, spec, effective)
   elseif kind == "choice" or kind == "combo" then
     controls = choiceControl(ctx, spec, effective)
+    if field.picker == "file" then  -- e.g. an ICC profile next to "none"/"edid": the path becomes the custom value
+      table.insert(controls, browseButton(ctx, spec, function(path) ctx.view.custom[spec.key] = true; spec.onSet(path) end))
+    end
   elseif kind == "table" then
     controls = tableControl(ctx, spec, effective)
   elseif kind == "list" or kind == "command_list" then
@@ -452,6 +485,15 @@ function M.row(ctx, spec)
     if placeholder == "empty" or placeholder == "not set" then placeholder = "" end
     if kind == "raw" then placeholder = "TOML value" .. (placeholder ~= "" and (", e.g. " .. placeholder) or "") end
     controls = textControl(ctx, spec, spec.set and spec.value or nil, placeholder)
+    if field.picker == "file" then
+      table.insert(controls, browseButton(ctx, spec, function(path) spec.onSet(path) end))
+    end
+    if field.picker == "xkb" then
+      local entry = spec.entry or {}
+      table.insert(controls, ui.button({ key = key .. ":pick", text = "Choose…", glyph = "keyboard",
+        controlSize = "sm", variant = "outline", tooltip = "Pick from the layouts XKB knows",
+        onClick = function() ctx.go({ name = "xkb", editor = entry.editor, index = entry.index }) end }))
+    end
   end
 
   local labelRow = { ui.label({ text = field.label, fontSize = 13, maxLines = 2 }) }

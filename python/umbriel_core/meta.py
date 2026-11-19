@@ -1,7 +1,15 @@
 """Describe pages, groups, fields, editors and actions as plain JSON for a declarative UI."""
 
 from . import CORE_VERSION, entry_ops
-from .actions import ACTION_CATEGORIES, ACTION_INFO, ARG_HELP, REQUIRED_ARG_ACTIONS
+from .actions import (
+    ACTION_CATEGORIES,
+    ACTION_INFO,
+    ARG_HELP,
+    REQUIRED_ARG_ACTIONS,
+    RUN_BLOCKED,
+    RUN_BLOCKED_SPAWN,
+    SUBMAP_REASON,
+)
 from .cursor_themes import installed_cursor_themes
 from .fields import ACTION_TEMPLATES, NAV_SECTIONS, OPACITY_SLIDERS, TABS
 from .help import CATEGORY_HELP, choice_label, group_help, setting_help_text, split_label
@@ -23,6 +31,27 @@ PAGE_GLYPHS = {
     "Keybinds": "command", "Window rules": "app-window", "Layer rules": "stack-2",
     "Workspace rules": "layout-columns", "Outputs": "device-desktop", "Scratchpads": "notes",
     "Input devices": "mouse", "Security rules": "shield-lock", "Environment": "variable",
+}
+
+
+# fields that name an output: the UI offers the config's outputs and the connected ones (`names_from`)
+OUTPUT_FIELDS = {"general.xwayland_primary_output", "input.tablet.map_to_output", "input.touch.map_to_output",
+                 "window_rule[].default_output", "workspace[].output"}
+
+# path fields with a Browse… button: schema path → file chooser options (`relative`: written relative to the
+# config's folder when the file is inside it)
+FILE_FIELDS = {
+    "effects.preset.<name>.shader": {"title": "Choose a shader file", "relative": True},
+    "output.<name>.color_profile": {"title": "Choose an ICC profile", "filter": ["ICC profiles", "*.icc *.icm"],
+                                    "start": "/usr/share/color/icc"},
+    "include.files": {"title": "Choose a config file to include", "filter": ["TOML files", "*.toml"]},
+    "include.optional.files": {"title": "Choose a config file to include", "filter": ["TOML files", "*.toml"]},
+}
+
+# keyboard keys the XKB picker edits: schema path → which part
+XKB_FIELDS = {
+    f"{prefix}.{part}": part
+    for prefix in ("input.keyboard", "input.device[]") for part in ("layout", "variant", "options")
 }
 
 
@@ -68,8 +97,23 @@ def describe_field(field, category, group, schema_options, schema_path, cursor_t
         info["keys"] = list(field.extra or ())
     if kind == "color" and field.path in OPACITY_SLIDERS:
         info["opacity"] = True
-    if option is not None and option.get("format") == "effect":
+    # curve and effect names also come from the config's own [animation.beziers]/[animation.springs] and
+    # effect presets/pools: the UI adds them to the choices (`names_from`), keeping "Custom…" for the rest
+    name_format = option.get("format") if option is not None and option.get("type") == "string" else None
+    if name_format == "curve" and kind == "combo":
+        info["names_from"] = "curve"
+    elif name_format == "effect" and kind == "str":
+        info["kind"], info["choices"], info["names_from"] = "combo", [""], "effect"
+    elif schema_path in OUTPUT_FIELDS and kind == "str":
+        # "" (none) is a choice only where it is the default; rule fields without a key show "Not set"
+        info["kind"], info["names_from"] = "combo", "output"
+        info["choices"] = [""] if default == "" else []
+    elif option is not None and option.get("format") == "effect":
         info["placeholder"] = "Effect preset name"
+    if schema_path in XKB_FIELDS:
+        info["picker"], info["xkb"] = "xkb", XKB_FIELDS[schema_path]
+    elif schema_path in FILE_FIELDS:
+        info["picker"], info["file"] = "file", FILE_FIELDS[schema_path]
     info.update(notes)
     # with nothing better to show in an empty box, the hint goes there (and not on the status line too)
     if ("hint" in notes and kind in ("str", "strorlist", "raw", "combo") and not info.get("placeholder")
@@ -146,5 +190,6 @@ def build_meta(schema_options, schema_info=None, plugin_version=""):
             "examples": {head: info[0] for head, info in ACTION_INFO.items()},
             "args": ARG_HELP,
             "options": [[name, label] for name, label in BIND_BOOL_OPTIONS],
+            "blocked": {"heads": RUN_BLOCKED, "spawn": RUN_BLOCKED_SPAWN, "submap": SUBMAP_REASON},
         },
     }
