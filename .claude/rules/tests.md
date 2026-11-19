@@ -16,7 +16,7 @@ paths:
 | `test_core_session.py` | `ConfigSession.save` without the CLI: odd `[keybinds]` headers, dotted/inline keybinds, non-table shapes, text that lost a setting is refused, lock file shape |
 | `test_host_runtime.py` | callback ids per render, Lua sandbox; lupa runs `app.luau` with the real core in `host_support.isolated_home(self)` (temp config, XDG dirs, fake `umbriel`; also used by `test_app_render.py`); `find`/`click`/`host.invoke` + `settle()`; `new_app(dir)` = restart; fake a crash via `api._helpers[path]` |
 | `test_host_bridge.py` | `Bridge`, `QtScheduler` (incl. failing work), single instance (temp socket path), glyph names |
-| `test_app_render.py` | real `AppWindow`: DOM text/clicks, no JS/Lua errors, ARIA names |
+| `test_app_render.py` | real `AppWindow`: DOM text/clicks, no JS/Lua errors, ARIA names, the display arrangement filling the window (fake `umbriel outputs --json` in `host_support`) |
 | `test_app_icon.py` | icon, desktop entry, `app.main` with Qt and `instance.claim` patched (never reach a real app's socket) |
 
 Qt pitfalls: import `app_window` (QtWebEngine) before any `QApplication` and before patching it; after closing an `AppWindow` flush `QEvent.Type.DeferredDelete` (else crash at exit). Restore globals (stylesheet, palette, locale, env) with `addCleanup`. Offscreen: send `Leave` before non-hover baselines, don't assert text widths. In `runJavaScript`, return strings (an empty array comes back as `''`).

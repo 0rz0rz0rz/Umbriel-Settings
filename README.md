@@ -24,10 +24,15 @@ same core and interface code, so they look and behave alike; the app adds a side
   backups; the sidebar keeps **Customized**, **Backups** and **About** at hand and shrinks to icons in a
   narrow window (widen it again to use the search box).
 - **Undo** (Ctrl+Z or the save bar) steps back through unsaved edits, one setting, rule or shortcut at a time.
-- **Lists** for rules, outputs, devices and effects: edit, name, reorder, duplicate, delete.
-  **Inspect connected outputs** adds a monitor with one of its real modes; **Pick from open windows** (window,
-  workspace and security rules) and **Pick from open layers** (layer rules) fill a rule's match with an exact
-  pattern such as `^org\.gajim\.Gajim$`, optionally with the window's title.
+- **Lists** for rules, devices and effects: edit, name, reorder, duplicate, delete.
+- **Outputs** draws the connected displays as numbered tiles at their real size and position. Drag one by its
+  number onto an edge of another to place it there: displays snap to each other's center line, so two above a
+  main display are centered as a pair, and a corner shifts it half a display that way. The star marks the
+  default display (startup focus and XWayland's primary output). Click a display to give it a name for the
+  overview and pick its resolution and refresh rate from the modes it reports.
+- **Pick from open windows** (window, workspace and security rules) and **Pick from open layers** (layer
+  rules) fill a rule's match with an exact pattern such as `^org\.gajim\.Gajim$`, optionally with the
+  window's title.
 - **Names instead of typing**: an animation's Curve offers your own named Bézier and spring curves next to
   the built-in ones, effect settings offer your effect presets and pools, and output settings (X11 primary
   output, tablet/touch mapping, a rule's output) offer your configured and connected outputs, all still with

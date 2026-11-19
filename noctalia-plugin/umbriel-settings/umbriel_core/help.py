@@ -104,7 +104,7 @@ FIELD_HELP = {
     "Floating position": "Place matching floating windows at an X/Y offset from the chosen anchor of the output.",
     "Scrolling extent px": "Set the scrolling-column width in pixels.",
     "Scrolling extent fraction": "Set the scrolling-column width as an output fraction.",
-    "Mode (e.g. 2560x1440@144)": "Choose a resolution and refresh rate advertised by this output. Use Inspect connected outputs to see the live supported modes.",
+    "Mode (e.g. 2560x1440@144)": "Choose a resolution and refresh rate advertised by this output. While it is connected, the lists show the modes Umbriel reports.",
     "Position": "Set the output's top-left position (X, Y) in compositor coordinates.",
     "Transform": "Rotate or flip the output image.",
     "Direct scanout": "Allow fullscreen surfaces to be sent directly to the display when possible.",

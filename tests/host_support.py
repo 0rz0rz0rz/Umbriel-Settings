@@ -29,6 +29,13 @@ FAKE_UMBRIEL = textwrap.dedent("""\
         print(json.dumps({"version": "test", "revision": "r1", "options": [
             {"path": "general.mod_key", "type": "enum", "default": "Super", "values": ["Super", "Alt"]}]}))
         raise SystemExit(0)
+    if sys.argv[1:] == ["outputs", "--json"]:
+        def output(name, x, w, h):
+            return {"name": name, "config_name": "Test " + name, "enabled": True, "scale": 1.0,
+                    "transform": "normal", "position": {"x": x, "y": 0}, "logical_size": {"width": w, "height": h},
+                    "modes": [{"width": w, "height": h, "refresh_mhz": 60000, "current": True, "preferred": True}]}
+        print(json.dumps([output("DP-1", 0, 2560, 1440), output("HDMI-A-1", 2560, 1920, 1080)]))
+        raise SystemExit(0)
     print(json.dumps({"valid": True, "diagnostics": []}))
 """)
 

@@ -20,8 +20,8 @@ The same interface also runs as a standalone app: see the
 - Noctalia 5.4.0 or newer (plugin API 43) and `python3` 3.11+ (runs the bundled helper).
 - `python-tomlkit`: edits the config while keeping its formatting. Without it the panel says what to
   install; user folders and default apps still work.
-- `umbriel` on `PATH`: defaults, ranges, validation before saving, **Inspect connected outputs**, **Pick
-  from open windows/layers** and **Run now**.
+- `umbriel` on `PATH`: defaults, ranges, validation before saving, the **Outputs** display arrangement and
+  mode lists, **Pick from open windows/layers** and **Run now**.
   Without it settings can still be edited, but aren't checked before writing.
 - Optional: `zenity` or `kdialog` (**Browse** for folders and files), `gio` (open the standalone app), `xdg-open` or an
   editor command set under **About** (**Edit file**). Buttons explain what's missing.
@@ -51,9 +51,18 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
   twice to confirm) removes the key so Umbriel's default applies. Units sit next to
   the number, special values such as “Automatic” (-1) have their own switch, and ↻ marks settings that need
   an Umbriel restart. **Only customized** hides settings at their default.
-- **Rules, outputs, devices and effects** are lists: edit, name, reorder, duplicate, delete. **Pick from
+- **Rules, devices and effects** are lists: edit, name, reorder, duplicate, delete. **Pick from
   open windows** / **Pick from open layers** on a rule fill its match (app id, optionally title, or layer
   namespace) with an exact pattern from what Umbriel shows.
+- **Outputs** shows the connected displays as numbered tiles at their real size and position, filling the
+  page. Drag a display by its number (the grip under it) onto an edge of another to place it there, or onto a
+  top or bottom corner to place it above or below but shifted half a display that way: displays stay centered on
+  each other, and the layout starts at 0, 0 (a display's Position fields set it by hand). **Tidy up**
+  recenters after a mode or scale change. The star on a tile marks the default display (click a grey star to
+  move it there, the filled one to clear it): it gets the focus at startup (`focus_at_startup`) and is
+  XWayland's primary output. Click a display's number to edit it: a name for the overview (kept beside the
+  config, not in it), and a Mode picked as Resolution and Refresh rate from the modes Umbriel reports. Entries
+  for outputs that aren't connected are listed under **Not connected**.
 - **Curve, effect and output settings** offer your own named curves, effect presets and pools (also from
   include files) and your configured and connected outputs; **Browse…** picks include files, effect shaders
   and ICC profiles. A keybind action's first argument (output, preset, pool, submap, scratchpad, named

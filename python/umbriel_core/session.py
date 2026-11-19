@@ -122,11 +122,14 @@ class ConfigSession:
         editors = {}
         for eid, (_, _, path, mode, _, _) in entry_ops.ENTRY_EDITORS.items():
             editor_fields = entry_ops.editor_fields(eid)
-            labels = labels_all.get(path, []) if mode == "aot" else []
+            labels = labels_all.get(path) or ([] if mode == "aot" else {})
             items = []
             for index, item in enumerate(entry_ops.entries(doc, eid)):
                 name, table = (None, item) if mode == "aot" else (str(item[0]), item[1])
-                custom = labels[index] if index < len(labels) else ""
+                if isinstance(labels, dict):
+                    custom = labels.get(str(name), "")
+                else:
+                    custom = labels[index] if index < len(labels) else ""
                 if mode == "aot":
                     title, raw, automatic = entry_ops.entry_label_info(table, index, custom)
                 else:
@@ -208,8 +211,10 @@ class ConfigSession:
                 raise ValueError("Invalid entry operation.")
             eid = op["editor"]
             page, _, path, mode, _, _ = entry_ops.ENTRY_EDITORS[eid]
-            before = labels_all.get(path, [])
-            labels = list(before)
+            before = labels_all.get(path) or ([] if mode == "aot" else {})
+            if isinstance(before, dict) != (mode != "aot"):
+                before = [] if mode == "aot" else {}  # a hand-edited sidecar with the wrong shape starts over
+            labels = list(before) if isinstance(before, list) else dict(before)
             if op.get("op") in ("set", "unset"):
                 field = entry_ops.editor_fields(eid).get(op.get("field"))
                 if field is None:
@@ -226,7 +231,7 @@ class ConfigSession:
             else:
                 entry_ops.apply_entry_op(doc, eid, labels, op)
                 summary.append({"page": page, "label": describe_entry_op(op)})
-            if mode == "aot" and any(before + labels) and before != labels:
+            if before != labels and (mode != "aot" or any(before + labels)):
                 labels_all[path] = labels
                 labels_changed = True
 

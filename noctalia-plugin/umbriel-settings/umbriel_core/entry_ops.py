@@ -10,7 +10,7 @@ import re
 import tomlkit
 
 from .fields import ENTRY_EDITORS, MAP_EDITORS, schema_prefix  # noqa: F401 (schema_prefix: entry_ops API)
-from .tomlops import ENV_NAME_RE, MISSING, RESERVED_ENV, ensure_table, getp, parse_toml_value, putp, py, totext
+from .tomlops import ENV_NAME_RE, MISSING, RESERVED_ENV, delp, ensure_table, getp, parse_toml_value, putp, py, totext
 
 
 def editor_path(editor_id):
@@ -78,7 +78,8 @@ def _entry_name(name, existing):
 
 
 def apply_entry_op(doc, editor_id, labels, op):
-    """Apply one operation; `labels` (GUI-only names of 'aot' entries) is updated in place.
+    """Apply one operation; `labels` (GUI-only names: a list by position for 'aot' entries, a name → label dict
+    for named ones) is updated in place.
 
     Operations: add [name], remove index, move index to, duplicate index [name], label index text.
     Field edits go through values.apply_value on entry_at(...).
@@ -103,7 +104,11 @@ def apply_entry_op(doc, editor_id, labels, op):
             del c[index]
             labels.pop(index)
         else:
-            del c[entries(doc, editor_id)[index][0]]
+            name = entries(doc, editor_id)[index][0]
+            del c[name]
+            labels.pop(str(name), None)
+            if len(c) == 0:  # an empty [output] super-table isn't written out; drop it so the save check agrees
+                delp(doc, editor_path(editor_id))
     elif kind == "move":
         if mode != "aot":
             raise ValueError("Only rules can be reordered.")
@@ -123,13 +128,19 @@ def apply_entry_op(doc, editor_id, labels, op):
         else:
             c[_entry_name(op.get("name"), set(c.keys()))] = clone
     elif kind == "label":
-        if mode != "aot":
-            raise ValueError("Only rules have display names.")
         index, text = op.get("index"), op.get("text")
         entry_at(doc, editor_id, index)
         if not isinstance(text, str):
             raise ValueError("Display names must be text.")
-        labels[index] = " ".join(text.split())
+        text = " ".join(text.split())
+        if mode == "aot":
+            labels[index] = text
+        else:
+            name = str(entries(doc, editor_id)[index][0])
+            if text:
+                labels[name] = text
+            else:
+                labels.pop(name, None)
     else:
         raise ValueError(f"Unknown entry operation: {kind}")
 

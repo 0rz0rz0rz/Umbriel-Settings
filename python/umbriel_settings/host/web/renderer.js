@@ -218,6 +218,21 @@ function layout(el, p, kind) {
   s.opacity = p.opacity != null ? String(p.opacity) : "";
 }
 
+// onResize (app only, not a Noctalia prop): the container reports its size as (width, height) strings whenever
+// it changes, so a page can fit drawings to it; it clips what overflows, so the size follows the layout.
+function watchSize(el) {
+  el.classList.toggle("resize-watch", !!el.__props.onResize);
+  if (!el.__props.onResize || el.__resizeObserver) return;
+  el.__resizeObserver = new ResizeObserver(() => {
+    const w = Math.round(el.clientWidth), h = Math.round(el.clientHeight);
+    if (!el.__props.onResize || (w === el.__reportedW && h === el.__reportedH)) return;
+    el.__reportedW = w;
+    el.__reportedH = h;
+    invoke(el.__props.onResize, w, h);
+  });
+  el.__resizeObserver.observe(el);
+}
+
 function apply(el, node) {
   const p = node.props || {};
   const kind = node.kind;
@@ -225,6 +240,7 @@ function apply(el, node) {
   el.__props = p;
   el.dataset.key = p.key == null ? "" : String(p.key);
   layout(el, p, kind);
+  if (p.onResize || el.__resizeObserver) watchSize(el);
   // Screen readers: clickable containers act as buttons; icon-only controls are named by their tooltip.
   if (CLICKABLE_KINDS.includes(kind)) {
     attr(el, "role", p.onClick ? "button" : null);

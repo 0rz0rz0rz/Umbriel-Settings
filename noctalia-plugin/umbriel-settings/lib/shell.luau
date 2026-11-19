@@ -78,7 +78,7 @@ function M.create(layout, options)
     local name = current.name
     if name == "home" then return home.render(ctx) end
     if name == "form" then return form.render(ctx, current) end
-    if name == "entries" or name == "entry" or name == "outputs" or name == "pick-live" then
+    if name == "entries" or name == "entry" or name == "pick-live" then
       return entries.render(ctx, current)
     end
     if name == "xkb" then return xkb.render(ctx, current) end
@@ -101,8 +101,11 @@ function M.create(layout, options)
         ctx.render()
       end, "flash-" .. index))
     end
-    local content = ui.scroll({ key = "content-" .. #stack .. "-" .. current.name, gap = 8, flexGrow = 1,
-                                revealKey = current.reveal }, parts.content or parts)
+    -- a page that sizes its content to the space (parts.fill, e.g. the display arrangement) doesn't scroll
+    local content = parts.fill
+      and ui.column({ key = "content-fill-" .. #stack .. "-" .. current.name, gap = 8, flexGrow = 1 }, parts.content)
+      or ui.scroll({ key = "content-" .. #stack .. "-" .. current.name, gap = 8, flexGrow = 1,
+                     revealKey = current.reveal }, parts.content or parts)
     local pending = store.pendingCount()
     local saveBar = nil
     -- Always shown once a config is loaded (quiet while nothing is unsaved): a bar that came and went would
@@ -347,23 +350,31 @@ function M.create(layout, options)
   end
 
   -- ---------------------------------------------------------------- entry points
-  -- Names of the connected outputs (connector and monitor names) for output choices: asked once per open,
-  -- empty until Umbriel answers (or when it can't).
+  -- The connected outputs (`umbriel outputs --json`): {loading, error, outputs}, asked once per open (and again
+  -- after ctx.forgetLiveOutputs()); outputs stay empty until Umbriel answers or when it can't.
   local liveOutputs = nil
-  function ctx.liveOutputs()
+  function ctx.connectedOutputs()
     if liveOutputs == nil then
-      liveOutputs = { loading = true, names = {} }
+      liveOutputs = { loading = true, outputs = {} }
       helper.call("outputs", {}, function(err, data)
-        local names = {}
-        for _, output in ipairs((not err and data.outputs) or {}) do
-          table.insert(names, output.name)
-          if type(output.config_name) == "string" and output.config_name ~= "" then table.insert(names, output.config_name) end
+        if err then
+          liveOutputs = { outputs = {}, error = err.error or "Umbriel did not answer." }
+        else
+          liveOutputs = { outputs = type(data.outputs) == "table" and data.outputs or {} }
         end
-        liveOutputs = { names = names }
         ctx.render()
       end)
     end
-    return liveOutputs.names
+    return liveOutputs
+  end
+  -- Their connector and monitor names, for output choices.
+  function ctx.liveOutputs()
+    local names = {}
+    for _, output in ipairs(ctx.connectedOutputs().outputs) do
+      table.insert(names, output.name)
+      if type(output.config_name) == "string" and output.config_name ~= "" then table.insert(names, output.config_name) end
+    end
+    return names
   end
   function ctx.forgetLiveOutputs() liveOutputs = nil end
 
@@ -380,7 +391,7 @@ function M.create(layout, options)
     helper.generation = helper.generation + 1
     loading.meta, loading.config, loading.desktop, loading.search = false, false, false, false
     -- Answers to requests from before the panel closed are dropped, so their busy flags would stay set.
-    view.browsing, view.outputsLoading, view.titlebarLoading = false, false, false
+    view.browsing, view.titlebarLoading = false, false
     view.titlebarBusy, view.titlebarQueued = {}, {}
     ctx.clearPickerBusy()
     ctx.forgetLiveOutputs()  -- monitors may have changed while the panel was closed

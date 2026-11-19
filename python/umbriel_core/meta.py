@@ -48,6 +48,9 @@ FILE_FIELDS = {
     "include.optional.files": {"title": "Choose a config file to include", "filter": ["TOML files", "*.toml"]},
 }
 
+# output modes the UI offers as Resolution and Refresh rate lists while the output is connected
+MODE_FIELDS = {"output.<name>.mode"}
+
 # keyboard keys the XKB picker edits: schema path → which part
 XKB_FIELDS = {
     f"{prefix}.{part}": part
@@ -114,6 +117,8 @@ def describe_field(field, category, group, schema_options, schema_path, cursor_t
         info["picker"], info["xkb"] = "xkb", XKB_FIELDS[schema_path]
     elif schema_path in FILE_FIELDS:
         info["picker"], info["file"] = "file", FILE_FIELDS[schema_path]
+    elif schema_path in MODE_FIELDS:
+        info["picker"] = "mode"
     info.update(notes)
     # with nothing better to show in an empty box, the hint goes there (and not on the status line too)
     if ("hint" in notes and kind in ("str", "strorlist", "raw", "combo") and not info.get("placeholder")

@@ -219,6 +219,18 @@ function M.entryOp(eid, op)
   end
 end
 
+-- Several entry operations as one undo step (a display arrangement writes every display's position).
+function M.entryOpsBatch(eid, ops)
+  if #ops == 0 then return end
+  M.serial = M.serial + 1
+  remember({ kind = "entry", editor = eid, ops = { table.unpack(M.entryOps) } })
+  for _, op in ipairs(ops) do
+    applyEntryOp(M.entries[eid], op)
+    op.editor = eid
+    table.insert(M.entryOps, op)
+  end
+end
+
 local function countOps(ops, eid)
   local count = 0
   for _, op in ipairs(ops) do

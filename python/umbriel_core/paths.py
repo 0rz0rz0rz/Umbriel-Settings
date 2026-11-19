@@ -166,7 +166,8 @@ def labels_file(config_dir):
 
 
 def load_all_entry_labels(config_dir):
-    """Return every stored entry label list keyed by entry path, e.g. {"window_rule": ["Foo", ""]}."""
+    """Return every stored entry label keyed by entry path: a list for rules (by position), a name → label
+    object for named entries such as outputs, e.g. {"window_rule": ["Foo", ""], "output": {"DP-1": "Desk"}}."""
     try:
         with open(labels_file(config_dir), encoding="utf-8") as f:
             data = json.load(f)
@@ -174,8 +175,10 @@ def load_all_entry_labels(config_dir):
         return {}
     if not isinstance(data, dict):
         return {}
-    return {
-        key: [label if isinstance(label, str) else "" for label in labels]
-        for key, labels in data.items()
-        if isinstance(labels, list)
-    }
+    found = {}
+    for key, labels in data.items():
+        if isinstance(labels, list):
+            found[key] = [label if isinstance(label, str) else "" for label in labels]
+        elif isinstance(labels, dict):
+            found[key] = {name: label for name, label in labels.items() if isinstance(label, str) and label}
+    return found

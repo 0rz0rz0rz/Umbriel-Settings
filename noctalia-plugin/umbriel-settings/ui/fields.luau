@@ -1,6 +1,7 @@
 -- One settings row per field: label, default, Override badge + Reset, a compact control, undo and help.
 local kit = require("./kit.luau")
 local format = require("./format.luau")
+local displays = require("../lib/displays.luau")
 
 local M = {}
 
@@ -353,6 +354,72 @@ local function tableControl(ctx, spec, effective)
 end
 
 -- Lists get one row per item below the label.
+-- Mode of a connected output (meta `picker = "mode"`): Resolution and Refresh rate from the modes Umbriel
+-- reports. nil (a text box instead) when the entry's output isn't connected or reports no modes.
+local function modeControl(ctx, spec)
+  local entry = spec.entry
+  if not entry or entry.editor ~= "output" then return nil end
+  local item = ctx.store.entryItems("output")[entry.index]
+  local display = item and displays.forEntry(displays.list(ctx.connectedOutputs().outputs, {}), item.name)
+  if not display then return nil end
+  local resolutions = displays.modes(display.live)
+  if #resolutions == 0 then return nil end
+  local key, value = spec.key, spec.set and spec.value or nil
+  local w, h, rate = displays.parseMode(value)
+  local resOptions = { "Preferred" }
+  local chosen = nil
+  for i, res in ipairs(resolutions) do
+    table.insert(resOptions, res.label)
+    if w and res.width == w and res.height == h then chosen = i end
+  end
+  local resIndex = 0
+  if chosen then
+    resIndex = chosen
+  elseif value ~= nil then
+    table.insert(resOptions, tostring(value) .. " (not reported)")
+    resIndex = #resOptions - 1
+  end
+  local function write(res, text)
+    spec.onSet(res.width .. "x" .. res.height .. (text and ("@" .. text) or ""))
+    ctx.render()
+  end
+  local resSelect = ui.select({ key = key .. ":resolution", options = resOptions, selectedIndex = resIndex,
+    flexGrow = 1, controlSize = "sm", onChange = function(text)
+      local i = tonumber(text) or 0
+      if i == 0 then
+        if spec.onUnset then spec.onUnset(); ctx.render() end
+      elseif resolutions[i] then
+        write(resolutions[i], resolutions[i].rates[1].text)
+      end
+    end })
+  local res = chosen and resolutions[chosen] or nil
+  local rateOptions, rateIndex, offset = {}, 0, 0
+  if res then
+    if rate == nil then table.insert(rateOptions, "Highest"); offset = 1 end
+    local found = nil
+    for i, r in ipairs(res.rates) do
+      table.insert(rateOptions, r.text .. " Hz" .. (r.preferred and " (preferred)" or ""))
+      if rate and math.abs(r.mhz / 1000 - rate) < 0.0005 then found = i end
+    end
+    if found then rateIndex = found - 1 + offset
+    elseif rate then
+      table.insert(rateOptions, string.format("%g Hz (not reported)", rate))
+      rateIndex = #rateOptions - 1
+    end
+  else  -- unset: Umbriel uses the preferred mode
+    local _, _, preferredRate = displays.parseMode(displays.preferredText(display.live))
+    rateOptions = { preferredRate and string.format("%g Hz", preferredRate) or "Refresh rate" }
+  end
+  local rateSelect = ui.select({ key = key .. ":rate", options = rateOptions, selectedIndex = rateIndex,
+    enabled = res ~= nil, flexGrow = 1, controlSize = "sm", onChange = function(text)
+      local i = (tonumber(text) or 0) + 1 - offset
+      if not res then return end
+      if i == 0 then write(res, nil)
+      elseif res.rates[i] then write(res, res.rates[i].text) end
+    end })
+  return { resSelect, rateSelect }
+end
+
 -- Browse… for path fields (meta `picker = "file"`): `onChosen(path)` gets the chosen file.
 local function browseButton(ctx, spec, onChosen)
   local field, view = spec.field, ctx.view
@@ -484,7 +551,8 @@ function M.row(ctx, spec)
     local placeholder = field.placeholder or (hint ~= nil and format.value(field, hint) or "")
     if placeholder == "empty" or placeholder == "not set" then placeholder = "" end
     if kind == "raw" then placeholder = "TOML value" .. (placeholder ~= "" and (", e.g. " .. placeholder) or "") end
-    controls = textControl(ctx, spec, spec.set and spec.value or nil, placeholder)
+    controls = field.picker == "mode" and modeControl(ctx, spec)
+      or textControl(ctx, spec, spec.set and spec.value or nil, placeholder)
     if field.picker == "file" then
       table.insert(controls, browseButton(ctx, spec, function(path) spec.onSet(path) end))
     end

@@ -46,6 +46,6 @@ python tools/check.py plugin host   # plugin tests, Lua/Luau parse, plugin lint,
 ```
 
 `test_panel.py` drives `panel.luau`, `app.luau` and `bar.luau` under plain `lua` with a mocked Noctalia API
-(`tests/harness.lua`) and real helper output (`panel_test.lua`, `state_test.lua`, `app_test.lua`, `bar_test.lua`,
-`budget_test.lua`; shared Python fixtures in `tests/support.py`); live rendering and the real CPU budget need a
+(`tests/harness.lua`) and real helper output (`panel_test.lua`, `state_test.lua`, `app_test.lua`, `outputs_test.lua`,
+`bar_test.lua`, `budget_test.lua`; shared Python fixtures in `tests/support.py`); live rendering and the real CPU budget need a
 running Noctalia. One test file: `python tools/check.py test_panel`.

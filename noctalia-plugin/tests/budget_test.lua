@@ -97,5 +97,32 @@ assert(click("Window rules"), "Window rules card")
 click("budget-entry-150")
 assert(click("Pick from open windows"), "picker button\nScreen: " .. H.screen())
 H.input("^live%-filter:").props.onChange("app1")
+-- six connected displays with many modes next to the 50 output entries: drop, Move, a detail page's dropdowns
+local outputs = {}
+for i = 0, 5 do
+  local modes = {}
+  for m = 1, 35 do
+    table.insert(modes, { width = 3840 - m * 40, height = 2160 - m * 20, refresh_mhz = 60000 + m * 1000,
+                          current = m == 1, preferred = m == 2 })
+  end
+  table.insert(outputs, { name = "BUDGET-" .. i, config_name = "Budget monitor " .. i, scale = 1, enabled = true,
+    transform = "normal", logical_size = { width = 3800, height = 2140 }, position = { x = i * 3800, y = 0 },
+    modes = modes })
+end
+H.replies.outputs = function() return true, H.json.encode({ outputs = outputs }) end
+entry.onClose()
+entry.onOpen()
+flushReads()
+search("")
+assert(click("Outputs"), "Outputs card")
+assert(H.byKey("display-BUDGET-5"), "display tiles\nScreen: " .. H.screen())
+H.drag("display-BUDGET-5", "display-above-BUDGET-0")
+H.byKey("display-star-BUDGET-3").props.onClick()
+flushReads()
+H.byKey("display-BUDGET-1").props.onClick()
+flushReads()
+if not H.walk(H.tree(), function(n) return tostring(n.props.key):match(":resolution$") end) then click("Basics") end
+find("select", function(n) return tostring(n.props.key):match(":resolution$") end).props.onChange("3")
+flushReads()
 H.checkBudget("budget " .. layout, 0.025)
 print("budget ok")

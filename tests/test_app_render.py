@@ -192,6 +192,59 @@ class AppRenderTests(unittest.TestCase):
         self.assertEqual(self.win.view.page().console_errors, [])
         self.assertEqual(self.win.host.errors, [])
 
+    def test_the_display_arrangement_fills_the_window(self):
+        self.wait_for_text("Home", "Outputs")
+        self.click("Outputs")
+        self.wait_for_text("DP-1", "HDMI-A-1")
+        tile = "document.querySelector('[data-key=\"display-tile-DP-1\"]')"
+        width = f"{tile} ? String({tile}.getBoundingClientRect().width) : '0'"
+
+        def settled_width():
+            # the canvas reports its size, Lua redraws the tiles to fit it: wait until that stops changing
+            last, deadline = None, time.monotonic() + 10
+            while time.monotonic() < deadline:
+                self.pause(200)
+                value = float(self.js(width) or 0)
+                if value and value == last:
+                    return value
+                last = value
+            return last
+
+        small = settled_width()
+        canvas = self.js("JSON.stringify(document.querySelector('[data-key=\"display-canvas\"]')"
+                         ".getBoundingClientRect())")
+        self.assertGreater(json.loads(canvas)["height"], 300, "the canvas takes the free height")
+        self.assertEqual(self.js("String(!document.querySelector('[data-key^=\"content-fill-\"]').closest('.scroll'))"),
+                         "true", "the page doesn't scroll")
+        self.win.resize(1600, 1000)
+        large = settled_width()
+        self.assertGreater(large, small * 1.2, "tiles grow with the window")
+        # a pointer drag of one display onto another's top edge places it there (one drop: positions written)
+        pointer = ("(el, type, x, y) => el.dispatchEvent(new PointerEvent(type, {bubbles: true, button: 0,"
+                   " pointerId: 9, clientX: x, clientY: y}))")
+        own = self.js(f"(() => {{ const p = {pointer};"
+                " const s = document.querySelector('[data-key=\"display-HDMI-A-1\"]'), r = s.getBoundingClientRect();"
+                " const t = document.querySelector('[data-key=\"display-above-DP-1\"]').getBoundingClientRect();"
+                " const x = r.x + r.width / 2, y = r.y + r.height / 2;"
+                " const o = document.querySelector('[data-key=\"display-above-HDMI-A-1\"]').getBoundingClientRect();"
+                " p(s, 'pointerdown', x, y); p(s, 'pointermove', o.x + o.width / 2, o.y + o.height / 2);"
+                # still over its own tile: its zones must not light up (they don't accept it)
+                " const own = !!document.querySelector('[data-key=\"display-face-HDMI-A-1\"] .drop-over');"
+                " p(s, 'pointermove', t.x + t.width / 2, t.y + t.height / 2);"
+                " p(s, 'pointerup', t.x + t.width / 2, t.y + t.height / 2); return String(own); })()")
+        self.assertEqual(own, "false", "the dragged display's own drop zones stayed dark")
+        self.wait_for_text("unsaved change")
+        above = self.js("(() => { const a = document.querySelector('[data-key=\"display-face-HDMI-A-1\"]')"
+                        ".getBoundingClientRect(), b = document.querySelector('[data-key=\"display-face-DP-1\"]')"
+                        ".getBoundingClientRect(); return String(a.bottom <= b.top + 1); })()")
+        self.assertEqual(above, "true", "the dropped display is drawn above the other one")
+        # the star in a tile's top edge makes it the default display (clickable: not inside the drag source)
+        self.js("document.querySelector('[data-key=\"display-star-HDMI-A-1\"]').click(); 'ok'")
+        self.wait_until("document.querySelector('[data-key=\"display-face-HDMI-A-1\"]').style.border"
+                        ".includes('primary') ? 'default' : ''", "default")
+        self.assertEqual(self.win.view.page().console_errors, [])
+        self.assertEqual(self.win.host.errors, [])
+
     def wait_until(self, script, expected, timeout=10.0):
         deadline = time.monotonic() + timeout
         value = None

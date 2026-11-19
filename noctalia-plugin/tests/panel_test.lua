@@ -302,7 +302,7 @@ assert(hasText("Enter a whole number between 0 and 100"), screen())
 number.props.onChange("4")
 assert(store.fieldChanges["appearance.border_width"].value == 4)
 
--- rule detail with every group, and the output inspector
+-- rule detail with every group
 goHome()
 clickText("Window rules")
 clickText("1. firefox (app id)")
@@ -328,18 +328,6 @@ local op = store.entryOps[#store.entryOps]
 assert(op.op == "set" and op.field == "match.is_focused" and op.value == false, "Off sets false")
 find("button", function(n) return tostring(n.props.key):match("match%.is_focused:tri:1$") end).props.onClick()
 assert(store.entryOps[#store.entryOps].op == "unset", "Any unsets")
-replies.outputs = function()
-  return true, json.encode({ outputs = { { name = "DP-1", config_name = "Acme 1", description = "Acme (DP-1)",
-    modes = { { width = 2560, height = 1440, refresh_mhz = 164999, current = true },
-              { width = 1920, height = 1080, refresh_mhz = 60000, preferred = true } } } } })
-end
-goHome()
-clickText("Outputs")
-clickText("Inspect connected outputs")
-clickText("Use for this output")
-local last = store.entryOps[#store.entryOps]
-assert(last.editor == "output" and last.field == "mode" and last.value == "2560x1440@164.999", last.value)
-
 -- rule matches picked from open windows and layers
 replies.windows = function()
   return true, json.encode({ windows = {
@@ -439,6 +427,7 @@ H.clickShortcut(closer)
 assert(not run().props.enabled and run().props.tooltip:find("close"), "window-close is blocked")
 
 -- output settings offer the config's outputs and the connected ones
+store.entryOp("output", { op = "add", name = "DP-1" })
 goHome()
 clickText("General")
 clickText("XWayland")

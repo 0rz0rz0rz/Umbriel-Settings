@@ -183,6 +183,7 @@ class SaveTests(HelperTestCase):
             {"editor": "window_rule", "op": "move", "index": 1, "to": 0},
             {"editor": "output", "op": "add", "name": "DP-1"},
             {"editor": "output", "op": "set", "index": 0, "field": "scale", "value": 1.5},
+            {"editor": "output", "op": "label", "index": 0, "text": "  Desk   left "},
         ], maps=[
             {"editor": "environment", "op": "set", "name": "EDITOR", "value": "nvim"},
             {"editor": "beziers", "op": "set", "name": "soft", "value": "[0.2, 0, 0, 1]"},
@@ -194,6 +195,13 @@ class SaveTests(HelperTestCase):
         self.assertIn('EDITOR = "nvim"', text)
         rules = report["state"]["editors"]["window_rule"]
         self.assertEqual([r["title"] for r in rules], ["1. Terminal", "2. firefox (app id)"])
+        labels = json.loads((self.config_dir() / "gui-labels.json").read_text())
+        self.assertEqual(labels, {"window_rule": ["Terminal", ""], "output": {"DP-1": "Desk left"}})
+        self.assertEqual(report["state"]["editors"]["output"][0]["label"], "Desk left")
+        self.assertNotIn("Desk", text)  # GUI-only, never in the config
+        # removing the output drops its name; clearing a name drops it too
+        state = self.read()
+        self.save(state, entries=[{"editor": "output", "op": "remove", "index": 0}])
         labels = json.loads((self.config_dir() / "gui-labels.json").read_text())
         self.assertEqual(labels, {"window_rule": ["Terminal", ""]})
 

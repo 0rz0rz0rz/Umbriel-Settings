@@ -1,7 +1,8 @@
 // Drag and drop for ui.dragSource / ui.dropZone with Noctalia's semantics: a press becomes a drag after a
 // small movement (a shorter press is the source's onClick), a ghost of the previewed subtree follows the
 // pointer, the accepting zone under it highlights (zones with hitSlop first, the closest wins; otherwise the
-// deepest zone under the pointer) and a release there calls the zone's onDrop(payload, value). Escape or a
+// deepest zone under the pointer, but never one inside a drag source: Noctalia hit-tests the pointer and a
+// drag source's input area covers its subtree) and a release there calls the zone's onDrop(payload, value). Escape or a
 // release elsewhere cancels. The page owns the data: nothing moves until it renders again.
 // Unlike Noctalia, the scroll area under the pointer follows it near its edges (the app's lists are long).
 "use strict";
@@ -25,8 +26,9 @@ function treeAncestor(el, levels) {
 function dropZones() {
   return Array.from(document.querySelectorAll(".drop-zone")).filter((zone) => {
     const p = zone.__props || {};
+    // like Noctalia, zones in the dragged (dimmed) element stay targets: only `accepts` can rule them out
     return p.enabled !== false && Array.isArray(p.accepts) && p.accepts.includes(drag.type)
-      && !drag.preview.contains(zone) && zone.getClientRects().length > 0;
+      && zone.getClientRects().length > 0;
   });
 }
 
@@ -44,6 +46,7 @@ function zoneAt(x, y) {
   let deepest = null;
   for (const zone of zones) {
     const r = zone.getBoundingClientRect();
+    if (zone.parentElement.closest(".drag-source")) continue;  // unreachable in Noctalia without a hitSlop
     if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && (!deepest || deepest.contains(zone))) deepest = zone;
   }
   return deepest;

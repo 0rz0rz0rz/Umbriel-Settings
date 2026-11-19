@@ -164,6 +164,7 @@ class MetaPickerTests(unittest.TestCase):
         self.assertEqual((rule["kind"], rule["choices"]), ("combo", []))  # no key = "Not set", not a "" choice
         self.assertEqual(fields["effect_preset:shader"]["file"]["relative"], True)
         self.assertEqual(fields["output:color_profile"]["picker"], "file")
+        self.assertEqual(fields["output:mode"]["picker"], "mode")  # Resolution + Refresh rate dropdowns
         self.assertEqual(fields["include.optional.files"]["file"]["filter"], ["TOML files", "*.toml"])
 
     def test_without_a_schema_effect_fields_stay_text(self):

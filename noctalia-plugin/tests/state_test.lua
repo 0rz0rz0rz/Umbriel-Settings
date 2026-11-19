@@ -53,13 +53,15 @@ assert(fresh.props.value ~= "4" and fresh.props.value ~= "9", "discarded value s
 
 -- closing while a request runs drops its answer; the page must ask again instead of waiting forever
 goHome()
-clickText("Outputs")
 local runAsync = noctalia.runAsync
 noctalia.runAsync = function(argv, callback)
   if argv[4] == "outputs" then return true end  -- never answers
   return runAsync(argv, callback)
 end
-clickText("Inspect connected outputs")
+entry.onClose()
+entry.onOpen()  -- forgets the outputs asked for earlier
+flushReads()
+clickText("Outputs")
 assert(hasText("Asking Umbriel for outputs…"), screen())
 noctalia.runAsync = runAsync
 entry.onClose()
@@ -73,7 +75,7 @@ replies.outputs = function()
   return true, json.encode({ outputs = { { name = "DP-7", description = "Test monitor", modes = {} } } })
 end
 clickText("Try again")
-assert(hasText("DP-7"), "outputs listed after a retry: " .. screen())
+assert(H.byKey("display-DP-7") and hasText("DP-7"), "outputs drawn after a retry: " .. screen())
 
 -- duplicating a keybind shows the copy's empty shortcut, not the original's
 goHome()

@@ -353,6 +353,18 @@ function H.drag(sourceKey, zoneKey)
   local accepted = false
   for _, kind in ipairs(zone.props.accepts) do if kind == source.props.dragType then accepted = true end end
   assert(accepted, zoneKey .. " does not accept " .. source.props.dragType)
+  -- Noctalia finds a zone by hit testing (the node under the pointer, then its ancestors) unless it has a
+  -- hitSlop; a drag source's input area covers its subtree, so a zone inside one is only found with a hitSlop.
+  local function inside(node, target, sourceAbove)
+    if node == target then return sourceAbove end
+    for _, child in ipairs(node.children or {}) do
+      local found = inside(child, target, sourceAbove or node.kind == "dragSource")
+      if found ~= nil then return found end
+    end
+    return nil
+  end
+  assert(not inside(tree, zone, false) or (tonumber(zone.props.hitSlop) or 0) > 0,
+    zoneKey .. " sits inside a drag source without a hitSlop: Noctalia never hits it")
   entry[zone.props.onDrop](source.props.payload, zone.props.value)
   flushReads()
 end
