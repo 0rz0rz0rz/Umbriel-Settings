@@ -46,7 +46,8 @@ class Theme(QObject):
         self.changed.emit(self.css)
 
     def _watch(self):
-        paths = [noctalia_theme.palette_file(), noctalia_theme.noctalia_config_file()]
+        paths = [noctalia_theme.palette_file(), noctalia_theme.noctalia_config_file(),
+                 noctalia_theme.noctalia_settings_file()]
         scheme = noctalia_theme.qt6ct_scheme()
         if scheme:
             paths.append(scheme)

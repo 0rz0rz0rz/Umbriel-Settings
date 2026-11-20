@@ -5,7 +5,7 @@ paths:
 
 # App tests (`tests/`)
 
-`unittest`, offscreen Qt; run with `python tools/check.py <file> [-k name]`. The drift of the plugin's core copy is `check.py core`'s sync step, not a test. Patch `XDG_DATA_HOME`/`XDG_CONFIG_HOME` to temp dirs. A new test must fail without its fix. Run the touched file first.
+`unittest`, offscreen Qt; run with `python tools/check.py <file> [-k name]`. The drift of the plugin's core copy is `check.py core`'s sync step, not a test. Patch `XDG_DATA_HOME`/`XDG_CONFIG_HOME`/`XDG_STATE_HOME` to temp dirs (and `NOCTALIA_STATE_HOME` to `""`). A new test must fail without its fix. Run the touched file first.
 
 | File | Covers |
 | --- | --- |

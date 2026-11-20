@@ -2,6 +2,7 @@
 -- H.start(entryFile, appOptions) loads an entry script; the returned table exposes the helpers.
 local pluginDir, fixtureDir = arg[1], arg[2]
 local H = { env = {}, clock = 1000, liveWaits = {}, held = {} }  -- clock: what noctalia.nowMs() returns; tests advance it
+H.settings = {}  -- shell config by dotted path: what noctalia.getSetting(path) returns
 
 -- ------------------------------------------------------------------ JSON
 local json = {}
@@ -216,6 +217,7 @@ noctalia = {
   nowMs = function() return H.clock end,
   copyToClipboard = function(text, mime) H.clipboard = { text = text, mime = mime }; return true end,
   getenv = function(name) return H.env[name] end,
+  getSetting = function(path) return H.settings[path] end,
   fuzzyScore = function(query, text) return text:lower():find(query:lower(), 1, true) and 10 or 1 end,
   appIconPath = function() return nil end,
   json = { encode = native(json.encode), decode = native(json.decode) },
@@ -269,7 +271,7 @@ entry.require = makeRequire(pluginDir)
 function H.start(name, app)
   entry.APP = app
   assert(loadfile(pluginDir .. "/" .. name, "t", entry))()
-  for _, global in ipairs({ "onOpen", "onClose", "onFrameTick", "onKey", "onDrop", "onExternalChange" }) do
+  for _, global in ipairs({ "onOpen", "onClose", "onFrameTick", "onKey", "onDrop", "onExternalChange", "onConfigChanged" }) do
     if type(rawget(entry, global)) == "function" then entry[global] = timed(global, rawget(entry, global)) end
   end
   return entry

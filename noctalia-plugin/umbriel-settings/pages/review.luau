@@ -363,7 +363,7 @@ local function backupsPage(ctx, route)
   end
   for index, item in ipairs(list) do
     local key = "bk-" .. index
-    table.insert(content, ui.row({ key = key, gap = 8, align = "center", paddingH = 11, paddingV = 7, radius = 10,
+    table.insert(content, ui.row({ key = key, gap = 8, align = "center", paddingH = 11, paddingV = 7, radius = kit.RADIUS.md,
                                    fill = "surface_container", border = kit.CARD_BORDER,
                                    borderWidth = kit.CARD_BORDER_WIDTH }, {
       ui.toggle({ checked = state.marked[item.path] == true, onChange = function(value)

@@ -167,7 +167,7 @@ local function tile(ctx, display, w, h, isDefault, onStar, dragType, accepts)
   local name = displays.name(display)
   local top = {}
   if edgeH >= 16 then
-    table.insert(top, ui.row({ key = "display-star-" .. display.id, padding = 2, radius = 6, onClick = onStar,
+    table.insert(top, ui.row({ key = "display-star-" .. display.id, padding = 2, radius = kit.RADIUS.sm, onClick = onStar,
       tooltip = isDefault and "Default display: click to clear" or "Make " .. name .. " the default display" }, {
       ui.glyph({ name = isDefault and "star-filled" or "star", size = captionSize + 3,
                  color = isDefault and "primary" or kit.MUTED }),
@@ -194,7 +194,7 @@ local function tile(ctx, display, w, h, isDefault, onStar, dragType, accepts)
   end
   return ui.column({ key = "display-tile-" .. display.id, width = w, height = h, padding = GAP }, {
     -- a see-through face: Noctalia draws the floating copy of a dragged tile at a fixed 96 % opacity
-    ui.column({ key = "display-face-" .. display.id, flexGrow = 1, gap = 0, radius = 10,
+    ui.column({ key = "display-face-" .. display.id, flexGrow = 1, gap = 0, radius = kit.RADIUS.md,
                 fill = "surface_container_highest/0.55", border = isDefault and "primary" or "outline_variant",
                 borderWidth = isDefault and 2 or 1 }, {
       strip("above", { flexGrow = 1, align = "center", justify = "end", paddingV = 4 },

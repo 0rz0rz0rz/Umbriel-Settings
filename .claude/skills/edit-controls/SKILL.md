@@ -8,7 +8,7 @@ description: "Use when changing how Umbriel Settings looks in the app: the web r
 ## New app and plugin (shared Luau UI)
 
 - What a row or page contains is decided in Luau and is the same in both frontends: `ui/fields.luau` (one row per field kind), `ui/kit.luau` (header, cards, badges, notices, `navRow`), `ui/sidebar.luau` (app sidebar), `pages/*.luau`. See `edit-noctalia-panel`.
-- Sizes in Luau come from `kit.RADIUS` and `kit.FONT` (`ui/kit.luau`); add a token rather than a literal.
+- Sizes in Luau come from `kit.RADIUS` and `kit.FONT` (`ui/kit.luau`); add a token rather than a literal. Radii must use `kit.RADIUS`: the plugin scales those tokens by Noctalia's corner roundness (the app scales in CSS).
 - How a `ui.*` node looks in the app is decided by `python/umbriel_settings/host/web/renderer.js` (find builders with `grep -n "^function\|kind === " renderer.js`; one builder per kind: layout props → flexbox, button variants, toggle, slider, select, input, colorPicker, markdown, glyph) and `style.css`. Match Noctalia's look (control heights sm 32 / md 38, radii scaled by `--radius-scale`, theme roles as CSS variables like `--primary`, `--surface_container`); never hard-code colors.
 - Theme roles and fonts: `umbriel_core/noctalia_theme.py` (`load_roles`, `shell_style`, `css_variables`), watched by `host/theme.py`.
 - Accessibility in `renderer.js`: icon-only buttons and clickable containers get `aria-label` from `tooltip` and clickable containers `role=button`; switches, inputs, sliders and the color picker are labelled. Give every icon-only button a tooltip (`tests/test_app_render.py` fails otherwise).

@@ -119,6 +119,11 @@ function M.create(layout, options)
   end
 
   function ctx.render()
+    -- Noctalia scales plugin radii only by UI scale, so the panel applies its corner roundness itself (watched:
+    -- onConfigChanged). The app has no getSetting and scales radii in CSS.
+    if not ctx.isApp then
+      kit.setRadiusScale(noctalia.getSetting and noctalia.getSetting("shell.corner_radius_scale"))
+    end
     local current = route()
     ctx.dropHandler = nil  -- set again by a page that draws drop zones
     liveWatch = nil  -- set again by a page that shows live data
@@ -144,7 +149,7 @@ function M.create(layout, options)
     if store.meta and store.state and current.name ~= "review" then
       local dirty = pending > 0
       -- as tall as a two-line card (kit.navRow: border 1 + padding 6, two lines, 6 + 1 = 51 px in the app)
-      saveBar = ui.row({ key = "savebar", gap = 8, align = "center", paddingH = 12, height = 51, radius = 10,
+      saveBar = ui.row({ key = "savebar", gap = 8, align = "center", paddingH = 12, height = 51, radius = kit.RADIUS.md,
                          border = kit.CARD_BORDER, borderWidth = kit.CARD_BORDER_WIDTH,
                          fill = dirty and "primary_container" or "surface_container" }, {
         ui.glyph({ name = dirty and "pencil" or "check", size = 16, color = dirty and "primary" or kit.MUTED }),
@@ -454,8 +459,10 @@ function M.create(layout, options)
   end
 
   local handlers = {}
+  local open = false
 
   function handlers.onOpen()
+    open = true
     helper.generation = helper.generation + 1
     loading.meta, loading.config, loading.desktop, loading.search = false, false, false, false
     -- Answers to requests from before the panel closed are dropped, so their busy flags would stay set.
@@ -477,9 +484,15 @@ function M.create(layout, options)
   end
 
   function handlers.onClose()
+    open = false
     dropProvisional()
     drafts.save()
     helper.generation = helper.generation + 1
+  end
+
+  -- Noctalia: a shell setting read with getSetting changed (corner roundness); onOpen renders anyway.
+  function handlers.onConfigChanged()
+    if open then ctx.render() end
   end
 
   function handlers.onFrameTick()

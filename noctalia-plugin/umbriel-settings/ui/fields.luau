@@ -174,7 +174,7 @@ local function colorControl(ctx, spec, effective)
   local key, view = spec.key, ctx.view
   local value = type(effective) == "string" and effective or NO_COLOR
   local controls = {
-    ui.box({ width = 34, height = 22, radius = 6, fill = value, border = "outline_variant", borderWidth = 1,
+    ui.box({ width = 34, height = 22, radius = kit.RADIUS.sm, fill = value, border = "outline_variant", borderWidth = 1,
              onClick = function()
                view.openColor = view.openColor ~= key and key or nil
                ctx.render()
@@ -636,7 +636,7 @@ function M.row(ctx, spec)
     }))
   end
   if view.help[key] then
-    table.insert(children, ui.column({ key = key .. ":helptext", gap = 2, padding = 8, radius = 8,
+    table.insert(children, ui.column({ key = key .. ":helptext", gap = 2, padding = 8, radius = kit.RADIUS.md,
                                        fill = "surface_container_high" }, {
       ui.label({ text = field.help or "", fontSize = 12, maxLines = 12 }),
       ui.row({ key = key .. ":keyrow", gap = 4, align = "center" }, {

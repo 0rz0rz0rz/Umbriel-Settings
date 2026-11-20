@@ -65,7 +65,7 @@ local function pageCard(ctx, name)
   local badges = {}
   if changed > 0 then table.insert(badges, kit.badge(changed .. " unsaved", "primary", "b-" .. name)) end
   local summary = countLabel(page.kind, customized)
-  return ui.row({ key = "card-" .. name, gap = 12, align = "center", paddingH = 12, paddingV = 7, radius = 12,
+  return ui.row({ key = "card-" .. name, gap = 12, align = "center", paddingH = 12, paddingV = 7, radius = kit.RADIUS.lg,
                   flexGrow = 1, fill = "surface_container", border = kit.CARD_BORDER,
                   borderWidth = kit.CARD_BORDER_WIDTH, tooltip = page.help, onClick = function() ctx.openPage(name) end }, {
     ui.glyph({ name = page.glyph or "settings", size = 20, color = "primary" }),

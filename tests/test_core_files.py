@@ -234,6 +234,31 @@ class NoctaliaThemeTests(unittest.TestCase):
         self.assertNotIn("a}b", css)
         self.assertIn('--font: "Evil\\"; } body { x: \\\\", system-ui, sans-serif;', css)
 
+    def test_corner_radius_scale_is_clamped_like_noctalia(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {
+                "XDG_CONFIG_HOME": root, "XDG_STATE_HOME": os.path.join(root, "state"), "NOCTALIA_STATE_HOME": ""}):
+            os.makedirs(os.path.join(root, "noctalia"))
+            for text, expected in (("3.0", 2.0), ("-1", 0.0), ("0.5", 0.5), ('"big"', 1.0), ("true", 1.0)):
+                with open(noctalia_theme.noctalia_config_file(), "w", encoding="utf-8") as handle:
+                    handle.write(f"[shell]\ncorner_radius_scale = {text}\n")
+                self.assertEqual(noctalia_theme.shell_style()["radius_scale"], expected, text)
+            os.remove(noctalia_theme.noctalia_config_file())
+            self.assertEqual(noctalia_theme.shell_style()["radius_scale"], 1.0)
+
+    def test_settings_window_overrides_win_over_the_config(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {
+                "XDG_CONFIG_HOME": root, "XDG_STATE_HOME": os.path.join(root, "state"), "NOCTALIA_STATE_HOME": ""}):
+            os.makedirs(os.path.join(root, "noctalia"))
+            with open(noctalia_theme.noctalia_config_file(), "w", encoding="utf-8") as handle:
+                handle.write('[shell]\ncorner_radius_scale = 2.0\nfont_family = "Fira Code"\n')
+            self.assertEqual(noctalia_theme.shell_style()["radius_scale"], 2.0)
+            os.makedirs(os.path.dirname(noctalia_theme.noctalia_settings_file()))
+            with open(noctalia_theme.noctalia_settings_file(), "w", encoding="utf-8") as handle:
+                handle.write("[shell]\ncorner_radius_scale = 0.0\n")
+            self.assertEqual(noctalia_theme.shell_style(), {"font_family": "Fira Code", "radius_scale": 0.0})
+            with patch.dict(os.environ, {"NOCTALIA_STATE_HOME": os.path.join(root, "other")}):
+                self.assertEqual(noctalia_theme.shell_style()["radius_scale"], 2.0)
+
 
 class PaletteTemplateTests(TempDirTestCase):
     def setUp(self):

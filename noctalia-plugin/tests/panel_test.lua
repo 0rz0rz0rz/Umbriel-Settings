@@ -733,6 +733,26 @@ assert(store.value(fid) == -1 and chip().props.selected, "on writes -1")
 chip().props.onClick()
 assert(store.value(fid) == number, "off brings the last number back")
 
+-- radii follow Noctalia's corner roundness (Noctalia scales plugin radii only by UI scale), live and in place
+goHome()
+local function radii()
+  local card = find("row", function(n) return tostring(n.props.key):match("^card%-") end, "no Home card")
+  return card.props.radius, H.byKey("savebar").props.radius
+end
+local cardRadius, barRadius = radii()
+assert(cardRadius == 12 and barRadius == 10, "base radii without the setting")
+H.settings["shell.corner_radius_scale"] = 2
+entry.onConfigChanged()
+cardRadius, barRadius = radii()
+assert(cardRadius == 24 and barRadius == 20, "radii doubled at roundness 2")
+assert(hasText("Appearance"), "the panel stays where it was")
+H.settings["shell.corner_radius_scale"] = 0
+entry.onConfigChanged()
+cardRadius, barRadius = radii()
+assert(cardRadius == 0 and barRadius == 0, "square corners at roundness 0")
+H.settings["shell.corner_radius_scale"] = nil
+entry.onConfigChanged()
+
 -- closing keeps a draft of unsaved edits for the next start
 entry.onClose()
 assert(files["/data/draft.json"], "draft written on close")

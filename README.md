@@ -208,7 +208,9 @@ The app uses the first available source and follows changes live:
    `noctalia.colors`).
 3. **Your desktop's Qt palette.**
 
-Font and corner roundness come from `font_family` and `corner_radius_scale` in Noctalia's `[shell]`. The
+Font and corner roundness come from `font_family` and `corner_radius_scale` (0–2, like Noctalia) in
+Noctalia's `[shell]` (its config, overridden by what its settings window saves in
+`~/.local/state/noctalia/settings.toml`), and change live; the plugin panel follows the corner roundness too. The
 app's own dialogs also follow qt6ct's style, font, icons and colors when `QT_QPA_PLATFORMTHEME` is
 `qt6ct`/`qt5ct` (needed in the AppImage); `UMBRIEL_QT_THEME=none` disables that, `=qt6ct` forces it.
 

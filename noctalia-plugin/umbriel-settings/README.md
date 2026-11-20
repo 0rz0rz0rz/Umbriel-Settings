@@ -129,6 +129,8 @@ in the save bar), Alt+Left back, Esc close.
 
 ## Notes
 
+- **Look**: colors, font and Noctalia's own controls come from the shell; the panel's cards and rows also
+  follow **Corner roundness** (`[shell] corner_radius_scale`, read with `noctalia.getSetting`), live.
 - **Files read**: the Umbriel config (last chosen in the panel or app, else `~/.config/umbriel/config.toml`),
   `user-dirs.dirs`, `mimeapps.list`, installed `.desktop` files, qt6ct/KDE color files (KDE title-bar colors),
   `noctalia-config.toml` and the palette file (title bars that follow Noctalia), XKB's

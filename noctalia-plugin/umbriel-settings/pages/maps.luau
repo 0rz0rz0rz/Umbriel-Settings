@@ -59,7 +59,7 @@ local function editor(ctx, eid)
         ctx.render()
       end
     else
-      table.insert(rows, ui.row({ key = key, gap = 8, align = "center", paddingH = 12, paddingV = 8, radius = 10,
+      table.insert(rows, ui.row({ key = key, gap = 8, align = "center", paddingH = 12, paddingV = 8, radius = kit.RADIUS.md,
                                   fill = "surface_container" }, {
         ui.column({ gap = 2, flexGrow = 1 }, {
           ui.label({ text = row[1], fontSize = 13, fontWeight = "bold" }),

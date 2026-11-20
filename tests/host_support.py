@@ -82,6 +82,7 @@ def isolated_home(test):
     (bin_dir / "umbriel").write_text(f"#!{sys.executable}\n" + FAKE_UMBRIEL)
     (bin_dir / "umbriel").chmod(0o755)
     env = patch.dict(os.environ, {"XDG_DATA_HOME": str(root / "data"), "XDG_CONFIG_HOME": str(root / "xdg"),
+                                  "XDG_STATE_HOME": str(root / "state"), "NOCTALIA_STATE_HOME": "",
                                   "XDG_DATA_DIRS": str(root / "share"),
                                   "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]})
     env.start()

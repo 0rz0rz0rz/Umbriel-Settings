@@ -156,16 +156,31 @@ def load_roles(fallback=None):
     return fill_roles(fallback or {}), "qt"
 
 
-def shell_style():
-    """Font family and corner radius scale from Noctalia's [shell] settings (defaults when absent)."""
+def noctalia_settings_file():
+    """Noctalia's settings-window overrides, laid over the config dir (FileUtils::stateDir)."""
+    state = os.environ.get("NOCTALIA_STATE_HOME") or os.environ.get("XDG_STATE_HOME") \
+        or os.path.expanduser("~/.local/state")
+    return os.path.join(state, "noctalia", "settings.toml")
+
+
+def _shell_table(path):
     try:
-        with open(noctalia_config_file(), "rb") as handle:
+        with open(path, "rb") as handle:
             shell = tomllib.load(handle).get("shell", {})
     except (OSError, tomllib.TOMLDecodeError):
-        shell = {}
+        return {}
+    return shell if isinstance(shell, dict) else {}
+
+
+def shell_style():
+    """Font family and corner radius scale from Noctalia's effective [shell] settings (defaults when absent):
+    the config, then what its settings window saved (settings.toml wins, like in Noctalia)."""
+    shell = {**_shell_table(noctalia_config_file()), **_shell_table(noctalia_settings_file())}
     family = shell.get("font_family") if isinstance(shell.get("font_family"), str) else None
     scale = shell.get("corner_radius_scale")
-    scale = float(scale) if isinstance(scale, (int, float)) and 0 <= scale <= 4 else 1.0
+    # Noctalia clamps corner roundness to [0, 2] (Style::setCornerRadiusScale).
+    valid = isinstance(scale, (int, float)) and not isinstance(scale, bool) and scale == scale
+    scale = min(max(float(scale), 0.0), 2.0) if valid else 1.0
     return {"font_family": family, "radius_scale": scale}
 
 

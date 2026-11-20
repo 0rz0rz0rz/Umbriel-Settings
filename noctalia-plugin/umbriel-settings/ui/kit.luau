@@ -3,9 +3,18 @@
 local M = {}
 
 M.MUTED = "on_surface_variant"
--- Design tokens: use these instead of literal sizes, so pages stay consistent (the app scales radii by
--- Noctalia's corner radius setting).
+-- Design tokens: use these instead of literal sizes, so pages stay consistent and radii follow Noctalia's
+-- corner roundness ([shell] corner_radius_scale): the plugin scales M.RADIUS (setRadiusScale), the app scales
+-- radii in CSS (--radius-scale) and keeps the base values here.
+local BASE_RADIUS = { sm = 6, md = 10, lg = 12 }
 M.RADIUS = { sm = 6, md = 10, lg = 12 }
+
+-- Like Noctalia: anything but a number is 1, clamped to [0, 2].
+function M.setRadiusScale(scale)
+  scale = type(scale) == "number" and math.min(math.max(scale, 0), 2) or 1
+  for name, value in pairs(BASE_RADIUS) do M.RADIUS[name] = value * scale end
+end
+
 M.FONT = { tiny = 10, caption = 11, small = 12, body = 13, item = 14, large = 16, title = 18 }
 
 function M.label(text, props)

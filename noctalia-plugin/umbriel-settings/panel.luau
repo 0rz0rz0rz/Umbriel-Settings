@@ -11,5 +11,6 @@ local _, handlers = shell.create(layout, {})
 function onOpen() handlers.onOpen() end
 function onClose() handlers.onClose() end
 function onFrameTick() handlers.onFrameTick() end
+function onConfigChanged() handlers.onConfigChanged() end
 function onKey(chord, pressed) handlers.onKey(chord, pressed) end
 function onDrop(payload, value) handlers.onDrop(payload, value) end

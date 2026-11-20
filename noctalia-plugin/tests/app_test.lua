@@ -20,6 +20,11 @@ assert(not lastCall("set-config"), "the command-line config is not remembered")
 
 -- sidebar navigation, no close button, Home title
 assert(exists("column", "sidebar"), "sidebar: " .. screen())
+-- the app scales radii in CSS (--radius-scale), so its Luau tokens stay at the base values
+H.settings["shell.corner_radius_scale"] = 2
+entry.onFrameTick()
+assert(H.byKey("sidebar").props.radius == 12, "the app doesn't scale radii in Luau")
+H.settings["shell.corner_radius_scale"] = nil
 assert(not exists("button", "close"), "the app has no close button")
 assert(hasText("Home") and hasText("Appearance") and hasText("Window rules"), screen())
 
