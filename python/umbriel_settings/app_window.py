@@ -123,6 +123,9 @@ class AppWindow(QMainWindow):
 
         self.view = QWebEngineView(self)
         self.view.setPage(Page(self.view))
+        # a crashed or killed web renderer would leave the window blank: load the page again (on ready, the
+        # bridge sends the theme, glyphs and the last tree)
+        self.view.page().renderProcessTerminated.connect(lambda status, code: self.view.reload())
         settings = self.view.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
@@ -195,6 +198,7 @@ class AppWindow(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+        os.environ.pop("XDG_ACTIVATION_TOKEN", None)  # used up: programs launched later mustn't get it
         config = message.get("config")
         if isinstance(config, str) and config:
             self.host.call("onRelaunch", config)

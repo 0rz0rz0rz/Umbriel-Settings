@@ -1,3 +1,4 @@
+--!nonstrict
 -- User folders (user-dirs.dirs) and default applications (mimeapps.list), with a searchable app picker.
 local kit = require("../ui/kit.luau")
 

@@ -1,3 +1,4 @@
+--!nonstrict
 -- Standalone app entry (not listed in plugin.toml): the shared shell with a left sidebar.
 -- The host defines the global APP = { isApp = true, appVersion, initialConfig, validateDefault, rebuildDefault }.
 local shell = require("./lib/shell.luau")

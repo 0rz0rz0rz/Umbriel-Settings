@@ -1,3 +1,4 @@
+--!nonstrict
 -- Unsaved edits survive a Noctalia restart (or an app crash) as draft.json in the plugin data directory;
 -- config edits for another config wait in draft-other-config.json until that config opens.
 local store = require("./store.luau")

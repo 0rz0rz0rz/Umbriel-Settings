@@ -2,7 +2,7 @@
 """Run the checks that cover the current changes and print one line per check.
 
   python tools/check.py              # pick checks from `git status` (changed + untracked files)
-  python tools/check.py core plugin  # run named checks: core, plugin (luac, luau), host, schema, lint (ruff, shellcheck), all
+  python tools/check.py core plugin  # run named checks: core, plugin (luac, luau, validator), host, schema, lint (ruff, shellcheck), all
   python tools/check.py test_core_values test_panel  # run single test files (tests/, noctalia-plugin/tests/) by name
   python tools/check.py -v ...       # also print the full output of passing checks
 
@@ -83,6 +83,8 @@ CHECKS = {
         ("luac", "luac", None),
         ("luau", "luau-compile", None),
         ("lint", ["noctalia", "plugins", "lint", str(PLUGIN)], None),
+        # the community-plugins CI's validator (tools/validate_plugin.py finds it)
+        ("validate", [sys.executable, str(ROOT / "tools" / "validate_plugin.py")], None),
     ],
     "host": [("tests", unittest_modules(HOST_TESTS), "unittest")],
     "schema": [("coverage", [sys.executable, "umbriel-settings.py", "--check-schema"], None)],
@@ -157,6 +159,8 @@ def run_step(name, step, argv, kind, verbose, limit):
         return f"skip {name}:{step} (no umbriel)", True
     cwd = PYTHON if name in ("host", "core", "schema", "tests") else ROOT
     code, output, seconds = run(argv, cwd=cwd)
+    if step == "validate" and code == 2 and "no validator" in output:
+        return f"skip {name}:{step} (no validator)", True
     detail = unittest_summary(output) if kind == "unittest" else (output.strip().splitlines() or [""])[-1][:100]
     line = f"{'ok  ' if code == 0 else 'FAIL'} {name}:{step}  {detail}  {seconds:.1f}s"
     if code != 0:

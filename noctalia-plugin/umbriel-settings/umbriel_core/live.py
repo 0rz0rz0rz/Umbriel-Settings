@@ -57,6 +57,8 @@ def keyboard_layout(timeout=5):
     try:
         data = run_umbriel_json(["keyboard-layouts", "--json"], timeout)
         names, index = data["names"], data["current_index"]
+        if type(index) is not int or not 0 <= index < len(names):  # e.g. -1 for "unknown"
+            return None
         return names[index] if isinstance(names[index], str) else None
     except Exception:  # best effort: a hint only
         return None

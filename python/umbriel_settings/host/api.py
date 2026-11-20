@@ -209,7 +209,8 @@ class NoctaliaApi:
             return self._helpers[path]
 
     def runAsync(self, argv, callback=None, timeout=None):
-        args = [str(argv[i]) for i in range(1, len(argv) + 1)] if self.host.is_table(argv) else [str(argv)]
+        is_list = self.host.is_table(argv)  # here, not in the worker thread: it would wait for the Lua lock
+        args = [str(argv[i]) for i in range(1, len(argv) + 1)] if is_list else [str(argv)]
         seconds = (timeout or 5000) / 1000
         in_process = len(args) >= 3 and os.path.basename(args[2]) == "umbriel_settings.py"
         slow = not in_process or (len(args) > 3 and args[3] in SLOW_HELPER_COMMANDS)
@@ -223,7 +224,7 @@ class NoctaliaApi:
                 except Exception:  # an import error or a helper bug; reported like a crashed process
                     return {"exitCode": 1, "stdout": "", "stderr": traceback.format_exc(), "timedOut": False}
             try:
-                command = args if self.host.is_table(argv) else ["/bin/sh", "-c", args[0]]
+                command = args if is_list else ["/bin/sh", "-c", args[0]]
                 result = subprocess.run(command, capture_output=True, text=True, timeout=seconds, check=False,
                                         env=child_env())
                 return {"exitCode": result.returncode, "stdout": result.stdout, "stderr": result.stderr,

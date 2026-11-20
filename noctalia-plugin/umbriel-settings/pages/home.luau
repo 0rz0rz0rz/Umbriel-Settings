@@ -1,3 +1,4 @@
+--!nonstrict
 -- Home: search everything, or pick a page from cards grouped like the app's sidebar.
 local kit = require("../ui/kit.luau")
 local search = require("../lib/search.luau")

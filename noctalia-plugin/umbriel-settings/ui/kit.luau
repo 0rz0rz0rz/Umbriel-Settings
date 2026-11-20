@@ -1,3 +1,4 @@
+--!nonstrict
 -- Shared building blocks: page header, cards, badges, notices and empty states.
 local M = {}
 
@@ -107,6 +108,13 @@ function M.notice(text, kind, onDismiss, key)
   end
   return ui.row({ key = key or ("notice-" .. text), gap = 8, align = "center", padding = 10, radius = 10,
                   fill = color .. "/0.12" }, children)
+end
+
+-- An error notice and a primary **Try again** button under it (keys `<key>-error`, `<key>-retry`): two rows.
+function M.retryNotice(key, text, onRetry)
+  return M.notice(text, "error", nil, key .. "-error"), ui.row({ key = key .. "-retry" }, {
+    ui.button({ text = "Try again", glyph = "refresh", variant = "primary", onClick = onRetry }),
+  })
 end
 
 function M.empty(text, glyph)

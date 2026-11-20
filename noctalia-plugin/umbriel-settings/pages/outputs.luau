@@ -1,3 +1,4 @@
+--!nonstrict
 -- The Outputs page: the connected displays as numbered tiles drawn to scale. Dragging one onto an edge of
 -- another places it there (lib/arrange.luau keeps displays centered on each other); a click opens its entry.
 -- The star on a tile marks the default display: Umbriel focuses it at startup and XWayland makes it primary.
@@ -36,28 +37,30 @@ local function arranged(list)
   return shown
 end
 
--- Writes `positions` as one undo step: every arranged display gets its position, and an entry (named after
--- the monitor) when it has none. Returns whether anything changed.
+-- The entry index of `display`, adding an entry (named after the monitor) to `ops` when it has none.
+local function entryIndex(ctx, display, ops)
+  if display.index then return display.index end
+  table.insert(ops, { op = "add", name = display.entryName })
+  local adds = 0
+  for _, op in ipairs(ops) do if op.op == "add" then adds = adds + 1 end end
+  return #ctx.store.entryItems("output") + adds
+end
+
+-- Writes `positions` as one undo step: every arranged display gets its position, and an entry when it has
+-- none.
 local function apply(ctx, list, positions)
-  local store = ctx.store
-  local count = #store.entryItems("output")
   local ops = {}
   for _, display in ipairs(list) do
     local pos = positions[display.id]
     if pos then
-      local index, old = display.index, display.values.position
-      if not index then
-        table.insert(ops, { op = "add", name = displays.entryName(display.live) })
-        count = count + 1
-        index, old = count, nil
-      end
+      local old = display.index and display.values.position or nil
+      local index = entryIndex(ctx, display, ops)
       if type(old) ~= "table" or old.x ~= pos.x or old.y ~= pos.y then
         table.insert(ops, { op = "set", index = index - 1, field = "position", value = { x = pos.x, y = pos.y } })
       end
     end
   end
-  store.entryOpsBatch("output", ops)
-  return #ops > 0
+  ctx.store.entryOpsBatch("output", ops)
 end
 
 local function place(ctx, id, target, side)
@@ -71,20 +74,13 @@ local function place(ctx, id, target, side)
   ctx.render()
 end
 
--- The entry index of `display`, adding an entry (named after the monitor) to `ops` when it has none.
-local function entryIndex(ctx, display, ops)
-  if display.index then return display.index end
-  table.insert(ops, { op = "add", name = displays.entryName(display.live) })
-  local adds = 0
-  for _, op in ipairs(ops) do if op.op == "add" then adds = adds + 1 end end
-  return #ctx.store.entryItems("output") + adds
-end
-
+-- Opens the display's entry; one added for it goes again if the page is left without an edit.
 local function open(ctx, display)
   local ops = {}
   local index = entryIndex(ctx, display, ops)
   ctx.store.entryOpsBatch("output", ops)
   ctx.go({ name = "entry", editor = "output", index = index })
+  if #ops > 0 then ctx.markProvisional() end
 end
 
 -- The default display: the one whose entry focuses it at startup, else XWayland's primary output (nil: none).
@@ -97,27 +93,30 @@ local function defaultDisplay(ctx, list)
   return nil
 end
 
--- Makes `display` (nil: none) the default: only its entry focuses at startup, and it is XWayland's primary.
-local function setDefault(ctx, list, display)
+-- Makes `display` (nil: none) the default, as one undo step: only its entry focuses at startup, and it is
+-- XWayland's primary.
+local function setDefault(ctx, display)
   local store = ctx.store
-  local ops, chosen = {}, nil
-  if display then chosen = entryIndex(ctx, display, ops) end
-  for index, item in ipairs(store.entryItems("output")) do
-    if index ~= chosen and item.values.focus_at_startup == true then
-      table.insert(ops, { op = "unset", index = index - 1, field = "focus_at_startup" })
+  store.group(function()
+    local ops, chosen = {}, nil
+    if display then chosen = entryIndex(ctx, display, ops) end
+    for index, item in ipairs(store.entryItems("output")) do
+      if index ~= chosen and item.values.focus_at_startup == true then
+        table.insert(ops, { op = "unset", index = index - 1, field = "focus_at_startup" })
+      end
     end
-  end
-  if chosen and (not display.index or display.values.focus_at_startup ~= true) then
-    table.insert(ops, { op = "set", index = chosen - 1, field = "focus_at_startup", value = true })
-  end
-  store.entryOpsBatch("output", ops)
-  local name = chosen and store.entryItems("output")[chosen].name or nil
-  local primary = store.value(PRIMARY_FIELD)
-  if name and primary ~= name then
-    store.setField(PRIMARY_FIELD, name)
-  elseif not name and primary ~= nil and primary ~= "" then
-    store.unsetField(PRIMARY_FIELD)
-  end
+    if chosen and (not display.index or display.values.focus_at_startup ~= true) then
+      table.insert(ops, { op = "set", index = chosen - 1, field = "focus_at_startup", value = true })
+    end
+    store.entryOpsBatch("output", ops)
+    local name = chosen and store.entryItems("output")[chosen].name or nil
+    local primary = store.value(PRIMARY_FIELD)
+    if name and primary ~= name then
+      store.setField(PRIMARY_FIELD, name)
+    elseif not name and primary ~= nil and primary ~= "" then
+      store.unsetField(PRIMARY_FIELD)
+    end
+  end)
   ctx.render()
 end
 
@@ -194,7 +193,7 @@ local function tile(ctx, display, w, h, isDefault, onStar, dragType, accepts)
   return ui.column({ key = "display-tile-" .. display.id, width = w, height = h, padding = GAP }, {
     -- a see-through face: Noctalia draws the floating copy of a dragged tile at a fixed 96 % opacity
     ui.column({ key = "display-face-" .. display.id, flexGrow = 1, gap = 0, radius = 10,
-                fill = "surface_container_highest/0.55", border = isDefault and "primary" or "outline/0.8",
+                fill = "surface_container_highest/0.55", border = isDefault and "primary" or "outline_variant",
                 borderWidth = isDefault and 2 or 1 }, {
       strip("above", { flexGrow = 1, align = "center", justify = "end", paddingV = 4 },
             { ui.row({ gap = 6, align = "center" }, top) }),
@@ -255,7 +254,7 @@ local function scaled(rects, area)
   return out
 end
 
-local function canvas(ctx, list, shown, rects, default, area)
+local function canvas(ctx, shown, rects, default, area)
   local byId = {}
   for _, display in ipairs(shown) do byId[display.id] = display end
   local types, accepts = dragTypes(shown)
@@ -263,7 +262,7 @@ local function canvas(ctx, list, shown, rects, default, area)
     local display = byId[r.id]
     local isDefault = display == default
     return tile(ctx, display, w or r.w, h or r.h, isDefault, function()
-      setDefault(ctx, list, (not isDefault) and display or nil)
+      setDefault(ctx, (not isDefault) and display or nil)
     end, types[display.id], accepts[display.id])
   end
   local small = scaled(rects, area)
@@ -281,8 +280,9 @@ local function canvas(ctx, list, shown, rects, default, area)
   local props = { key = "display-canvas", align = "center", justify = "center", padding = CANVAS_PAD, flexGrow = 1 }
   if ctx.isApp then
     props.onResize = function(w, h)
-      local inner = { w = math.max((tonumber(w) or 0) - 2 * CANVAS_PAD - 2, 120),
-                      h = math.max((tonumber(h) or 0) - 2 * CANVAS_PAD - 2, 80) }
+      w, h = tonumber(w) or 0, tonumber(h) or 0
+      if w <= 0 or h <= 0 then return end  -- the card left the page
+      local inner = { w = math.max(w - 2 * CANVAS_PAD - 2, 120), h = math.max(h - 2 * CANVAS_PAD - 2, 80) }
       local known = ctx.view.displayArea
       if not known or known.w ~= inner.w or known.h ~= inner.h then
         ctx.view.displayArea = inner
@@ -334,13 +334,12 @@ function M.content(ctx)
     if live.loading then
       table.insert(rows, kit.empty("Asking Umbriel for outputs…", "loader"))
     elseif live.error then
-      table.insert(rows, kit.notice(live.error, "error", nil, "outputs-error"))
-      table.insert(rows, ui.row({ key = "outputs-retry" }, {
-        ui.button({ text = "Try again", glyph = "refresh", variant = "primary", onClick = function()
-          ctx.forgetLiveOutputs()
-          ctx.render()
-        end }),
-      }))
+      local notice, retry = kit.retryNotice("outputs", live.error, function()
+        ctx.forgetLiveOutputs()
+        ctx.render()
+      end)
+      table.insert(rows, notice)
+      table.insert(rows, retry)
     elseif #list == 0 then
       table.insert(rows, kit.empty("Umbriel reported no outputs.", "device-desktop-off"))
     else
@@ -385,7 +384,7 @@ function M.content(ctx)
                     ctx.render()
                   end }),
     }),
-    canvas(ctx, list, shown, rects, default, area),
+    canvas(ctx, shown, rects, default, area),
   }
   ctx.dropHandler = function(payload, value)
     local side, target = string.match(value, "^([%a%-]+)|(.+)$")

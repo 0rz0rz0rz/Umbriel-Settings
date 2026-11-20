@@ -22,7 +22,7 @@ def _table(data, path):
 def _include_lists(data):
     include = _table(data, ("include",))
     lists = [include.get("files"), _table(include, ("optional",)).get("files")]
-    return [str(item) for files in lists if isinstance(files, list) for item in files if isinstance(item, str)]
+    return [item for files in lists if isinstance(files, list) for item in files if isinstance(item, str)]
 
 
 def included_names(data, config_dir):
@@ -39,7 +39,8 @@ def included_names(data, config_dir):
             continue
         seen.add(path)
         try:
-            if os.path.getsize(path) > MAX_BYTES:
+            # a FIFO or device would block the read: only regular files
+            if not os.path.isfile(path) or os.path.getsize(path) > MAX_BYTES:
                 continue
             with open(path, "rb") as handle:
                 included = tomllib.load(handle)

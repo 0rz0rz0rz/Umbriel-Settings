@@ -88,6 +88,12 @@ local modes = displays.modes(acme)
 assert(#modes == 2 and modes[1].label == "2560×1440" and #modes[2].rates == 1, "resolutions without duplicates")
 assert(modes[1].rates[1].text == "164.999" and modes[1].rates[2].preferred, "fastest rate first")
 
+-- identical monitors without a serial number report one name: their entries go by connector instead
+local twins = displays.list({ { name = "DP-1", config_name = "Twin" }, { name = "DP-2", config_name = "Twin" } },
+  { { name = "Twin", values = {} } })
+assert(twins[1].entryName == "DP-1" and twins[2].entryName == "DP-2", "twins are named by connector")
+assert(not twins[1].index and not twins[2].index and not displays.forEntry(twins, "Twin"), "neither takes the entry")
+
 -- ------------------------------------------------------------------ page
 local function output(name, monitor, x, w0, h0)
   return { name = name, config_name = monitor, scale = 1, transform = "normal", enabled = true,
@@ -122,6 +128,14 @@ assert(byKey("display-canvas").props.flexGrow == 1 and not byKey("display-canvas
   "the canvas takes the free height; the panel has no size reports")
 -- the panel's fixed size: 6920×1440 px of displays fill 880 px of width
 assert(byKey("display-tile-DP-1").props.width == 326, "tile width " .. tostring(byKey("display-tile-DP-1").props.width))
+
+-- a click on a display without an entry adds one, which goes again when its page is left untouched
+byKey("display-DP-2").props.onClick()
+flushReads()
+assert(#store.entryItems("output") == 1 and hasText("Acme 2"), screen())
+H.goHome()
+assert(#store.entryItems("output") == 0 and #store.entryOps == 0 and #store.history == 0, "nothing left behind")
+clickText("Outputs")
 
 -- a click opens the display's entry, created under the monitor's name
 byKey("display-DP-1").props.onClick()
@@ -181,6 +195,13 @@ assert(pos["HDMI-A-1"].x == 2560 and pos["HDMI-A-1"].y == 1260, "the right one c
 assert(byKey("display-tidy").props.enabled == false, "already tidy")
 assert(store.undo() and positions()["Acme 2"] == nil, "undo removes the whole drop")
 H.drag("display-DP-2", "display-above-DP-1")
+-- typing a position right after a drop is its own undo step (it doesn't merge into the drop)
+local dropped = store.entryOps[#store.entryOps]
+steps = #store.history
+store.entryOp("output", { op = "set", index = dropped.index, field = "position", value = { x = 1, y = 2 } })
+assert(#store.history == steps + 1, "a new step after the drop")
+store.undo()
+assert(json.encode(positions()) == json.encode(pos), "undo keeps the drop: " .. json.encode(positions()))
 
 -- a second display on the same edge: the pair is centered on the main display
 H.drag("display-HDMI-A-1", "display-above-DP-1")
@@ -193,6 +214,11 @@ H.drag("display-DP-2", "display-below-end-DP-1")
 pos = positions()
 assert(pos["Acme 1"].x == 0 and pos["Acme 1"].y == 1080 and pos["HDMI-A-1"].x == 1280 and pos["HDMI-A-1"].y == 0
        and pos["Acme 2"].x == 1280 and pos["Acme 2"].y == 2520, "corner: " .. json.encode(pos))
+-- dragging back and forth replaces the pending positions instead of adding to them
+local opCount = #store.entryOps
+H.drag("display-DP-2", "display-below-start-DP-1")
+H.drag("display-DP-2", "display-below-end-DP-1")
+assert(#store.entryOps <= opCount, "pending ops " .. #store.entryOps .. " > " .. opCount)
 for _, where in ipairs({ "above-start", "above-end", "below-start", "below-end" }) do
   assert(byKey("display-" .. where .. "-DP-1"), "corner zone " .. where)
 end
@@ -219,8 +245,16 @@ local function clickStar(id) byKey("display-star-" .. id).props.onClick(); flush
 for _, id in ipairs({ "DP-1", "DP-2", "HDMI-A-1" }) do
   assert(star(id).props.name == "star" and star(id).props.color == "on_surface_variant", "grey stars: no default")
 end
+steps = #store.history
 clickStar("DP-2")
 assert(focused() == "Acme 2" and store.value("general.xwayland_primary_output") == "Acme 2", focused())
+-- the star is one undo step: its entry and XWayland's primary output together
+assert(#store.history == steps + 1, "one undo step for the star")
+store.undo()
+assert(focused() == "" and (store.value("general.xwayland_primary_output") or "") == "", "undo clears both")
+H.goHome()
+clickText("Outputs")
+clickStar("DP-2")
 assert(star("DP-2").props.name == "star-filled" and star("DP-2").props.color == "primary", "a filled star")
 assert(star("DP-1").props.name == "star" and star("HDMI-A-1").props.name == "star", "grey stars on the others")
 assert(byKey("display-face-DP-2").props.border == "primary", "the default tile is outlined")
@@ -232,7 +266,7 @@ assert(focused() == "" and (store.value("general.xwayland_primary_output") or ""
 -- a name for the overview, set on the display's page
 byKey("display-DP-1").props.onClick()
 flushReads()
-H.input("^label%-output%-1$").props.onChange("Desk")
+H.input("^label%-output%-1:").props.onChange("Desk")
 H.goHome()
 clickText("Outputs")
 assert(H.walk(byKey("display-tile-DP-1"), function(n) return n.props.text == "Desk" end), "the tile shows the name")

@@ -550,6 +550,17 @@ class ChooserTests(HelperTestCase):
         self.assertIn(f"--filename={folder}/", last)  # starts in the config's folder
         self.assertEqual(self.ok("pick-file", request), {"cancelled": True})
 
+    def test_pick_file_is_relative_through_a_symlinked_config_folder(self):
+        real = self.root / "dotfiles"
+        (real / "shaders").mkdir(parents=True)
+        (real / "shaders" / "glow.frag").write_text("")
+        (real / "config.toml").write_text("")
+        linked = self.root / "linked-config"
+        linked.symlink_to(real)
+        request = {"config": str(linked / "config.toml"), "relative": True}
+        chosen = str(real / "shaders" / "glow.frag")  # choosers may return the resolved path
+        self.assertEqual(self.ok("pick-file", request, env={**self.env, "CHOSEN": chosen})["path"], "shaders/glow.frag")
+
     def test_choosers_need_zenity_or_kdialog(self):
         env = {**self.env, "PATH": str(self.root / "nowhere")}
         self.assertEqual(self.fails("pick-file", {}, env=env)["code"], "missing_chooser")

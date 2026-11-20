@@ -1,3 +1,4 @@
+--!nonstrict
 -- Shared by both frontends: navigation stack, loading, notices, the save bar and key handling.
 -- shell.create(layout, options) returns ctx and the handlers an entry script exposes as globals.
 -- layout(ctx, parts) builds the outer tree from parts = { page, route }: page = header, notices, content and
@@ -153,10 +154,21 @@ function M.create(layout, options)
   -- Coalesce bursts (slider drags) into one render per frame.
   function ctx.renderSoon() panel.setNeedsFrameTick(true) end
 
+  -- An entry added only to open it (a display tile without one) goes again when it is left untouched.
+  function ctx.markProvisional()
+    view.provisionalEntry = { serial = store.serial, step = store.history[#store.history] }
+  end
+  local function dropProvisional()
+    local mark = view.provisionalEntry
+    view.provisionalEntry = nil
+    if mark and store.serial == mark.serial and store.history[#store.history] == mark.step then store.undo() end
+  end
+
   -- Every navigation disarms "click again" confirmations; only replace keeps the notices.
   local function leave(keepNotices)
     view.confirmReset = nil
     view.confirm = nil
+    dropProvisional()
     if not keepNotices then notices = {} end
   end
   function ctx.go(next)
@@ -355,27 +367,30 @@ function M.create(layout, options)
   local liveOutputs = nil
   function ctx.connectedOutputs()
     if liveOutputs == nil then
-      liveOutputs = { loading = true, outputs = {} }
+      liveOutputs = { loading = true, outputs = {}, names = {} }
       helper.call("outputs", {}, function(err, data)
         if err then
-          liveOutputs = { outputs = {}, error = err.error or "Umbriel did not answer." }
+          liveOutputs = { outputs = {}, names = {}, error = err.error or "Umbriel did not answer." }
         else
-          liveOutputs = { outputs = type(data.outputs) == "table" and data.outputs or {} }
+          local outputs, names = type(data.outputs) == "table" and data.outputs or {}, {}
+          for _, output in ipairs(outputs) do
+            if type(output) == "table" and type(output.name) == "string" then
+              table.insert(names, output.name)
+              if type(output.config_name) == "string" and output.config_name ~= "" then
+                table.insert(names, output.config_name)
+              end
+            end
+          end
+          liveOutputs = { outputs = outputs, names = names }
         end
         ctx.render()
       end)
     end
     return liveOutputs
   end
-  -- Their connector and monitor names, for output choices.
-  function ctx.liveOutputs()
-    local names = {}
-    for _, output in ipairs(ctx.connectedOutputs().outputs) do
-      table.insert(names, output.name)
-      if type(output.config_name) == "string" and output.config_name ~= "" then table.insert(names, output.config_name) end
-    end
-    return names
-  end
+  -- Their connector and monitor names, for output choices (the same table until they are asked again, so
+  -- store.namedChoices can cache on it).
+  function ctx.liveOutputs() return ctx.connectedOutputs().names end
   function ctx.forgetLiveOutputs() liveOutputs = nil end
 
   -- Busy flags of the live pickers (open windows/layers, XKB list, Run now): a dropped answer never clears them.
@@ -391,7 +406,7 @@ function M.create(layout, options)
     helper.generation = helper.generation + 1
     loading.meta, loading.config, loading.desktop, loading.search = false, false, false, false
     -- Answers to requests from before the panel closed are dropped, so their busy flags would stay set.
-    view.browsing, view.titlebarLoading = false, false
+    view.titlebarLoading = false
     view.titlebarBusy, view.titlebarQueued = {}, {}
     ctx.clearPickerBusy()
     ctx.forgetLiveOutputs()  -- monitors may have changed while the panel was closed
@@ -409,6 +424,7 @@ function M.create(layout, options)
   end
 
   function handlers.onClose()
+    dropProvisional()
     drafts.save()
     helper.generation = helper.generation + 1
   end

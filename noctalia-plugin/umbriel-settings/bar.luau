@@ -1,3 +1,4 @@
+--!nonstrict
 local pending = 0
 
 local function display()
@@ -47,7 +48,7 @@ function update()
 end
 
 function onClick()
-  noctalia.togglePanel("0rz0rz0rz/umbriel-settings:folders")
+  noctalia.togglePanel("0rz0rz0rz/umbriel-settings:main")
 end
 
 if noctalia.state and noctalia.state.watch then

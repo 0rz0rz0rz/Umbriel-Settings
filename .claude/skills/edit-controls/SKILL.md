@@ -28,7 +28,10 @@ description: "Use when changing how Umbriel Settings looks or behaves visually: 
   `--out <scratchpad>` to preview) rewrites `docs/home-app.png` (app, 1280×860), `docs/home-plugin.png` and the
   plugin's `noctalia-plugin/umbriel-settings/screenshot.png` (panel.luau in the web view, 1028×808 with Noctalia's
   24 px margin). It uses Umbriel's sample config shown as `~/.config/umbriel/config.toml` and temporary data dirs,
-  so no personal paths or settings appear. Look at the PNGs before committing.
+  so no personal paths or settings appear. After a visible change to the Outputs page: `render_docs.py --page
+  outputs` rewrites `docs/outputs-plugin.png` and the plugin's `screenshot-outputs.png` (three made-up displays
+  from a wrapper `umbriel` that answers `outputs --json`, the first one the default). Look at the PNGs before
+  committing.
 - Plugin thumbnail (`noctalia-plugin/umbriel-settings/thumbnail.webp`, the plugin-store card): run
   `QT_QPA_PLATFORM=offscreen python .claude/skills/edit-controls/render_thumbnail.py` from the repo root
   (`--out <scratchpad>/t.webp` to preview). It drives Noctalia's own

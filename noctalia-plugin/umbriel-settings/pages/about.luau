@@ -1,3 +1,4 @@
+--!nonstrict
 -- About: version, schema coverage, the editor "Edit file" uses and (app only) the Noctalia palette template.
 local kit = require("../ui/kit.luau")
 

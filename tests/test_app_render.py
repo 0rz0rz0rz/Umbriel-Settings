@@ -242,6 +242,28 @@ class AppRenderTests(unittest.TestCase):
         self.js("document.querySelector('[data-key=\"display-star-HDMI-A-1\"]').click(); 'ok'")
         self.wait_until("document.querySelector('[data-key=\"display-face-HDMI-A-1\"]').style.border"
                         ".includes('primary') ? 'default' : ''", "default")
+        # the canvas's size reports, recorded from here on: one that leaves the page must not report 0×0
+        self.js("(() => { const c = document.querySelector('[data-key=\"display-canvas\"]'), call = invoke;"
+                " window.sizes = []; invoke = (cb, ...args) => {"
+                " if (c.__props && cb === c.__props.onResize) window.sizes.push(args.join('x'));"
+                " return call(cb, ...args); }; return 'ok'; })()")
+        # a render that replaces the source mid-drag loses its pointerup: the drag ends anyway
+        stuck = self.js(f"(() => {{ const p = {pointer};"
+                        " const s = document.querySelector('[data-key=\"display-DP-1\"]'), r = s.getBoundingClientRect();"
+                        " p(s, 'pointerdown', r.x + 5, r.y + 5); p(s, 'pointermove', r.x + 40, r.y + 40);"
+                        " const started = !!document.querySelector('.drag-ghost'); s.remove();"
+                        " p(document.body, 'pointerup', r.x + 40, r.y + 40);"
+                        " return String(started) + ',' + String(!!document.querySelector('.drag-ghost')"
+                        " || document.body.classList.contains('dragging')); })()")
+        self.assertEqual(stuck, "true,false", "the ghost went away with the orphaned drag")
+        # keyboard: a display tile is a button, and Enter opens its settings
+        self.assertEqual(self.js("document.querySelector('[data-key=\"display-HDMI-A-1\"]').getAttribute('role')"),
+                         "button")
+        self.js("(() => { const s = document.querySelector('[data-key=\"display-HDMI-A-1\"]'); s.focus();"
+                " s.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); return 'ok'; })()")
+        self.wait_for_text("· Display 2")
+        self.pause(300)
+        self.assertNotIn("0x0", self.js("window.sizes.join(',')"), "no size report from the removed canvas")
         self.assertEqual(self.win.view.page().console_errors, [])
         self.assertEqual(self.win.host.errors, [])
 

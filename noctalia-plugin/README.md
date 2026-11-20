@@ -14,7 +14,7 @@ running it from a checkout and developing it.
 noctalia plugins lint /path/to/Umbriel-Settings/noctalia-plugin/umbriel-settings
 noctalia msg plugins source add umbriel-settings path /path/to/Umbriel-Settings/noctalia-plugin
 noctalia msg plugins enable 0rz0rz0rz/umbriel-settings
-noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
+noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
 ```
 
 Then add the `0rz0rz0rz/umbriel-settings:settings` widget to a bar. After changing `plugin.toml`, run

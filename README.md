@@ -23,13 +23,17 @@ same core and interface code, so they look and behave alike; the app adds a side
 - **Home** (app) shows the config file, the settings that differ from Umbriel's defaults and the latest
   backups; the sidebar keeps **Customized**, **Backups** and **About** at hand and shrinks to icons in a
   narrow window (widen it again to use the search box).
-- **Undo** (Ctrl+Z or the save bar) steps back through unsaved edits, one setting, rule or shortcut at a time.
+- **Undo** (Ctrl+Z or the save bar) steps back through unsaved edits, one action at a time (a dropped display
+  or a new default display is one step, however many settings it changes).
 - **Lists** for rules, devices and effects: edit, name, reorder, duplicate, delete.
 - **Outputs** draws the connected displays as numbered tiles at their real size and position. Drag one by its
   number onto an edge of another to place it there: displays snap to each other's center line, so two above a
   main display are centered as a pair, and a corner shifts it half a display that way. The star marks the
-  default display (startup focus and XWayland's primary output). Click a display to give it a name for the
-  overview and pick its resolution and refresh rate from the modes it reports.
+  default display (startup focus and XWayland's primary output). Click a display (or Tab to it and press
+  Enter) to give it a name for the overview and pick its resolution and refresh rate from the modes it
+  reports; looking without changing anything leaves no entry behind.
+
+  ![The Outputs page in the plugin panel: three displays drawn to scale, the default one starred](docs/outputs-plugin.png)
 - **Pick from open windows** (window, workspace and security rules) and **Pick from open layers** (layer
   rules) fill a rule's match with an exact pattern such as `^org\.gajim\.Gajim$`, optionally with the
   window's title.
@@ -245,7 +249,7 @@ keybind (the plugin adds no shortcut of its own; pick a free combo):
 
 ```toml
 [keybinds]
-"Mod+Shift+S" = "spawn noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders"
+"Mod+Shift+S" = "spawn noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main"
 ```
 
 ## Files

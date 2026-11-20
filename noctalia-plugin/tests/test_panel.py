@@ -17,7 +17,12 @@ class ManifestTests(unittest.TestCase):
     def test_manifest_declares_the_bar_widget_and_panel(self):
         manifest = (PLUGIN / "plugin.toml").read_text()
         self.assertRegex(manifest, r'\[\[widget\]\]\s+id\s*=\s*"settings"\s+entry\s*=\s*"bar\.luau"')
-        self.assertRegex(manifest, r'\[\[panel\]\]\s+id\s*=\s*"folders"')
+        self.assertRegex(manifest, r'\[\[panel\]\]\s+id\s*=\s*"main"')
+
+    def test_every_luau_file_starts_with_nonstrict(self):
+        # the community-plugins convention, matching that repo's .luaurc (a plain comment to Lua)
+        for path in sorted(PLUGIN.rglob("*.luau")):
+            self.assertEqual(path.read_text(encoding="utf-8").split("\n", 1)[0], "--!nonstrict", path.name)
 
 
 @unittest.skipUnless(shutil.which("lua"), "lua is required for the panel harness")

@@ -1,3 +1,4 @@
+--!nonstrict
 -- Connected outputs (`umbriel outputs --json`) as numbered displays, matched to the config's [output.<name>]
 -- entries (monitor name first, then connector), with their logical size, position and modes. Pure.
 local M = {}
@@ -8,27 +9,33 @@ local function monitorName(live)
   return type(live.config_name) == "string" and live.config_name ~= "" and live.config_name or nil
 end
 
--- The name a new entry for this output gets: the monitor's, so the settings follow it between ports.
-function M.entryName(live) return monitorName(live) or live.name end
-
--- Displays sorted by connector, numbered from 1: {id, number, live, index (entry, or nil), values, label (the
--- entry's GUI-only display name, or nil)}.
+-- Displays sorted by connector, numbered from 1: {id, number, live, monitor, entryName, index (entry, or nil),
+-- values, label (the entry's GUI-only display name, or nil)}. `monitor` is the monitor's name unless another
+-- connected output reports the same one (identical monitors without a serial number), so entries can tell
+-- them apart; `entryName` is the name a new entry gets: the monitor's, so the settings follow it between ports.
 function M.list(outputs, items)
-  local list = {}
+  local list, seen = {}, {}
   for _, live in ipairs(outputs or {}) do
-    if type(live) == "table" and type(live.name) == "string" then table.insert(list, live) end
+    if type(live) == "table" and type(live.name) == "string" then
+      table.insert(list, live)
+      local monitor = monitorName(live)
+      if monitor then seen[monitor] = (seen[monitor] or 0) + 1 end
+    end
   end
   table.sort(list, function(a, b) return a.name < b.name end)
   local displays = {}
   for number, live in ipairs(list) do
-    local monitor, byMonitor, byConnector = monitorName(live), nil, nil
+    local monitor = monitorName(live)
+    if monitor and seen[monitor] > 1 then monitor = nil end
+    local byMonitor, byConnector = nil, nil
     for index, item in ipairs(items or {}) do
       if monitor and item.name == monitor and not byMonitor then byMonitor = index end
       if item.name == live.name and not byConnector then byConnector = index end
     end
     local index = byMonitor or byConnector
     local label = index and items[index].label or nil
-    table.insert(displays, { id = live.name, number = number, live = live, index = index,
+    table.insert(displays, { id = live.name, number = number, live = live, monitor = monitor,
+                             entryName = monitor or live.name, index = index,
                              values = index and items[index].values or {},
                              label = type(label) == "string" and label ~= "" and label or nil })
   end
@@ -38,7 +45,7 @@ end
 -- The display an entry named `name` configures, or nil.
 function M.forEntry(displays, name)
   for _, display in ipairs(displays) do
-    if display.live.name == name or monitorName(display.live) == name then return display end
+    if display.id == name or display.monitor == name then return display end
   end
   return nil
 end

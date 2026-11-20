@@ -1,3 +1,4 @@
+--!nonstrict
 -- Key/value maps: environment variables and named animation curves.
 local kit = require("../ui/kit.luau")
 

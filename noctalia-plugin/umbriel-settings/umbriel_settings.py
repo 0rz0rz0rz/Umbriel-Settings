@@ -301,19 +301,17 @@ def ask_umbriel(command, read):
         raise HelperError(str(error)) from error
 
 
-def cmd_outputs(request):
-    from umbriel_core import live
-    return {"outputs": ask_umbriel("outputs --json", live.connected_outputs)}
+def live_command(name, reader):
+    """The `outputs`/`windows`/`layers` command: `umbriel <name> --json` read by `umbriel_core.live.<reader>`."""
+    def command(request):
+        from umbriel_core import live
+        return {name: ask_umbriel(f"{name} --json", getattr(live, reader))}
+    return command
 
 
-def cmd_windows(request):
-    from umbriel_core import live
-    return {"windows": ask_umbriel("windows --json", live.open_windows)}
-
-
-def cmd_layers(request):
-    from umbriel_core import live
-    return {"layers": ask_umbriel("layers --json", live.open_layers)}
+cmd_outputs = live_command("outputs", "connected_outputs")
+cmd_windows = live_command("windows", "open_windows")
+cmd_layers = live_command("layers", "open_layers")
 
 
 def cmd_xkb(request):
@@ -366,8 +364,15 @@ def cmd_kde_colors(request):
     }
 
 
-def run_chooser(argv, what):
-    """Run a zenity/kdialog chooser; the chosen path, or None when cancelled."""
+def run_chooser(zenity, kdialog, what):
+    """Run zenity's file selection with `zenity` arguments (else kdialog with `kdialog` ones); the chosen path,
+    or None when cancelled."""
+    if shutil.which("zenity"):
+        argv = ["zenity", "--file-selection", *zenity]
+    elif shutil.which("kdialog"):
+        argv = ["kdialog", *kdialog]
+    else:
+        raise HelperError(f"Install zenity or kdialog to browse for {what}s, or type the path.", "missing_chooser")
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=55, check=False, env=child_env())
     except subprocess.TimeoutExpired as error:
@@ -379,13 +384,8 @@ def run_chooser(argv, what):
 def cmd_pick_folder(request):
     start = request.get("start") or os.path.expanduser("~")
     start = os.path.expanduser(str(start).replace("$HOME", os.path.expanduser("~"), 1))
-    if shutil.which("zenity"):
-        argv = ["zenity", "--file-selection", "--directory", f"--filename={start.rstrip('/')}/"]
-    elif shutil.which("kdialog"):
-        argv = ["kdialog", "--getexistingdirectory", start]
-    else:
-        raise HelperError("Install zenity or kdialog to browse for folders, or type the path.", "missing_chooser")
-    chosen = run_chooser(argv, "folder")
+    chosen = run_chooser(["--directory", f"--filename={start.rstrip('/')}/"], ["--getexistingdirectory", start],
+                         "folder")
     if not chosen:
         return {"cancelled": True}
     home = os.path.expanduser("~")
@@ -404,21 +404,19 @@ def cmd_pick_file(request):
     title = str(request.get("title") or "Choose a file")
     pattern = request.get("filter")
     pattern = pattern if isinstance(pattern, list) and len(pattern) == 2 else None
-    if shutil.which("zenity"):
-        argv = ["zenity", "--file-selection", f"--title={title}", f"--filename={start.rstrip('/')}/"]
-        if pattern:
-            argv += [f"--file-filter={pattern[0]} | {pattern[1]}", "--file-filter=All files | *"]
-    elif shutil.which("kdialog"):
-        argv = ["kdialog", "--title", title, "--getopenfilename", start]
-        if pattern:
-            argv.append(f"{pattern[1]}|{pattern[0]}")
-    else:
-        raise HelperError("Install zenity or kdialog to browse for files, or type the path.", "missing_chooser")
-    chosen = run_chooser(argv, "file")
+    zenity = [f"--title={title}", f"--filename={start.rstrip('/')}/"]
+    kdialog = ["--title", title, "--getopenfilename", start]
+    if pattern:
+        zenity += [f"--file-filter={pattern[0]} | {pattern[1]}", "--file-filter=All files | *"]
+        kdialog.append(f"{pattern[1]}|{pattern[0]}")
+    chosen = run_chooser(zenity, kdialog, "file")
     if not chosen:
         return {"cancelled": True}
-    if request.get("relative") and folder and chosen.startswith(folder + os.sep):
-        chosen = os.path.relpath(chosen, folder)
+    if request.get("relative") and folder:
+        # compare real paths: the config folder is often a symlink into a dotfiles checkout
+        real_folder, real_chosen = os.path.realpath(folder), os.path.realpath(chosen)
+        if real_chosen.startswith(real_folder + os.sep):
+            chosen = os.path.relpath(real_chosen, real_folder)
     return {"path": chosen}
 
 

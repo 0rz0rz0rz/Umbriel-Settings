@@ -1,3 +1,4 @@
+--!nonstrict
 -- Review & save (readable changes, diff, validation) and backups.
 local kit = require("../ui/kit.luau")
 local drafts = require("../lib/drafts.luau")

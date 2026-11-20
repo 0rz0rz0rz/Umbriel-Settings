@@ -1,10 +1,15 @@
-"""Render the README screenshots offscreen: the app's Home and the plugin panel's Home.
+"""Render the README screenshots offscreen: the app's Home and the plugin panel's Home, or (--page outputs)
+the panel's Outputs page.
 
 Run from python/:
     QT_QPA_PLATFORM=offscreen PYTHONPATH=. python ../.claude/skills/edit-controls/render_docs.py [--out DIR]
+        [--page home|outputs]
 
 Without --out it writes docs/home-app.png (1280x860), docs/home-plugin.png and the plugin's own copy
-noctalia-plugin/umbriel-settings/screenshot.png (both 1028x808: the 980x760 panel plus a 24 px margin).
+noctalia-plugin/umbriel-settings/screenshot.png (both 1028x808: the 980x760 panel plus a 24 px margin);
+with --page outputs docs/outputs-plugin.png and noctalia-plugin/umbriel-settings/screenshot-outputs.png. The
+Outputs page shows three made-up displays: a wrapper `umbriel` answers `outputs --json` and passes every other
+command to the real one.
 Both use a temporary copy of Umbriel's sample config (/usr/share/umbriel/config.toml), shown as
 ~/.config/umbriel/config.toml, and temporary data dirs, so no personal paths or settings appear; the theme
 follows the user's Noctalia/qt6ct colors. The panel runs panel.luau (with onOpen) in the app's web view.
@@ -26,7 +31,8 @@ SIZES = {"app": (1280, 860), "panel": (1028, 808)}
 SHOWN_PATH = "~/.config/umbriel/config.toml"
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument("--out", help="write home-app.png and home-plugin.png here instead of the repo")
+parser.add_argument("--out", help="write the PNGs here instead of the repo")
+parser.add_argument("--page", choices=["home", "outputs"], default="home")
 parser.add_argument("--layout", choices=sorted(SIZES), help=argparse.SUPPRESS)  # one child render
 parser.add_argument("--file", help=argparse.SUPPRESS)
 parser.add_argument("--size", help=argparse.SUPPRESS)  # WxH instead of SIZES (render_thumbnail.py)
@@ -35,19 +41,21 @@ parser.add_argument("--settle", type=int, default=4000, help="ms to wait before 
 args = parser.parse_args()
 
 if not args.layout:
-    targets = ([("app", os.path.join(args.out, "home-app.png")), ("panel", os.path.join(args.out, "home-plugin.png"))]
-               if args.out else
-               [("app", os.path.join(REPO, "docs", "home-app.png")),
-                ("panel", os.path.join(REPO, "docs", "home-plugin.png"))])
+    folder = args.out or os.path.join(REPO, "docs")
+    if args.page == "outputs":
+        targets, copy = [("panel", os.path.join(folder, "outputs-plugin.png"))], "screenshot-outputs.png"
+    else:
+        targets = [("app", os.path.join(folder, "home-app.png")), ("panel", os.path.join(folder, "home-plugin.png"))]
+        copy = "screenshot.png"
     failed = False
     for layout, path in targets:
         # one process per layout: the panel patches LuaHost.start, and QtWebEngine runs once per process
-        result = subprocess.run([sys.executable, __file__, "--layout", layout, "--file", path,
+        result = subprocess.run([sys.executable, __file__, "--layout", layout, "--file", path, "--page", args.page,
                                  "--settle", str(args.settle)])
         failed = failed or result.returncode != 0
     if not args.out and not failed:
-        plugin_copy = os.path.join(REPO, "noctalia-plugin", "umbriel-settings", "screenshot.png")
-        shutil.copy(os.path.join(REPO, "docs", "home-plugin.png"), plugin_copy)
+        plugin_copy = os.path.join(REPO, "noctalia-plugin", "umbriel-settings", copy)
+        shutil.copy(targets[-1][1], plugin_copy)
         print(plugin_copy)
     sys.exit(1 if failed else 0)
 
@@ -57,6 +65,31 @@ data = os.environ["XDG_DATA_HOME"]
 os.makedirs(os.path.join(data, "umbriel-settings"))
 with open(os.path.join(data, "umbriel-settings", "gui-config-path"), "w", encoding="utf-8") as handle:
     handle.write(config)
+
+# Made-up displays for the Outputs page: a 1440p main display, a 1080p one centered above it, one at its right.
+FAKE_OUTPUTS = [
+    ("DP-1", "Example 27Q 0001", 0, 1080, 2560, 1440, [(2560, 1440, 164999), (2560, 1440, 59951), (1920, 1080, 60000)]),
+    ("DP-2", "Example 24F 0002", 320, 0, 1920, 1080, [(1920, 1080, 60000), (1280, 720, 60000)]),
+    ("HDMI-A-1", "Example 24F 0003", 2560, 1260, 1920, 1080, [(1920, 1080, 60000), (1280, 720, 60000)]),
+]
+if args.page == "outputs":
+    real = shutil.which("umbriel")
+    outputs = [{"name": name, "config_name": monitor, "enabled": True, "scale": 1.0, "transform": "normal",
+                "position": {"x": x, "y": y}, "logical_size": {"width": w, "height": h},
+                "modes": [{"width": mw, "height": mh, "refresh_mhz": rate, "current": i == 0, "preferred": i == 0}
+                          for i, (mw, mh, rate) in enumerate(modes)]}
+               for name, monitor, x, y, w, h, modes in FAKE_OUTPUTS]
+    bin_dir = os.path.join(tmp, "bin")
+    os.makedirs(bin_dir)
+    wrapper = os.path.join(bin_dir, "umbriel")
+    with open(wrapper, "w", encoding="utf-8") as handle:
+        handle.write(f"#!{sys.executable}\nimport os, sys\n"
+                     f"if sys.argv[1:] == ['outputs', '--json']:\n    print({json.dumps(json.dumps(outputs))})\n"
+                     f"else:\n    os.execv({real!r}, [{real!r}, *sys.argv[1:]])\n")
+    os.chmod(wrapper, 0o755)
+    os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
+    with open(config, "a", encoding="utf-8") as handle:  # the main display is the default (a filled star)
+        handle.write(f'\n[output."{FAKE_OUTPUTS[0][1]}"]\nfocus_at_startup = true\n')
 
 from umbriel_settings.host import runtime  # noqa: E402
 
@@ -96,5 +129,19 @@ def prepare():
     QTimer.singleShot(600, finish)
 
 
-QTimer.singleShot(args.settle, prepare)
+# The Outputs card or sidebar row: the element showing exactly "Outputs" (not the help text mentioning it).
+OPEN_OUTPUTS = """
+(() => { const el = [...document.querySelectorAll('#root *')].find(e => e.children.length === 0
+  && e.textContent.trim() === 'Outputs'); if (el) el.click(); return !!el; })()"""
+
+
+def open_page():
+    if args.page == "outputs":
+        win.view.page().runJavaScript(OPEN_OUTPUTS)
+        QTimer.singleShot(args.settle, prepare)
+    else:
+        prepare()
+
+
+QTimer.singleShot(args.settle, open_page)
 sys.exit(app.exec())

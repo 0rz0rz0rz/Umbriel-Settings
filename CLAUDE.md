@@ -36,7 +36,7 @@ python tools/sync_plugin_core.py     # after editing python/umbriel_core (--chec
 python python/umbriel-settings.py [config.toml]   # --config --no-validate --no-rebuild --check-schema --version
 ```
 
-Checks: `core` = sync + `tests/test_core*.py`; `plugin` = `noctalia-plugin/tests` (incl. 25 ms CPU budget) + `luac -p` + `luau-compile --null` + `noctalia plugins lint`; `host` = other `tests/` (lupa, bridge, web render, icon); `schema` = `--check-schema` (0 unsupported, 0 stale); `lint` = ruff + shellcheck. CI runs `core plugin host lint` on 3.11/3.12/3.13.
+Checks: `core` = sync + `tests/test_core*.py`; `plugin` = `noctalia-plugin/tests` (incl. 25 ms CPU budget) + `luac -p` + `luau-compile --null` + `noctalia plugins lint` + community validator (`tools/validate_plugin.py`: `$NOCTALIA_VALIDATOR` or Noctalia's local official source; CI pins it, with `langdetect`); `host` = other `tests/` (lupa, bridge, web render, icon); `schema` = `--check-schema` (0 unsupported, 0 stale); `lint` = ruff + shellcheck. CI runs `core plugin host lint` on 3.11/3.12/3.13.
 
 ## Verify (smallest set)
 
@@ -50,7 +50,8 @@ Grep for symbols (`^function\|^local function\|^def \|^class `) and read ranges,
 
 - Config edits: tomlkit, only changed keys, validate, back up, refuse symlinks.
 - `umbriel_core`: no Qt; tomlkit only in TOML modules (`test_core.py` enforces). Edit `python/umbriel_core`, never the copy.
-- Luau = Luau ∩ Lua 5.4/5.5 (no `continue`, `+=`, types, backticks); 25 ms per callback.
+- `plugin_api` = the oldest level the plugin needs, and never newer than the API of the Noctalia release before the newest one (user's rule: plugins that require an API before its release are annoying). Now: newest 5.6.0 = 56, previous 5.5.0 = 53 → use nothing above 53 (API levels are noted in official-plugins' `noctalia.d.luau`; check release notes).
+- Luau = Luau ∩ Lua 5.4/5.5 (no `continue`, `+=`, types, backticks), first line `--!nonstrict`; 25 ms per callback.
 - Files < ~800 lines. Tests: one file per area, `unittest`, temp paths.
 - After every code change, update whatever it made stale in the READMEs (root, `noctalia-plugin/`, `noctalia-plugin/umbriel-settings/`), skills, rules and this file before reporting done.
 - Names: "Umbriel Settings"; package `umbriel_settings`; launcher `python/umbriel-settings.py`; desktop ID/data dirs `umbriel-settings`; plugin ID `0rz0rz0rz/umbriel-settings`. Old `umbriel-config-gui` only for migration (`paths.LEGACY_DIR_NAME`); older file layouts move once via `umbriel_core/legacy.py`. The app imports the helper (`umbriel_settings.py`) under a private name and restores `sys.path`.

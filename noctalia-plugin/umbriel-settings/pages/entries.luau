@@ -1,3 +1,4 @@
+--!nonstrict
 -- Rule-style editors: a filterable entry list (Outputs adds the display arrangement), an entry page with the
 -- field groups, and the open window/layer picker.
 local kit = require("../ui/kit.luau")
@@ -136,7 +137,8 @@ local function entryPage(ctx, route)
   local header = { kit.header(ctx, title, subtitle, nav) }
   local actions = {}
   if editor.mode == "aot" or eid == "output" then
-    table.insert(actions, ui.input({ key = "label-" .. eid .. "-" .. index, value = item.label or "", width = 260,
+    local labelKey = "label-" .. eid .. "-" .. index
+    table.insert(actions, ui.input({ key = labelKey .. ":" .. ctx.gen(labelKey), value = item.label or "", width = 260,
       controlSize = "sm", placeholder = eid == "output" and "Name in the overview (optional)" or "Display name (optional)",
       onChange = function(text)
         store.entryOp(eid, { op = "label", index = index - 1, text = text })
@@ -226,20 +228,17 @@ local function pickLivePage(ctx, route)
     return { header = header, content = { kit.empty("Asking Umbriel…", "loader") } }
   end
   if live.error then
-    return { header = header, content = {
-      kit.notice(live.error, "error", nil, "live-error"),
-      ui.row({ key = "live-retry" }, {
-        ui.button({ text = "Try again", glyph = "refresh", variant = "primary", onClick = function()
-          view.live = nil
-          ctx.render()
-        end }),
-      }),
-    } }
+    return { header = header, content = { kit.retryNotice("live", live.error, function()
+      view.live = nil
+      ctx.render()
+    end) } }
   end
   local function choose(values, shown)
+    local ops = {}
     for _, pair in ipairs(values) do
-      store.entryOp(eid, { op = "set", index = index - 1, field = pair[1], value = pair[2] })
+      table.insert(ops, { op = "set", index = index - 1, field = pair[1], value = pair[2] })
     end
+    store.entryOpsBatch(eid, ops)  -- app id and title are one undo step
     ctx.back()
     ctx.flash("The rule now matches “" .. shown .. "”.", "info")
   end

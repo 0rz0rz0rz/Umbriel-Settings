@@ -1,3 +1,4 @@
+--!nonstrict
 -- Title-bar backgrounds that follow Noctalia's palette: helper `titlebar` (state) and `titlebar-follow`.
 -- The chosen color is queued as an ordinary edit for review; afterwards Noctalia's post_hook keeps it current.
 local fields = require("../ui/fields.luau")

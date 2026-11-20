@@ -4,6 +4,7 @@ Two windows would share one draft file (the last one closed would overwrite the 
 save over each other, so the running window is raised instead.
 """
 
+import fcntl
 import json
 import os
 import sys
@@ -68,11 +69,16 @@ class InstanceServer(QObject):
 
 
 def claim(message, path=None):
-    """Return an InstanceServer when this process is the app, or None after handing over to a running one."""
-    if hand_over(message, path):
-        return None
-    server = InstanceServer()
-    if not server.listen(path):
-        print(f"Umbriel Settings: single-instance socket unavailable: {server.server.errorString()}",
-              file=sys.stderr)
-    return server
+    """Return an InstanceServer when this process is the app, or None after handing over to a running one.
+    Asking and listening happen under a lock: Qt's listen replaces any socket file, so of two launches at once
+    the second would otherwise take the socket from the first and both would open a window."""
+    path = path or socket_path()
+    with open(path + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if hand_over(message, path):
+            return None
+        server = InstanceServer()
+        if not server.listen(path):
+            print(f"Umbriel Settings: single-instance socket unavailable: {server.server.errorString()}",
+                  file=sys.stderr)
+        return server

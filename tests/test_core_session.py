@@ -95,6 +95,19 @@ class HandWrittenShapeTests(SessionTestCase):
                                 "[[ window_rule ]]\nopacity = 0.5\n")
 
 
+class LabelFileTests(SessionTestCase):
+    def test_a_labels_file_with_the_wrong_shapes_still_reads_and_saves(self):
+        text = "[[window_rule]]\nopacity = 1\n\n[output.DP-1]\nscale = 1.0\n"
+        session = self.session(text)
+        os.makedirs(session.config_dir, exist_ok=True)
+        with open(os.path.join(session.config_dir, "gui-labels.json"), "w", encoding="utf-8") as handle:
+            handle.write('{"window_rule": {"a": "b"}, "output": ["Rule label"]}')
+        state = session.read()
+        self.assertEqual(state["editors"]["output"][0]["label"], "")
+        report, saved = self.save(text, fields={"general.xwayland_primary_output": {"value": "DP-1"}})
+        self.assertIn('xwayland_primary_output = "DP-1"', saved)
+
+
 class LockFileTests(SessionTestCase):
     def test_a_lock_file_that_is_not_a_list_locks_nothing(self):
         session = self.session("")

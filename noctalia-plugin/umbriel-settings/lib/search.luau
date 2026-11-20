@@ -1,3 +1,4 @@
+--!nonstrict
 -- Global search over settings, pages, rules and keybinds. Field text is lower-cased by the helper.
 local M = {}
 

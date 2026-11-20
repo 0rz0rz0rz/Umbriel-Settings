@@ -1,3 +1,4 @@
+--!nonstrict
 -- Display arrangement geometry (pure): rectangles {id, x, y, w, h} in logical pixels.
 -- An arrangement is a tree: every display but the root sits on one side of its parent, and the displays on
 -- one side of a parent form a group (a row above/below, a column left/right) centered on the parent's center

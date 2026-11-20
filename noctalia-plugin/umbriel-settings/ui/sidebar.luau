@@ -1,3 +1,4 @@
+--!nonstrict
 -- The standalone app's left navigation: search, Home, and the pages grouped like the plugin's home cards.
 local kit = require("./kit.luau")
 local home = require("../pages/home.luau")

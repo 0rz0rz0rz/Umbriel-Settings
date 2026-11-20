@@ -1,3 +1,4 @@
+--!nonstrict
 -- Settings pages: groups as an accordion (one open at a time keeps renders small), rows from ui/fields.
 local kit = require("../ui/kit.luau")
 local fields = require("../ui/fields.luau")

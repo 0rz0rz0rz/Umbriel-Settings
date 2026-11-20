@@ -1,3 +1,4 @@
+--!nonstrict
 -- The loaded config snapshot plus every unsaved edit, and the change set sent to the helper on save.
 local M = {}
 
@@ -72,15 +73,37 @@ local HISTORY_LIMIT = 50
 M.serial = 0
 local keybindsSerial = 0
 
+-- Steps recorded inside M.group (nil otherwise): they become one step, and never merge with an older one.
+local grouping = nil
+
 local function remember(step)
+  if grouping then table.insert(grouping, step); return end
   table.insert(M.history, step)
   if #M.history > HISTORY_LIMIT then table.remove(M.history, 1) end
+end
+
+-- The newest step that an edit may merge into.
+local function topStep()
+  if grouping then return grouping[#grouping] end
+  return M.history[#M.history]
+end
+
+-- Runs `fn`, recording every edit it makes as one undo step (e.g. a default display: its entry and a field).
+function M.group(fn)
+  if grouping then return fn() end
+  grouping = {}
+  local ok, err = pcall(fn)
+  local steps = grouping
+  grouping = nil
+  if #steps == 1 then remember(steps[1])
+  elseif #steps > 1 then remember({ kind = "group", steps = steps }) end
+  if not ok then error(err, 0) end
 end
 
 -- Repeated edits of one value (typing, slider drags) are one step: only the first records what it replaces.
 local function rememberField(fid)
   M.serial = M.serial + 1
-  local top = M.history[#M.history]
+  local top = topStep()
   if top and top.kind == "field" and top.id == fid then return end
   remember({ kind = "field", id = fid, previous = deepCopy(M.fieldChanges[fid]) })
 end
@@ -206,10 +229,11 @@ function M.entryOp(eid, op)
   op.editor = eid
   local kind = op.op
   local last = M.entryOps[#M.entryOps]
-  local top = M.history[#M.history]
+  local top = topStep()
   if (kind == "set" or kind == "label") and last and last.editor == eid and last.op == kind
       and last.index == op.index and last.field == op.field then
-    if not (top and top.kind == "entry" and top.editor == eid) then
+    -- a batch (a display arrangement) stays its own step: typing after it is a new one
+    if not (top and top.kind == "entry" and top.editor == eid and not top.batch) then
       remember({ kind = "entry", editor = eid, ops = { table.unpack(M.entryOps) } })
     end
     M.entryOps[#M.entryOps] = op  -- typing replaces the previous edit of the same value
@@ -219,14 +243,32 @@ function M.entryOp(eid, op)
   end
 end
 
--- Several entry operations as one undo step (a display arrangement writes every display's position).
+local SHIFTS = { remove = true, move = true, duplicate = true }  -- ops that change later entries' indexes
+
+-- Drops a pending set/unset of the same entry value as `op` (it replaces it), unless entries moved since.
+local function dropReplaced(eid, op)
+  for i = #M.entryOps, 1, -1 do
+    local old = M.entryOps[i]
+    if old.editor == eid then
+      if SHIFTS[old.op] then return end
+      if (old.op == "set" or old.op == "unset") and old.index == op.index and old.field == op.field then
+        table.remove(M.entryOps, i)
+        return
+      end
+    end
+  end
+end
+
+-- Several entry operations as one undo step (a display arrangement writes every display's position). A set
+-- replaces a pending edit of the same value, so dragging displays around doesn't pile up changes.
 function M.entryOpsBatch(eid, ops)
   if #ops == 0 then return end
   M.serial = M.serial + 1
-  remember({ kind = "entry", editor = eid, ops = { table.unpack(M.entryOps) } })
+  remember({ kind = "entry", editor = eid, ops = { table.unpack(M.entryOps) }, batch = true })
   for _, op in ipairs(ops) do
     applyEntryOp(M.entries[eid], op)
     op.editor = eid
+    if op.op == "set" or op.op == "unset" then dropReplaced(eid, op) end
     table.insert(M.entryOps, op)
   end
 end
@@ -357,7 +399,7 @@ local shadow = nil
 function M.keybindsChanged(step)
   M.serial = M.serial + 1
   keybindsSerial = M.serial
-  local top = M.history[#M.history]
+  local top = topStep()
   if not (step and top and top.kind == "keybinds" and top.step == step) then
     local before = shadow or { rows = {}, groups = {} }
     remember({ kind = "keybinds", step = step, rows = before.rows, groups = before.groups, dirty = M.keybindsDirty })
@@ -388,7 +430,7 @@ end
 function M.setDesktop(part, key, value)
   M.serial = M.serial + 1
   local values = desktopTable(part)
-  local top = M.history[#M.history]
+  local top = topStep()
   if not (top and top.kind == "desktop" and top.part == part and top.key == key) then
     remember({ kind = "desktop", part = part, key = key, previous = values[key] })
   end
@@ -423,13 +465,11 @@ function M.desktopChanges()
 end
 
 -- ------------------------------------------------------------------ undo
--- Reverts the newest step; returns false when there is nothing to undo.
-function M.undo()
-  local step = table.remove(M.history)
-  if not step then return false end
-  M.serial = M.serial + 1
+local function undoStep(step)
   if step.kind == "keybinds" then keybindsSerial = M.serial end
-  if step.kind == "field" then
+  if step.kind == "group" then
+    for i = #step.steps, 1, -1 do undoStep(step.steps[i]) end
+  elseif step.kind == "field" then
     M.fieldChanges[step.id] = step.previous
   elseif step.kind == "entry" then
     M.entryOps = step.ops
@@ -443,6 +483,14 @@ function M.undo()
   elseif step.kind == "desktop" then
     if M.desktop then desktopTable(step.part)[step.key] = step.previous end
   end
+end
+
+-- Reverts the newest step; returns false when there is nothing to undo.
+function M.undo()
+  local step = table.remove(M.history)
+  if not step then return false end
+  M.serial = M.serial + 1
+  undoStep(step)
   return true
 end
 

@@ -316,12 +316,21 @@ RUN_BLOCKED_SPAWN = {"noctalia msg session": "Locks, suspends or ends the sessio
 SUBMAP_REASON = "Would leave the keyboard in the submap"
 
 
+def _words(action):
+    """The words `umbriel msg` gets (quotes removed), or plain words when the quotes don't balance."""
+    try:
+        return shlex.split(action)
+    except ValueError:
+        return action.split()
+
+
 def run_block_reason(action):
-    """Why "Run now" refuses `action`, or None when it may run."""
-    words = action.split()
+    """Why "Run now" refuses `action`, or None when it may run (checked on the words that run, so quoting an
+    action doesn't get it past the list)."""
+    words = _words(action)
     if not words:
         return "No action"
-    head, rest = words[0], " ".join(words[1:])
+    head, rest = words[0], " ".join(" ".join(words[1:]).split())
     if head in RUN_BLOCKED:
         return RUN_BLOCKED[head]
     if head == "submap" and rest != "reset":
@@ -335,7 +344,8 @@ def run_block_reason(action):
 
 def msg_argv(action):
     """`umbriel` arguments that run `action` once: `spawn` keeps its command as one word."""
-    head, _, rest = action.strip().partition(" ")
-    if head == "spawn":
-        return ["msg", "spawn", rest.strip()]
-    return ["msg", *shlex.split(action)]
+    words = shlex.split(action)
+    if words and words[0] == "spawn":
+        parts = action.strip().split(None, 1)
+        return ["msg", "spawn", parts[1].strip() if len(parts) > 1 else ""]
+    return ["msg", *words]

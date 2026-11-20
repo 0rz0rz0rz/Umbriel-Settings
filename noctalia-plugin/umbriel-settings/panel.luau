@@ -1,3 +1,4 @@
+--!nonstrict
 -- Noctalia panel: the shared shell in a single column (home with search, drill-down pages).
 local shell = require("./lib/shell.luau")
 

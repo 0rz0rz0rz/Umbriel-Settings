@@ -37,6 +37,10 @@ EVDEV = textwrap.dedent("""\
       caps                 Caps Lock behavior
       caps:escape          Make Caps Lock an additional Esc
       empty                A group without options
+      Compose key          Position of Compose key
+      compose:ralt         Right Alt
+      compat               Compatibility options
+      misc:typo            Enable extra typographic characters
 """)
 
 
@@ -71,6 +75,10 @@ class LiveTests(unittest.TestCase):
         answer = {"keyboard-layouts --json": {"current_index": 1, "names": ["English (US)", "German"]}}
         with mock.patch.object(live, "run_umbriel_json", fake_umbriel(answer)):
             self.assertEqual(live.keyboard_layout(), "German")
+        for index in (-1, 2, True, None):
+            answer = {"keyboard-layouts --json": {"current_index": index, "names": ["English (US)", "German"]}}
+            with mock.patch.object(live, "run_umbriel_json", fake_umbriel(answer)):
+                self.assertIsNone(live.keyboard_layout(), index)
         with mock.patch.object(live, "run_umbriel_json", side_effect=FileNotFoundError):
             self.assertIsNone(live.keyboard_layout())
 
@@ -83,7 +91,10 @@ class XkbTests(unittest.TestCase):
         data = xkb.parse(EVDEV)
         self.assertEqual(data["layouts"], [{"name": "us", "desc": "English (US)"}, {"name": "de", "desc": "German"}])
         self.assertEqual(data["variants"]["de"], [{"name": "nodeadkeys", "desc": "German (no dead keys)"}])
-        self.assertEqual([g["name"] for g in data["options"]], ["grp", "caps"])  # empty groups dropped
+        # empty groups dropped; a group name may hold a space and a group may hold other prefixes
+        self.assertEqual([g["name"] for g in data["options"]], ["grp", "caps", "Compose key", "compat"])
+        self.assertEqual(data["options"][2]["desc"], "Position of Compose key")
+        self.assertEqual([i["name"] for i in data["options"][3]["items"]], ["misc:typo"])
         self.assertEqual(data["options"][1]["items"], [{"name": "caps:escape", "desc": "Make Caps Lock an additional Esc"}])
 
     def test_catalog_reads_xkb_config_root_and_survives_a_missing_file(self):
@@ -117,6 +128,11 @@ class IncludedNamesTests(unittest.TestCase):
         self.assertEqual(names, {"effect_preset": ["pulse"], "effect_pool": ["borders"], "beziers": ["soft"],
                                  "springs": []})
 
+    def test_a_fifo_include_is_skipped_without_blocking(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.mkfifo(os.path.join(root, "pipe.toml"))
+            self.assertEqual(included_names({"include": {"files": ["pipe.toml"]}}, root)["effect_preset"], [])
+
     def test_no_includes(self):
         self.assertEqual(included_names({}, "/nowhere")["effect_preset"], [])
 
@@ -124,7 +140,9 @@ class IncludedNamesTests(unittest.TestCase):
 class RunActionTests(unittest.TestCase):
     def test_blocked_actions(self):
         for action in ("session-quit", "session-quit skip-confirmation", "window-close", "window-kill abc",
-                       "dpms-off", "submap resize", "spawn noctalia msg session lock", ""):
+                       "dpms-off", "submap resize", "spawn noctalia msg session lock", "",
+                       '"session-quit"', "'window-close'", "spawn noctalia msg 'session' lock",
+                       "spawn sh -c 'noctalia  msg session lock'"):
             self.assertIsNotNone(actions.run_block_reason(action), action)
         for action in ("window-focus-left", "submap reset", "spawn kitty", "overview-toggle"):
             self.assertIsNone(actions.run_block_reason(action), action)
@@ -132,6 +150,8 @@ class RunActionTests(unittest.TestCase):
     def test_msg_argv_keeps_the_spawn_command_as_one_word(self):
         self.assertEqual(actions.msg_argv("spawn kitty --title 'a b'"), ["msg", "spawn", "kitty --title 'a b'"])
         self.assertEqual(actions.msg_argv("workspace-focus --name 'my ws'"), ["msg", "workspace-focus", "--name", "my ws"])
+        self.assertEqual(actions.msg_argv("spawn\tkitty --hold"), ["msg", "spawn", "kitty --hold"])
+        self.assertEqual(actions.msg_argv("spawn"), ["msg", "spawn", ""])
 
 
 class MetaPickerTests(unittest.TestCase):

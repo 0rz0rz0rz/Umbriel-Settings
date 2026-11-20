@@ -58,6 +58,16 @@ def file_revision(path):
         return "missing"
 
 
+def entry_labels(config_dir):
+    """The stored entry labels with the shape each editor expects (a list for rules, a name → label object for
+    named entries); a hand-edited sidecar's wrong-shape value is left out (and so starts over)."""
+    labels_all = load_all_entry_labels(config_dir)
+    for _, _, path, mode, _, _ in entry_ops.ENTRY_EDITORS.values():
+        if path in labels_all and isinstance(labels_all[path], list) != (mode == "aot"):
+            del labels_all[path]
+    return labels_all
+
+
 class ConfigSession:
     """One config file plus its GUI sidecars (labels, keybind locks) under the shared GUI data directory."""
 
@@ -118,7 +128,7 @@ class ConfigSession:
         for fid, (_, _, field) in PAGE_FIELDS.items():
             current = getp(doc, field.path)
             fields[fid] = values.to_ui(field, current)
-        labels_all = load_all_entry_labels(self.config_dir)
+        labels_all = entry_labels(self.config_dir)
         editors = {}
         for eid, (_, _, path, mode, _, _) in entry_ops.ENTRY_EDITORS.items():
             editor_fields = entry_ops.editor_fields(eid)
@@ -184,7 +194,7 @@ class ConfigSession:
         if expected != revision:
             raise ValueError("The config or its GUI data changed since it was loaded. Reload before saving.")
         summary = []
-        labels_all = load_all_entry_labels(self.config_dir)
+        labels_all = entry_labels(self.config_dir)
         labels_changed = False
 
         for fid, change in (changes.get("fields") or {}).items():
@@ -212,8 +222,6 @@ class ConfigSession:
             eid = op["editor"]
             page, _, path, mode, _, _ = entry_ops.ENTRY_EDITORS[eid]
             before = labels_all.get(path) or ([] if mode == "aot" else {})
-            if isinstance(before, dict) != (mode != "aot"):
-                before = [] if mode == "aot" else {}  # a hand-edited sidecar with the wrong shape starts over
             labels = list(before) if isinstance(before, list) else dict(before)
             if op.get("op") in ("set", "unset"):
                 field = entry_ops.editor_fields(eid).get(op.get("field"))

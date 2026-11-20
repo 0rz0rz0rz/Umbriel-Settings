@@ -46,7 +46,7 @@ entry = "bar.luau"
   ]
 
 [[panel]]
-id = "folders"
+id = "main"
 entry = "panel.luau"
 width = 980
 height = 760

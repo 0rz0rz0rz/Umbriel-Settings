@@ -1,3 +1,4 @@
+--!nonstrict
 -- Keyboard layout picker: layouts (ordered, each with its variant) and XKB options, from XKB's own list.
 -- Edits [input.keyboard] (route without editor) or one [[input.device]] entry (route.editor, route.index).
 local kit = require("../ui/kit.luau")
@@ -60,15 +61,19 @@ local function target(ctx, route)
   }
 end
 
-local function writeLayouts(keyboard, layouts, variants)
-  keyboard.set("layout", table.concat(layouts, ","))
+-- Writes the layouts and their variants as one undo step (the variants only when they change).
+local function writeLayouts(ctx, keyboard, layouts, variants)
   local any = false
   for i = 1, #layouts do
     variants[i] = variants[i] or ""
     if variants[i] ~= "" then any = true end
   end
   for i = #variants, #layouts + 1, -1 do table.remove(variants, i) end
-  keyboard.set("variant", any and table.concat(variants, ",") or "")
+  local variant = any and table.concat(variants, ",") or ""
+  ctx.store.group(function()
+    keyboard.set("layout", table.concat(layouts, ","))
+    if variant ~= tostring(keyboard.get("variant") or "") then keyboard.set("variant", variant) end
+  end)
 end
 
 local function iconButton(key, glyph, tooltip, enabled, onClick)
@@ -96,7 +101,7 @@ local function layoutRows(ctx, data, keyboard, layouts, variants)
     local function move(to)
       layouts[i], layouts[to] = layouts[to], layouts[i]
       variants[i], variants[to] = variants[to] or "", variants[i] or ""
-      writeLayouts(keyboard, layouts, variants)
+      writeLayouts(ctx, keyboard, layouts, variants)
       ctx.render()
     end
     table.insert(rows, kit.card({ key = "xkb-layout-" .. i .. "-" .. name }, {
@@ -108,7 +113,7 @@ local function layoutRows(ctx, data, keyboard, layouts, variants)
         ui.select({ key = "xkb-variant-" .. i .. "-" .. name, options = labels, selectedIndex = selected, width = 260,
                     controlSize = "sm", onChange = function(value)
                       variants[i] = choices[(tonumber(value) or 0) + 1] or ""
-                      writeLayouts(keyboard, layouts, variants)
+                      writeLayouts(ctx, keyboard, layouts, variants)
                       ctx.render()
                     end }),
         iconButton("xkb-up-" .. i, "arrow-up", "Move up", i > 1, function() move(i - 1) end),
@@ -116,7 +121,7 @@ local function layoutRows(ctx, data, keyboard, layouts, variants)
         iconButton("xkb-remove-" .. i, "x", "Remove " .. name, true, function()
           table.remove(layouts, i)
           table.remove(variants, i)
-          writeLayouts(keyboard, layouts, variants)
+          writeLayouts(ctx, keyboard, layouts, variants)
           ctx.render()
         end),
       }),
@@ -148,7 +153,7 @@ local function addLayoutRows(ctx, data, keyboard, layouts, variants)
         ui.button({ text = "Add", glyph = "plus", controlSize = "sm", variant = "outline", onClick = function()
           table.insert(layouts, layout.name)
           table.insert(variants, "")
-          writeLayouts(keyboard, layouts, variants)
+          writeLayouts(ctx, keyboard, layouts, variants)
           ctx.bump("xkb-layout-q")
           ctx.view["xkb-layout-q"] = nil
           ctx.render()
@@ -224,15 +229,10 @@ function M.render(ctx, route)
     end)
   end
   if view.xkbError then
-    return { header = header, content = {
-      kit.notice(view.xkbError, "error", nil, "xkb-error"),
-      ui.row({ key = "xkb-retry" }, {
-        ui.button({ text = "Try again", glyph = "refresh", variant = "primary", onClick = function()
-          view.xkbError = nil
-          ctx.render()
-        end }),
-      }),
-    } }
+    return { header = header, content = { kit.retryNotice("xkb", view.xkbError, function()
+      view.xkbError = nil
+      ctx.render()
+    end) } }
   end
   local data = view.xkbData
   if not data then return { header = header, content = { kit.empty("Reading XKB's layout list…", "loader") } } end

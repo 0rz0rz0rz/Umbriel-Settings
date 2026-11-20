@@ -1,6 +1,7 @@
 """Keyboard layouts, variants and options known to XKB (from `rules/evdev.lst`), for the layout picker."""
 
 import os
+import re
 
 _cache = {}
 
@@ -31,10 +32,13 @@ def parse(text):
             variants.setdefault(layout.strip(), []).append({"name": name, "desc": desc.strip() or name})
         elif section == "option":
             if ":" in name:
-                if options and name.split(":", 1)[0] == options[-1]["name"]:
+                # an option belongs to the group above it, whatever its prefix (`compat` holds `misc:`, ...)
+                if options:
                     options[-1]["items"].append({"name": name, "desc": desc or name})
             else:
-                options.append({"name": name, "desc": desc or name, "items": []})
+                # group names may hold a space ("Compose key"): the columns are two or more spaces apart
+                name, desc = (re.split(r"\s{2,}", line.strip(), maxsplit=1) + [""])[:2]
+                options.append({"name": name, "desc": desc.strip() or name, "items": []})
     return {"layouts": layouts, "variants": variants, "options": [group for group in options if group["items"]]}
 
 

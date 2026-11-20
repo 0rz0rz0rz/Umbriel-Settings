@@ -1,3 +1,4 @@
+--!nonstrict
 -- Runs umbriel_settings.py with JSON request/response files (helper output and argv are size-limited).
 local M = {}
 

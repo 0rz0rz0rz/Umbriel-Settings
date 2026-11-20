@@ -134,11 +134,20 @@ function onDragKey(e) {
   endDrag(true);
 }
 
+// A render can replace the source mid-drag (a config reload): its pointer capture and pointerup are gone then,
+// so the drag is cancelled from here instead of staying stuck.
+function cancelOrphanedDrag(e) {
+  if (drag && !drag.source.isConnected && e.pointerId === drag.pointer) endDrag(true);
+}
+window.addEventListener("pointerup", cancelOrphanedDrag);
+document.addEventListener("lostpointercapture", cancelOrphanedDrag);
+
 function setupDragSource(el) {
   el.addEventListener("pointerdown", (e) => {
     const p = el.__props;
     if (e.button !== 0 || drag || p.enabled === false) return;
     e.preventDefault();
+    clearTimeout(el.__tipTimer);  // no tooltip popping up over the drag
     try { el.setPointerCapture(e.pointerId); } catch (_) { /* not a live pointer (synthetic events) */ }
     drag = { source: el, type: p.dragType, payload: p.payload, startX: e.clientX, startY: e.clientY,
              pointer: e.pointerId, active: false, target: null };
@@ -161,6 +170,10 @@ function setupDragSource(el) {
     if (zone) invoke(zone.__props.onDrop, payload, zone.__props.value);
   });
   el.addEventListener("pointercancel", () => { if (drag && drag.source === el) endDrag(true); });
+  // after a pointerup the drag is already over; losing the capture any other way cancels it
+  el.addEventListener("lostpointercapture", (e) => {
+    if (drag && drag.source === el && e.pointerId === drag.pointer) endDrag(true);
+  });
   // The source takes its own clicks (like Noctalia): a press on a grip neither drags nor opens its row.
   el.addEventListener("click", (e) => e.stopPropagation());
 }

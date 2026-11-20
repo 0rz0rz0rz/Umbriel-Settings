@@ -1,3 +1,4 @@
+--!nonstrict
 -- How values look in the UI: locale numbers (typing accepts both separators) and readable field values.
 local M = {}
 

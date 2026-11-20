@@ -148,6 +148,12 @@ function create(node) {
     el = document.createElement("div");
     el.className = "drag-source";
     setupDragSource(el);  // dragdrop.js
+    // the keyboard way to its click (a display tile opens its settings); dragging stays pointer-only
+    el.addEventListener("keydown", (e) => {
+      if (el.__props.onClick && (e.key === "Enter" || e.key === " ") && e.target === el) {
+        e.preventDefault(); invoke(el.__props.onClick);
+      }
+    });
   } else if (kind === "dropZone") {
     el = document.createElement("div");
     el.className = "drop-zone";
@@ -222,15 +228,25 @@ function layout(el, p, kind) {
 // it changes, so a page can fit drawings to it; it clips what overflows, so the size follows the layout.
 function watchSize(el) {
   el.classList.toggle("resize-watch", !!el.__props.onResize);
-  if (!el.__props.onResize || el.__resizeObserver) return;
+  if (!el.__props.onResize) { unwatchSize(el); return; }
+  if (el.__resizeObserver) return;
   el.__resizeObserver = new ResizeObserver(() => {
     const w = Math.round(el.clientWidth), h = Math.round(el.clientHeight);
+    // a container leaving the page reports 0×0 once: not a size to fit drawings to
+    if (!el.isConnected || w <= 0 || h <= 0) return;
     if (!el.__props.onResize || (w === el.__reportedW && h === el.__reportedH)) return;
     el.__reportedW = w;
     el.__reportedH = h;
     invoke(el.__props.onResize, w, h);
   });
   el.__resizeObserver.observe(el);
+}
+
+function unwatchSize(el) {
+  if (!el.__resizeObserver) return;
+  el.__resizeObserver.disconnect();
+  el.__resizeObserver = null;
+  el.__reportedW = el.__reportedH = undefined;
 }
 
 function apply(el, node) {
@@ -246,7 +262,10 @@ function apply(el, node) {
     attr(el, "role", p.onClick ? "button" : null);
     attr(el, "aria-label", p.onClick ? p.tooltip : null);
   }
-  if (kind === "dragSource") attr(el, "aria-label", p.tooltip);
+  if (kind === "dragSource") {
+    attr(el, "role", p.onClick ? "button" : null);
+    attr(el, "aria-label", p.tooltip);
+  }
   if (kind === "label") {
     el.textContent = p.text == null ? "" : String(p.text);
     el.style.fontSize = px(p.fontSize);
@@ -364,7 +383,11 @@ function patchChildren(host, children) {
     patch(el, child);
     used.push(el);
   });
-  for (const el of existing.values()) el.remove();
+  for (const el of existing.values()) {
+    unwatchSize(el);
+    el.querySelectorAll(".resize-watch").forEach(unwatchSize);
+    el.remove();
+  }
   used.forEach((el, index) => { if (host.children[index] !== el) host.insertBefore(el, host.children[index] || null); });
 }
 

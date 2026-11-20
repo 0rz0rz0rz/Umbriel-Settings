@@ -13,7 +13,7 @@ The same interface also runs as a standalone app: see the
 | Field | Value |
 | --- | --- |
 | ID | `0rz0rz0rz/umbriel-settings` |
-| Entries | Bar widget: `settings`; panel: `folders` |
+| Entries | Bar widget: `settings`; panel: `main` |
 
 ## Requirements
 
@@ -32,7 +32,7 @@ Add the **Umbriel Settings** widget (`settings`) to a bar from Noctalia's Settin
 panel and turns your accent color while edits are unsaved. Or toggle the panel from a terminal or script:
 
 ```sh
-noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
+noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
 ```
 
 **Open with a keybind**: the plugin adds no shortcut of its own; bind the command in Umbriel, under
@@ -40,7 +40,7 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
 
 ```toml
 [keybinds]
-"Mod+Shift+S" = "spawn noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders"
+"Mod+Shift+S" = "spawn noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main"
 ```
 
 - **Home** has a search over setting names, help text, config keys (`border_width`), rule names and
@@ -61,8 +61,13 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:folders
   recenters after a mode or scale change. The star on a tile marks the default display (click a grey star to
   move it there, the filled one to clear it): it gets the focus at startup (`focus_at_startup`) and is
   XWayland's primary output. Click a display's number to edit it: a name for the overview (kept beside the
-  config, not in it), and a Mode picked as Resolution and Refresh rate from the modes Umbriel reports. Entries
-  for outputs that aren't connected are listed under **Not connected**.
+  config, not in it), and a Mode picked as Resolution and Refresh rate from the modes Umbriel reports (a
+  display without an entry gets one, dropped again if you leave without changing anything). Identical
+  monitors that report the same name are told apart by connector. Entries for outputs that aren't connected
+  are listed under **Not connected**. Moving displays or picking the default changes nothing on disk until you
+  save; then each display's `position` (and `focus_at_startup`) is written to its `[output."…"]` entry.
+
+  ![The Outputs page: three displays drawn to scale, the default one starred](screenshot-outputs.png)
 - **Curve, effect and output settings** offer your own named curves, effect presets and pools (also from
   include files) and your configured and connected outputs; **Browse…** picks include files, effect shaders
   and ICC profiles. A keybind action's first argument (output, preset, pool, submap, scratchpad, named
@@ -123,9 +128,10 @@ box next to it.
 - **Files written**, only when you save, restore or delete backups: the Umbriel config (validated, written
   atomically, symlinks refused), `$XDG_CONFIG_HOME/user-dirs.dirs` and `$XDG_CONFIG_HOME/mimeapps.list` (other
   entries and MIME fallbacks kept). Each write is preceded by a timestamped backup (newest 10 per file) in
-  `$XDG_DATA_HOME/umbriel-settings/`, which also holds the chosen config path, rule names, keybind locks and
-  the editor command, and `write.lock`, which lets one writer (panel or app) save at a time. Drafts and cache
-  live in Noctalia's plugin data directory.
+  `$XDG_DATA_HOME/umbriel-settings/`, which also holds the chosen config path, rule and display names
+  (`gui-labels.json`), keybind locks and the editor command, and `write.lock`, which lets one writer (panel or
+  app) save at a time. Drafts, the helper's request/response files and its bytecode cache (`pycache/`) live in
+  Noctalia's plugin data directory.
 - **Title bars that follow Noctalia**, only after pressing **KDE** / **KDE header**: the user template
   `~/.config/noctalia/templates/umbriel-titlebar.toml`, its `umbriel_titlebar` entry in `noctalia-config.toml`
   (backed up first) and `~/.config/umbriel-settings/titlebar_apply.py`. On palette changes Noctalia renders

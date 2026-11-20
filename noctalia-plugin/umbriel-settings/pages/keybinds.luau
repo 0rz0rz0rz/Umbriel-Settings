@@ -1,3 +1,4 @@
+--!nonstrict
 -- Keybinds: grouped list, a detail page with a shortcut builder, and a searchable action picker.
 local kit = require("../ui/kit.luau")
 local order = require("./keybind_order.luau")
@@ -10,7 +11,9 @@ local OPTION_CHOICES = { "Default", "On", "Off" }
 -- Why "Run now" refuses an action (same rules as the helper's `run_block_reason`), or nil.
 local function blockReason(meta, action)
   local words = {}
-  for word in string.gmatch(action or "", "%S+") do table.insert(words, word) end
+  -- quotes are dropped like `umbriel msg` gets the words, so a quoted action isn't let through
+  local plain = string.gsub(action or "", "[\"']", "")
+  for word in string.gmatch(plain, "%S+") do table.insert(words, word) end
   if #words == 0 then return "Enter an action first" end
   local blocked = meta.actions.blocked or { heads = {}, spawn = {} }
   local head, rest = words[1], table.concat(words, " ", 2)

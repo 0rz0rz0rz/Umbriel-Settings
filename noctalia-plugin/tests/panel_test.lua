@@ -121,6 +121,12 @@ local store = loaded[pluginDir .. "/lib/store.luau"]
 local ops = {}
 for _, op in ipairs(store.entryOps) do table.insert(ops, op.op) end
 assert(table.concat(ops, ",") == "add,label", "typing coalesces label edits: " .. table.concat(ops, ","))
+-- undo puts the name box back too (a new key: inputs are uncontrolled)
+local labelKey = label.props.key
+entry.onKey("ctrl+z", true)
+label = find("input", function(n) return tostring(n.props.key):match("^label%-window_rule") end)
+assert(label.props.key ~= labelKey and label.props.value == "", "the name box shows the undone name")
+label.props.onChange("Browsers")
 
 -- an armed "Click again to delete" is disarmed by leaving the page (and by Ctrl+F)
 local function deleteButton() return find("button", function(n) return tostring(n.props.key):match("^delete%-window_rule%-") end) end
@@ -343,7 +349,9 @@ clickText("Pick from open windows")
 assert(hasText("firefox · 2 windows") and hasText("org.gajim.Gajim"), screen())
 H.input("^live%-filter:").props.onChange("gajim")
 assert(not hasText("firefox · 2 windows"), "the filter hides other windows: " .. screen())
+local appSteps = #store.history
 clickText("App and title")
+assert(#store.history == appSteps + 1, "app id and title are one undo step")
 local item = store.entryItems("window_rule")[ruleIndex]
 assert(item.values["match.app_id"] == "^org\\.gajim\\.Gajim$" and item.values["match.title"] == "^Gajim$",
   "app id and title set: " .. tostring(item.values["match.app_id"]))
@@ -398,7 +406,9 @@ local function addFrom(query, inputKey, rowKey)
   H.input("^" .. inputKey .. ":").props.onChange(query)
   H.walk(H.byKey(rowKey), function(n) return n.kind == "button" end).props.onClick()
 end
+local xkbSteps = #store.history
 addFrom("german", "xkb%-layout%-q", "xkb-add-de")
+assert(#store.history == xkbSteps + 1, "adding a layout is one undo step")
 find("select", function(n) return n.props.key == "xkb-variant-1-de" end).props.onChange("1")
 addFrom("us", "xkb%-layout%-q", "xkb-add-us")
 assert(store.value("input.keyboard.layout") == "de,us" and store.value("input.keyboard.variant") == "nodeadkeys,",
@@ -484,6 +494,18 @@ replies["pick-file"] = function() return true, json.encode({ cancelled = true })
 find("button", function(n) return n.props.key == "f:include.files:browse" end).props.onClick()
 flushReads()
 assert(#store.value("include.files") == #includes, "cancelling changes nothing")
+-- on a text setting, the chosen path replaces the box's text (a new key: inputs are uncontrolled)
+goHome()
+clickText("Effects")
+clickText("glow")
+local function shaderInput()
+  return find("input", function(n) return tostring(n.props.key):match("shader:text:") ~= nil end)
+end
+local shaderKey = shaderInput().props.key
+replies["pick-file"] = function() return true, json.encode({ path = "shaders/glow.frag" }) end
+find("button", function(n) return tostring(n.props.key):match("shader:browse$") ~= nil end).props.onClick()
+flushReads()
+assert(shaderInput().props.key ~= shaderKey and shaderInput().props.value == "shaders/glow.frag", "the box shows the path")
 
 -- maps: edit a row in place
 goHome()

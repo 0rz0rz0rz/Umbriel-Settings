@@ -1,3 +1,4 @@
+--!nonstrict
 -- Keybind order for sorting by drag and drop or the arrow buttons. Rows are kept in display order (groups in
 -- order, Ungrouped last), which is also the order the file gets.
 local M = {}

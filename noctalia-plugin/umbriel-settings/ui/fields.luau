@@ -1,3 +1,4 @@
+--!nonstrict
 -- One settings row per field: label, default, Override badge + Reset, a compact control, undo and help.
 local kit = require("./kit.luau")
 local format = require("./format.luau")
@@ -540,7 +541,11 @@ function M.row(ctx, spec)
   elseif kind == "choice" or kind == "combo" then
     controls = choiceControl(ctx, spec, effective)
     if field.picker == "file" then  -- e.g. an ICC profile next to "none"/"edid": the path becomes the custom value
-      table.insert(controls, browseButton(ctx, spec, function(path) ctx.view.custom[spec.key] = true; spec.onSet(path) end))
+      table.insert(controls, browseButton(ctx, spec, function(path)
+        ctx.view.custom[spec.key] = true
+        spec.onSet(path)
+        bump(ctx.view, spec.key)  -- the custom text box shows the chosen path
+      end))
     end
   elseif kind == "table" then
     controls = tableControl(ctx, spec, effective)
@@ -554,7 +559,10 @@ function M.row(ctx, spec)
     controls = field.picker == "mode" and modeControl(ctx, spec)
       or textControl(ctx, spec, spec.set and spec.value or nil, placeholder)
     if field.picker == "file" then
-      table.insert(controls, browseButton(ctx, spec, function(path) spec.onSet(path) end))
+      table.insert(controls, browseButton(ctx, spec, function(path)
+        spec.onSet(path)
+        bump(ctx.view, spec.key)  -- the text box shows the chosen path
+      end))
     end
     if field.picker == "xkb" then
       local entry = spec.entry or {}
