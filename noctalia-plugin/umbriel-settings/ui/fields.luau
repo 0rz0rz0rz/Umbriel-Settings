@@ -30,7 +30,7 @@ local function parseNumber(text, integer)
   return number
 end
 
-local function clamp(field, number)
+local function inRange(field, number)
   if field.min ~= nil and number < field.min then return nil end
   if field.max ~= nil and number > field.max then return nil end
   return number
@@ -43,9 +43,6 @@ end
 
 local function hasDefault(field) return field.default ~= nil end
 
--- view: per-panel UI state (open pickers, help, input generations).
-local function gen(view, key) return tostring(view.gen[key] or 0) end
-local function bump(view, key) view.gen[key] = (view.gen[key] or 0) + 1 end
 
 -- Sliders commit on onDragEnd, not on every onChange.
 -- props: key, min, max, step, value, ...; preview(number) runs on every change; commit(number) once at the end.
@@ -57,7 +54,7 @@ local function slider(ctx, props, preview, commit)
   view.sliding = view.sliding or {}
   view.sliderShown = view.sliderShown or {}
   view.sliderShown[key] = props.value
-  props.key = key .. ":" .. gen(view, key)
+  props.key = key .. ":" .. ctx.gen(key)
   props.onChange = function(text)
     local number = tonumber(text)
     if number == nil then return end
@@ -110,7 +107,7 @@ local function specialChip(ctx, spec, effective)
         if type(effective) == "number" then view.lastNumber[key] = effective end
         spec.onSet(special.value)
       end
-      bump(view, key)
+      ctx.bump(key)
       ctx.render()
     end,
   })
@@ -136,9 +133,9 @@ local function numberControl(ctx, spec, effective)
     table.insert(controls, slider(ctx, {
       key = key .. ":slider", min = low, max = field.max, step = step, value = shown, flexGrow = 1,
       controlSize = "sm", opacity = isSpecial and 0.4 or nil,
-    }, function() bump(view, key) end, function(number)
+    }, function() ctx.bump(key) end, function(number)
       spec.onSet(whole(number))
-      bump(view, key)
+      ctx.bump(key)
     end))
   end
   -- While a slider gesture runs, the box shows the value it would set.
@@ -147,13 +144,13 @@ local function numberControl(ctx, spec, effective)
   local boxValue = preview ~= nil and preview or effective
   if isSpecial and preview == nil then boxValue = nil end  -- the switch says it; the box stays empty
   table.insert(controls, ui.input({
-    key = key .. ":num:" .. gen(view, key), value = boxValue ~= nil and format.value(field, boxValue) or "",
+    key = key .. ":num:" .. ctx.gen(key), value = boxValue ~= nil and format.value(field, boxValue) or "",
     width = hasRange and 84 or nil, flexGrow = (not hasRange) and 1 or nil, controlSize = "sm",
     placeholder = (effective == nil and field.initial ~= nil) and ("e.g. " .. format.value(field, field.initial))
       or (field.min ~= nil and field.max ~= nil) and (format.number(field.min) .. " – " .. format.number(field.max)) or "number",
     onChange = function(text)
       local number = parseNumber(text, integer)
-      if number ~= nil and clamp(field, number) ~= nil then
+      if number ~= nil and inRange(field, number) ~= nil then
         view.invalid[key] = nil
         spec.onSet(number)
       elseif noctalia.string.trim(text) == "" then
@@ -182,7 +179,7 @@ local function colorControl(ctx, spec, effective)
                view.openColor = view.openColor ~= key and key or nil
                ctx.render()
              end, tooltip = "Pick a color" }),
-    ui.input({ key = key .. ":hex:" .. gen(view, key), value = effective or "", width = 120, controlSize = "sm",
+    ui.input({ key = key .. ":hex:" .. ctx.gen(key), value = effective or "", width = 120, controlSize = "sm",
                placeholder = "#RRGGBBAA",
                onChange = function(text)
                  text = noctalia.string.trim(text)
@@ -209,7 +206,7 @@ local function colorControl(ctx, spec, effective)
         else
           spec.onSet(string.sub(source.hex, 1, 7) .. alpha)
         end
-        bump(view, key)
+        ctx.bump(key)
         ctx.render()
       end,
     }))
@@ -262,7 +259,7 @@ local function choiceControl(ctx, spec, effective)
   }) }
   if custom then
     table.insert(controls, ui.input({
-      key = key .. ":custom:" .. gen(view, key), value = (index == nil and effective) or "", flexGrow = 1,
+      key = key .. ":custom:" .. ctx.gen(key), value = (index == nil and effective) or "", flexGrow = 1,
       controlSize = "sm", placeholder = "Custom value", focus = true,
       onChange = function(text) spec.onSet(text); ctx.render() end,
     }))
@@ -293,7 +290,7 @@ end
 local function textControl(ctx, spec, effective, placeholder)
   local key = spec.key
   return { ui.input({
-    key = key .. ":text:" .. gen(ctx.view, key), value = effective ~= nil and tostring(effective) or "",
+    key = key .. ":text:" .. ctx.gen(key), value = effective ~= nil and tostring(effective) or "",
     flexGrow = 1, controlSize = "sm", placeholder = placeholder,
     onChange = function(text) spec.onSet(text); ctx.render() end,
   }) }
@@ -311,7 +308,7 @@ local function tableControl(ctx, spec, effective)
     table.insert(controls, ui.column({ key = key .. ":" .. sub, gap = 2, flexGrow = 1 }, {
       kit.muted(sub, { fontSize = 10 }),
       ui.input({
-        key = key .. ":" .. sub .. ":" .. gen(ctx.view, key), controlSize = "sm",
+        key = key .. ":" .. sub .. ":" .. ctx.gen(key), controlSize = "sm",
         value = (current and current[sub] ~= nil) and format.number(current[sub]) or "",
         placeholder = defaults[sub] ~= nil and format.number(defaults[sub]) or "",
         onChange = function(text)
@@ -426,41 +423,44 @@ local function browseButton(ctx, spec, onChosen)
     end })
 end
 
+local function copyList(items)
+  local copy = {}
+  for i, old in ipairs(items) do copy[i] = old end
+  return copy
+end
+
 local function listRows(ctx, spec, effective)
-  local key, view = spec.key, ctx.view
+  local key = spec.key
   local items = type(effective) == "table" and effective or {}
   local rows = {}
+  local function swap(a, b)
+    local next = copyList(items)
+    next[a], next[b] = next[b], next[a]
+    spec.onSet(next); ctx.bump(key); ctx.render()
+  end
   for index, item in ipairs(items) do
     table.insert(rows, ui.row({ key = key .. ":item:" .. index, gap = 6, align = "center" }, {
-      ui.input({ key = key .. ":item:" .. index .. ":" .. gen(view, key), value = tostring(item), flexGrow = 1,
+      ui.input({ key = key .. ":item:" .. index .. ":" .. ctx.gen(key), value = tostring(item), flexGrow = 1,
                  controlSize = "sm",
                  onChange = function(text)
-                   local next = {}
-                   for i, old in ipairs(items) do next[i] = old end
+                   local next = copyList(items)
                    next[index] = text
                    spec.onSet(next)
                    ctx.render()
                  end }),
-      ui.button({ glyph = "arrow-up", variant = "ghost", controlSize = "sm", enabled = index > 1, tooltip = "Move up",
-                  onClick = function()
-                    local next = {}
-                    for i, old in ipairs(items) do next[i] = old end
-                    next[index], next[index - 1] = next[index - 1], next[index]
-                    spec.onSet(next); bump(view, key); ctx.render()
-                  end }),
-      ui.button({ glyph = "trash", variant = "ghost", controlSize = "sm", tooltip = "Remove",
-                  onClick = function()
-                    local next = {}
-                    for i, old in ipairs(items) do if i ~= index then table.insert(next, old) end end
-                    spec.onSet(next); bump(view, key); ctx.render()
-                  end }),
+      kit.iconButton("arrow-up", "Move up", function() swap(index, index - 1) end, index > 1),
+      kit.iconButton("arrow-down", "Move down", function() swap(index, index + 1) end, index < #items),
+      kit.iconButton("trash", "Remove", function()
+        local next = copyList(items)
+        table.remove(next, index)
+        spec.onSet(next); ctx.bump(key); ctx.render()
+      end),
     }))
   end
   local function append(value)
-    local next = {}
-    for i, old in ipairs(items) do next[i] = old end
+    local next = copyList(items)
     table.insert(next, value)
-    spec.onSet(next); bump(view, key)
+    spec.onSet(next); ctx.bump(key)
   end
   local addRow = {
     ui.button({ text = "Add", glyph = "plus", controlSize = "sm", variant = "outline",
@@ -493,7 +493,7 @@ local function opacityRow(ctx, spec, effective)
           else
             spec.onSet(rgb .. format.alphaByte(number))
           end
-          bump(view, key)
+          ctx.bump(key)
         end),
       ui.label({ text = (function()
         local shown = sliding(ctx, key .. ":opacity-slider")
@@ -529,7 +529,7 @@ function M.row(ctx, spec)
       table.insert(controls, browseButton(ctx, spec, function(path)
         ctx.view.custom[spec.key] = true
         spec.onSet(path)
-        bump(ctx.view, spec.key)  -- the custom text box shows the chosen path
+        ctx.bump(spec.key)  -- the custom text box shows the chosen path
       end))
     end
   elseif kind == "table" then
@@ -546,7 +546,7 @@ function M.row(ctx, spec)
     if field.picker == "file" then
       table.insert(controls, browseButton(ctx, spec, function(path)
         spec.onSet(path)
-        bump(ctx.view, spec.key)  -- the text box shows the chosen path
+        ctx.bump(spec.key)  -- the text box shows the chosen path
       end))
     end
     if field.picker == "xkb" then
@@ -577,7 +577,7 @@ function M.row(ctx, spec)
   local actions = {}
   if spec.onRevert then
     table.insert(actions, ui.button({ key = key .. ":undo", glyph = "arrow-back-up", variant = "ghost", controlSize = "sm",
-      tooltip = "Undo this change", onClick = function() spec.onRevert(); bump(view, key); ctx.render() end }))
+      tooltip = "Undo this change", onClick = function() spec.onRevert(); ctx.bump(key); ctx.render() end }))
   end
   table.insert(actions, ui.button({ key = key .. ":help", glyph = "info-circle", variant = "ghost", controlSize = "sm",
     tooltip = "Show help", selected = view.help[key] == true,
@@ -594,7 +594,7 @@ function M.row(ctx, spec)
   if follow then
     table.insert(main, ui.button({ key = key .. ":unfollow", text = "Stop following", variant = "ghost",
       controlSize = "sm", tooltip = "Stop following Noctalia",
-      onClick = function() spec.onFollow(nil); bump(view, key); ctx.render() end }))
+      onClick = function() spec.onFollow(nil); ctx.bump(key); ctx.render() end }))
   else
     if customized then table.insert(main, kit.overrideBadge(key .. ":override")) end
     -- Like Noctalia: the first click asks to confirm; any edit or leaving the page cancels that.
@@ -610,7 +610,7 @@ function M.row(ctx, spec)
             return
           end
           view.confirmReset = nil
-          spec.onUnset(); bump(view, key); view.custom[key] = nil; ctx.render()
+          spec.onUnset(); ctx.bump(key); view.custom[key] = nil; ctx.render()
         end }))
     end
   end
@@ -632,14 +632,22 @@ function M.row(ctx, spec)
     table.insert(children, ui.row({ key = key .. ":picker", justify = "end" }, {
       ui.colorPicker({ key = key .. ":cp", value = type(effective) == "string" and effective or NO_COLOR,
                        alpha = true, inputs = "hex", width = 300, swatches = ctx.swatches(),
-                       onChangeEnd = function(color) spec.onSet(string.upper(color)); bump(view, key); ctx.render() end }),
+                       onChangeEnd = function(color) spec.onSet(string.upper(color)); ctx.bump(key); ctx.render() end }),
     }))
   end
   if view.help[key] then
     table.insert(children, ui.column({ key = key .. ":helptext", gap = 2, padding = 8, radius = 8,
                                        fill = "surface_container_high" }, {
       ui.label({ text = field.help or "", fontSize = 12, maxLines = 12 }),
-      kit.muted("Config key: " .. field.path, { fontSize = 11 }),
+      ui.row({ key = key .. ":keyrow", gap = 4, align = "center" }, {
+        kit.muted("Config key: " .. field.path, { fontSize = kit.FONT.caption, flexGrow = 1 }),
+        kit.iconButton("copy", "Copy config key", function()
+          local copied = noctalia.copyToClipboard(field.path, "text/plain")
+          ctx.flash(copied and ("Copied “" .. field.path .. "”.") or "Could not copy the config key.",
+                    copied and "info" or "error")
+          ctx.render()
+        end, true, key .. ":copykey"),
+      }),
     }))
   end
   local problem = view.invalid[key] or spec.diagnostic

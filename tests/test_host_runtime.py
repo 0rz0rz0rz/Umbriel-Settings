@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from host_support import CONFIG, isolated_home, lupa
+from host_support import CONFIG, ManualScheduler, isolated_home, lupa
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,7 +24,7 @@ def walk(node, visit):
 @unittest.skipIf(lupa is None, "lupa is required for the app UI host")
 class HostRuntimeTests(unittest.TestCase):
     def setUp(self):
-        from umbriel_settings.host.api import ManualScheduler, NoctaliaApi
+        from umbriel_settings.host.api import NoctaliaApi
         from umbriel_settings.host.paths import shared_ui_dir
         from umbriel_settings.host.runtime import LuaHost
 
@@ -100,7 +100,7 @@ class HostRuntimeTests(unittest.TestCase):
         """The helper file is umbriel_settings.py, like this package; its sys.path change must not leak."""
         import importlib
 
-        from umbriel_settings.host.api import ManualScheduler, NoctaliaApi
+        from umbriel_settings.host.api import NoctaliaApi
         from umbriel_settings.host.paths import shared_ui_dir
 
         before = list(sys.path)

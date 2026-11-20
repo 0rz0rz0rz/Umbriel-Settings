@@ -30,17 +30,19 @@ local function setDiagnostics(ctx, report)
   end
 end
 
-local function requestPreview(ctx, state)
+-- `check`: also validate when nothing changed (the file as it is on disk).
+local function requestPreview(ctx, state, check)
   local store = ctx.store
   state.preview, state.error, state.loading = nil, nil, true
   state.previewSeq = (state.previewSeq or 0) + 1
   local seq = state.previewSeq
-  if not store.hasConfigChanges() then
+  if not store.hasConfigChanges() and not check then
     state.loading = false
     state.preview = { changed = false, summary = {}, sections = {}, validation = { ran = false } }
     return
   end
-  ctx.helper.call("preview", { config = store.state.path, changes = store.changeSet(), validate = state.validate },
+  ctx.helper.call("preview", { config = store.state.path, changes = store.changeSet(), validate = state.validate,
+                               check = check == true },
     function(err, report)
       if seq ~= state.previewSeq then return end  -- an answer for options that were changed again since
       state.loading = false
@@ -179,22 +181,49 @@ local function reviewPage(ctx, route)
         if item.old ~= nil or item.new ~= nil then
           text = text .. ":  " .. shown(item.old) .. "  →  " .. shown(item.new)
         end
-        table.insert(content, ui.row({ key = "sum-" .. index, gap = 8, align = "center" }, {
+        local revert = item.id and store.fieldChanges[item.id] ~= nil
+        table.insert(content, ui.row({ key = "sum-" .. index, gap = 4, align = "center" }, {
           kit.badge(item.page or "", "secondary", "sp-" .. index),
-          ui.label({ text = text, fontSize = 13, flexGrow = 1, maxLines = 3 }),
-          item.id and ui.button({ glyph = "arrow-right", variant = "ghost", controlSize = "sm", tooltip = "Go to setting",
-                                  onClick = function() ctx.openField(item.id) end }) or ui.spacer({ width = 1 }),
+          ui.label({ text = text, fontSize = kit.FONT.body, flexGrow = 1, maxLines = 3 }),
+          revert and kit.iconButton("arrow-back-up", "Revert this change", function()
+            store.revertField(item.id)
+            requestPreview(ctx, state)
+            ctx.render()
+          end, true, "sum-revert-" .. index) or ui.spacer({ width = 1 }),
+          item.id and kit.iconButton("arrow-right", "Go to setting", function() ctx.openField(item.id) end, true,
+                                     "sum-go-" .. index) or ui.spacer({ width = 1 }),
         }))
       end
     end
     local desktop = store.desktopChanges()
     if desktop then
       table.insert(content, kit.section("Desktop"))
-      for key, value in pairs(desktop.userdirs and desktop.userdirs.changes or {}) do
-        table.insert(content, kit.label("User folder " .. key .. ":  " .. (value ~= "" and value or "removed")))
+      local rows = {}
+      local folders = desktop.userdirs and desktop.userdirs.changes or {}
+      for key, value in pairs(folders) do
+        table.insert(rows, { part = "userdirs", key = key, value = value, page = "User folders",
+                             text = "User folder " .. key })
       end
       for _, change in ipairs(desktop.apps and desktop.apps.changes or {}) do
-        table.insert(content, kit.label(change.key .. ":  " .. (change.value ~= "" and change.value or "removed")))
+        table.insert(rows, { part = change.kind == "role" and "roles" or "mimes", key = change.key,
+                             value = change.value, page = "Default apps", text = change.key })
+      end
+      table.sort(rows, function(a, b) return a.page .. a.text < b.page .. b.text end)  -- pairs() order varies
+      local d = store.desktop
+      local originals = { userdirs = d.userdirs.original, roles = d.apps.originalRoles, mimes = d.apps.originalMimes }
+      for index, row in ipairs(rows) do
+        table.insert(content, ui.row({ key = "desk-" .. index, gap = 4, align = "center" }, {
+          kit.badge(row.page, "secondary", "dp-" .. index),
+          kit.label(row.text .. ":  " .. (row.value ~= "" and row.value or "removed"), { flexGrow = 1, maxLines = 2 }),
+          kit.iconButton("arrow-back-up", "Revert this change", function()
+            local original = originals[row.part][row.key]
+            if row.part ~= "userdirs" then original = original or "" end
+            store.setDesktop(row.part, row.key, original)
+            ctx.render()
+          end, true, "desk-revert-" .. index),
+          kit.iconButton("arrow-right", "Go to " .. row.page, function() ctx.openPage(row.page) end, true,
+                         "desk-go-" .. index),
+        }))
       end
     end
     local validation = preview.validation or {}
@@ -246,10 +275,25 @@ local function reviewPage(ctx, route)
       requestPreview(ctx, state)
       ctx.render()
     end }), "Regroup the file in canonical order with section banners. Settings never change; comments may move."))
+  local canSave = not state.saving and not state.loading and store.pendingCount() > 0 and not blocked
+  -- Ctrl+S on this page saves (shell.onKey); the header repeats Save so it never scrolls away.
+  route.saveNow = function() if canSave then save(ctx, state) end end
+  local function saveButton(key)
+    return ui.button({ key = key, text = state.saving and "Saving…" or "Save", glyph = "device-floppy",
+                       variant = "primary", tooltip = "Ctrl+S", enabled = canSave,
+                       onClick = function() save(ctx, state) end })
+  end
+  header = { kit.header(ctx, "Review changes", store.state and store.state.path or "", { saveButton("save-top") }) }
+  if not store.hasConfigChanges() and store.state and not state.loading then
+    table.insert(content, kit.optionRow("opt-check", "Check the saved config with Umbriel",
+      ui.button({ key = "check-now", text = "Check now", glyph = "checks", controlSize = "sm", variant = "outline",
+                  enabled = state.validate, onClick = function()
+                    requestPreview(ctx, state, true)
+                    ctx.render()
+                  end })))
+  end
   table.insert(content, ui.row({ key = "review-actions", gap = 8 }, {
-    ui.button({ text = state.saving and "Saving…" or "Save", glyph = "device-floppy", variant = "primary",
-                enabled = not state.saving and not state.loading and store.pendingCount() > 0 and not blocked,
-                onClick = function() save(ctx, state) end }),
+    saveButton("save"),
     ui.button({ text = "Keep editing", variant = "ghost", onClick = function() ctx.back() end }),
     ui.spacer({ flexGrow = 1 }),
     kit.confirmButton(ctx, { key = "discard", text = "Discard all", armedText = "Click again to discard",

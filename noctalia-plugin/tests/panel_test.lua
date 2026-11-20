@@ -52,6 +52,13 @@ assert(hasText("2 unsaved changes"))
 find("button", function(n) return n.props.key == "f:general.show_cheatsheet:undo" end).props.onClick()
 assert(hasText("1 unsaved change"), "undo restores the loaded value")
 
+-- the help panel names the config key and copies it
+byKey("f:general.mod_key:help").props.onClick()
+byKey("f:general.mod_key:copykey").props.onClick()
+assert(H.clipboard and H.clipboard.text == "general.mod_key" and H.clipboard.mime == "text/plain", "key copied")
+assert(hasText("Copied “general.mod_key”."), screen())
+byKey("f:general.mod_key:help").props.onClick()
+
 -- Reset asks to confirm like Noctalia; an edit in between cancels the confirmation
 local function resetButton() return byKey("f:general.mod_key:reset") end
 assert(resetButton().props.text == "Reset" and resetButton().props.variant == "ghost", "Reset is a ghost button")
@@ -193,14 +200,14 @@ assert(store.keybinds.rows[1].key == closer and hasText(closer), "moved up and s
 entry.onKey("alt+Left", true)
 -- locked shortcuts have no grip; a filter turns sorting off
 store.keybinds.rows[1].locked = true
-find("input", function(n) return n.props.key == "kb-filter" end).props.onChange("")
+H.input("^kbFilter:").props.onChange("")
 assert(not walk(H.tree(), function(n) return n.props.key == "kbgrip-1" end) and
        walk(H.tree(), function(n) return n.props.key == "kbgrip-2" end), "only unlocked rows drag")
 store.keybinds.rows[1].locked = nil
-find("input", function(n) return n.props.key == "kb-filter" end).props.onChange("super")
+H.input("^kbFilter:").props.onChange("super")
 assert(not walk(H.tree(), function(n) return n.kind == "dragSource" or n.kind == "dropZone" end)
        and hasText("Clear the filter to reorder shortcuts and groups."), screen())
-find("input", function(n) return n.props.key == "kb-filter" end).props.onChange("")
+H.input("^kbFilter:").props.onChange("")
 
 -- helper errors are shown, not swallowed
 replies.backups = function() return false, "disk on fire" end
@@ -341,6 +348,19 @@ clickText("Add")
 local ruleIndex = #store.entryItems("window_rule")
 clickText("Pick from open windows")
 assert(hasText("firefox · 2 windows") and hasText("org.gajim.Gajim"), screen())
+local poll = lastCall("wait-live")
+assert(poll and poll.request.events[1] == "windows", "the picker waits for window changes")
+local windowsReply = replies.windows
+replies.windows = function()
+  return true, json.encode({ windows = { { app_id = "kitty", title = "~", count = 1, pattern = "^kitty$",
+                                           title_pattern = "^~$" } } })
+end
+assert(H.liveChange(nil) >= 1 and #H.liveWaits == 1, "a timed-out poll asks again (older pages' polls end)")
+assert(hasText("firefox · 2 windows"), "no change, no refresh")
+H.liveChange("windows")
+assert(hasText("kitty") and not hasText("firefox · 2 windows"), "a change refreshes the list: " .. screen())
+replies.windows = windowsReply
+H.liveChange("windows")
 H.input("^live%-filter:").props.onChange("gajim")
 assert(not hasText("firefox · 2 windows"), "the filter hides other windows: " .. screen())
 local appSteps = #store.history
@@ -350,6 +370,15 @@ local item = store.entryItems("window_rule")[ruleIndex]
 assert(item.values["match.app_id"] == "^org\\.gajim\\.Gajim$" and item.values["match.title"] == "^Gajim$",
   "app id and title set: " .. tostring(item.values["match.app_id"]))
 assert(hasText("Pick from open windows") and hasText("The rule now matches “org.gajim.Gajim”."), screen())
+H.liveChange("windows")
+assert(#H.liveWaits == 0, "leaving the picker ends its poll")
+replies["focused-window"] = function()
+  return true, json.encode({ window = { app_id = "kitty", title = "~", pattern = "^kitty$", title_pattern = "^~$" } })
+end
+clickText("Use the focused window")
+assert(store.entryItems("window_rule")[ruleIndex].values["match.app_id"] == "^kitty$" and
+       hasText("The rule now matches “kitty”."), screen())
+assert(lastCall("wait") == nil, "the panel asks right away (it takes no window focus)")
 replies.windows = function() return false, "Umbriel is not running" end
 clickText("Pick from open windows")
 assert(hasText("Umbriel is not running") and hasText("Try again"), screen())
@@ -637,7 +666,7 @@ goHome()
 replies.about = function() return true, json.encode({ editor = "kate", palette = { noctalia = true } }) end
 replies["set-editor"] = function(request) return true, json.encode({ editor = request.editor }) end
 clickText("About")
-assert(hasText("Every option of this version has a setting here.") or screen():find("not part of this version: `animation", 1, true),
+assert(hasText("Every option of this version has a setting here.") or H.fullScreen():find("not part of this version: `animation", 1, true),
        "schema coverage: " .. screen())
 local editorInput = find("input", function(n) return tostring(n.props.key):match("^editor:") end)
 assert(editorInput.props.value == "kate", "saved editor shown")
@@ -710,7 +739,8 @@ assert(files["/data/draft.json"], "draft written on close")
 local draft = json.decode(files["/data/draft.json"])
 assert(draft.fields["general.mod_key"] and draft.keybinds, "draft holds field and keybind edits")
 
--- leftover request/response files are cleaned up
+-- leftover request/response files are cleaned up (held long polls answer after the close, unseen)
+H.liveChange("outputs")
 for path in pairs(files) do assert(not path:match("%.req%.json$"), "request file left behind: " .. path) end
 H.checkBudget("panel", 0.025)
 print("panel ok")

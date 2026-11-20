@@ -5,6 +5,8 @@ import os
 import sys
 import traceback
 
+from umbriel_core.paths import normalize_config_path
+
 from . import APP_NAME, __version__
 
 
@@ -43,7 +45,7 @@ def app_options(args):
     options = {"appVersion": __version__}
     path = args.config_option or args.config
     if path:
-        options["initialConfig"] = os.path.abspath(os.path.expanduser(path))
+        options["initialConfig"] = normalize_config_path(path)
     if args.no_validate:
         options["validateDefault"] = False
     if args.no_rebuild:
@@ -80,7 +82,8 @@ def main(argv=None):
     app._umbriel_icon = icon
     app.setWindowIcon(icon)
     try:
-        install_desktop_icon(icon)
+        if not icon.isNull():
+            install_desktop_icon(icon)
     except OSError as error:
         QMessageBox.warning(None, "Could not install desktop icon",
                             f"The window icon is set, but the desktop entry could not be installed:\n{error}")

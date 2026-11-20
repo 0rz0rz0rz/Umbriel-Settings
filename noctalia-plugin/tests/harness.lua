@@ -1,7 +1,7 @@
 -- Mocked Noctalia API shared by panel_test.lua and app_test.lua (plain Lua, fixtures from the real helper).
 -- H.start(entryFile, appOptions) loads an entry script; the returned table exposes the helpers.
 local pluginDir, fixtureDir = arg[1], arg[2]
-local H = { env = {}, clock = 1000 }  -- clock: what noctalia.nowMs() returns; tests advance it
+local H = { env = {}, clock = 1000, liveWaits = {}, held = {} }  -- clock: what noctalia.nowMs() returns; tests advance it
 
 -- ------------------------------------------------------------------ JSON
 local json = {}
@@ -214,6 +214,7 @@ noctalia = {
   notify = function(_, body) table.insert(notifications, body) end,
   getColor = function() return "#336699" end,
   nowMs = function() return H.clock end,
+  copyToClipboard = function(text, mime) H.clipboard = { text = text, mime = mime }; return true end,
   getenv = function(name) return H.env[name] end,
   fuzzyScore = function(query, text) return text:lower():find(query:lower(), 1, true) and 10 or 1 end,
   appIconPath = function() return nil end,
@@ -230,6 +231,14 @@ noctalia = {
     local command, requestPath, responsePath = argv[4], argv[6], argv[8]
     local request = json.decode(files[requestPath])
     table.insert(calls, { command = command, request = request })
+    if command == "wait-live" and not replies[command] then  -- a long poll: answered by H.liveChange
+      H.liveWaits[#H.liveWaits + 1] = { request = request, responsePath = responsePath, callback = callback }
+      return true
+    end
+    if H.held[command] then  -- answered later by H.release(command)
+      table.insert(H.held[command], function() return argv, callback end)
+      return true
+    end
     local reply = replies[command] or function() return true, "{}" end
     local ok, data = reply(request)
     if ok then files[responsePath] = data end
@@ -295,19 +304,25 @@ local function texts(node)
   walk(node, function(n) if n.props.text then table.insert(out, n.props.text) end end)
   return table.concat(out, " | ")
 end
+-- The screen's text for a failure message, cut short (check.py cuts long lines anyway).
+local SHOWN = 600
+local function shown(node)
+  local text = texts(node)
+  return #text <= SHOWN and text or (string.sub(text, 1, SHOWN) .. " … (+" .. (#text - SHOWN) .. " chars)")
+end
 local function hasText(text)
   return walk(tree, function(n) return n.props.text == text end) ~= nil
 end
 local function find(kind, predicate, message)
   local node = walk(tree, function(n) return n.kind == kind and predicate(n) end)
-  assert(node, (message or ("no " .. kind)) .. "\nScreen: " .. texts(tree))
+  assert(node, (message or ("no " .. kind)) .. "\nScreen: " .. shown(tree))
   return node
 end
 local function clickText(text)
   local node = walk(tree, function(n)
     return n.props.onClick and walk(n, function(c) return c.props.text == text end) ~= nil
   end)
-  assert(node, "nothing clickable shows " .. text .. "\nScreen: " .. texts(tree))
+  assert(node, "nothing clickable shows " .. text .. "\nScreen: " .. shown(tree))
   node.props.onClick()
   flushReads()
 end
@@ -318,7 +333,7 @@ local function clickShortcut(key)
     local k = tostring(n.props.key or "")
     return n.props.onClick and k:match("^kb%-%d+%-") and k:sub(-#suffix) == suffix
   end)
-  assert(node, "no shortcut row for " .. key .. "\nScreen: " .. texts(tree))
+  assert(node, "no shortcut row for " .. key .. "\nScreen: " .. shown(tree))
   node.props.onClick()
   flushReads()
 end
@@ -326,8 +341,41 @@ local function lastCall(command)
   for i = #calls, 1, -1 do if calls[i].command == command then return calls[i] end end
 end
 
-local function screen() return texts(tree) end
+local function screen() return shown(tree) end
+-- All of the screen's text, for searching it.
+function H.fullScreen() return texts(tree) end
 
+-- Holds the calls of `command` until H.release(command) answers them (with `replies`, as usual); calls made
+-- meanwhile wait for the next release. H.release(command, true) also stops holding.
+function H.hold(command) H.held[command] = H.held[command] or {} end
+function H.release(command, stop)
+  local waiting = H.held[command] or {}
+  H.held[command] = not stop and {} or nil
+  local saved = H.held[command]
+  H.held[command] = nil  -- the answers below go through
+  for _, call in ipairs(waiting) do
+    local argv, callback = call()
+    noctalia.runAsync(argv, function(result)
+      H.held[command] = saved  -- what the answer asks next is held again
+      callback(result)
+    end)
+  end
+  H.held[command] = saved
+  H.flushReads()
+  return #waiting
+end
+
+-- Answers the pending `wait-live` long polls as Umbriel would when `event` changes (nil: they time out).
+function H.liveChange(event)
+  local waits = H.liveWaits
+  H.liveWaits = {}
+  for _, wait in ipairs(waits) do
+    files[wait.responsePath] = event and json.encode({ event = event }) or "{}"
+    timed("runAsync wait-live", wait.callback)({ exitCode = 0, stdout = '{"ok":true}', stderr = "", timedOut = false })
+  end
+  H.flushReads()  -- the replies, and what a change asks for
+  return #waits
+end
 H.json, H.fixtures, H.files, H.calls, H.replies, H.loaded, H.pluginDir = json, fixtures, files, calls, replies, loaded, pluginDir
 H.flushReads, H.texts, H.hasText, H.find, H.clickText, H.lastCall, H.screen =
   flushReads, texts, hasText, find, clickText, lastCall, screen

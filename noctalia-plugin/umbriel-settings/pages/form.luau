@@ -93,6 +93,22 @@ function M.groups(ctx, pageKey, groups, spec, counts)
         end
       end
       if shown == 0 then table.insert(rows, kit.muted("No customized settings in this group.")) end
+      if changed > 0 and string.sub(pageKey, 1, 6) ~= "entry:" then  -- page fields only: entries are ops
+        table.insert(rows, ui.row({ key = "group-revert-row-" .. group.title }, {
+          ui.spacer({ flexGrow = 1 }),
+          kit.confirmButton(ctx, { key = "group-revert-" .. group.title, text = "Undo unsaved in this group",
+                                   armedText = "Click again to undo " .. kit.plural(changed, "change"),
+                                   glyph = "arrow-back-up", controlSize = "sm" }, function()
+            ctx.store.group(function()
+              for _, fid in ipairs(group.fields) do
+                if ctx.store.isChanged(fid) then ctx.store.revertField(fid) end
+              end
+            end)
+            ctx.resetInputs()
+            ctx.render()
+          end),
+        }))
+      end
       table.insert(content, ui.column({ key = "group-body-" .. group.title, gap = 2, paddingH = 4 }, rows))
     end
   end
@@ -121,8 +137,31 @@ function M.render(ctx, route)
   end
   local header = { kit.header(ctx, route.page, page.help, { onlyCustomizedToggle(ctx) }) }
   if not store.state then return { header = header, content = { kit.empty("Loading config…", "loader") } } end
-  local content = M.groups(ctx, route.page, page.groups, function(fid) return pageFieldSpec(ctx, fid) end,
-    store.groupCounts)
+  local filterKey = "page-filter-" .. route.page
+  local filter = kit.filterText(ctx, filterKey)
+  local content = { kit.filterBox(ctx, filterKey, { placeholder = "Filter settings on this page" }) }
+  if filter == "" then
+    for _, row in ipairs(M.groups(ctx, route.page, page.groups, function(fid) return pageFieldSpec(ctx, fid) end,
+                                  store.groupCounts)) do
+      table.insert(content, row)
+    end
+  else
+    -- Matching rows of every group, flat and capped (rows are the costly part of a render).
+    local shown = 0
+    for _, group in ipairs(page.groups) do
+      for _, fid in ipairs(group.fields) do
+        local field = store.meta.fields[fid]
+        local text = string.lower(field.label .. " " .. field.path .. " " .. group.title)
+        if shown < 30 and string.find(text, filter, 1, true) then
+          if shown > 0 then table.insert(content, ui.separator({ key = "sep-" .. fid, thickness = 1, opacity = 0.5 })) end
+          table.insert(content, fields.row(ctx, pageFieldSpec(ctx, fid)))
+          shown = shown + 1
+        end
+      end
+    end
+    if shown == 0 then table.insert(content, kit.empty("No settings on this page match.", "filter")) end
+    if shown == 30 then table.insert(content, kit.muted("Showing 30 settings; type more to narrow it down.")) end
+  end
   return { header = header, content = content }
 end
 

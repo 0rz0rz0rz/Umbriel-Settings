@@ -20,10 +20,6 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
 Then add the `0rz0rz0rz/umbriel-settings:settings` widget to a bar. After changing `plugin.toml`, run
 `noctalia msg config-reload`.
 
-**Old plugin ID** `umbriel-settings/Umbriel-GUI-Plugin` (before the 0.1.x versions): run
-`noctalia msg config-reload`, `noctalia msg plugins disable umbriel-settings/Umbriel-GUI-Plugin`, enable the new
-ID and re-add the bar widget. Drafts start fresh; config backups are kept (they live in the app's data folder).
-
 ## Development
 
 | Part | Used by |
@@ -37,7 +33,9 @@ The panel writes a JSON request file, runs `python3 -Xpycache_prefix=<data>/pyca
 and reads the response file (helper output and argv are size-limited); the app calls the same commands
 in-process. Commands that write (save, restore, desktop-save, …) hold `write.lock` in the shared data
 directory, so the plugin and the app never write at the same time (a writer waits up to 20 s for it; write
-commands get a 60 s timeout, and once a file is written, later failures are reported as `warnings`). Shared UI code must parse as both Luau and Lua 5.4 (the app runs it with lupa), stay within
+commands get a 60 s timeout, and once a file is written, later failures are reported as `warnings`). Live
+refresh is a long poll: `wait-live` runs `umbriel subscribe` and answers on the first change a page shows (or
+after 25 s), and the page asks again. Shared UI code must parse as both Luau and Lua 5.4 (the app runs it with lupa), stay within
 Noctalia's 25 ms per-callback CPU budget, and use only the API the app host implements
 (`python/umbriel_settings/host/api.py`).
 

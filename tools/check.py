@@ -4,9 +4,11 @@
   python tools/check.py              # pick checks from `git status` (changed + untracked files)
   python tools/check.py core plugin  # run named checks: core, plugin (luac, luau, validator), host, schema, lint (ruff, shellcheck), all
   python tools/check.py test_core_values test_panel  # run single test files (tests/, noctalia-plugin/tests/) by name
+  python tools/check.py test_core_values -k from_ui  # only the tests of those files whose names match
   python tools/check.py -v ...       # also print the full output of passing checks
 
-Failing checks print only their failure blocks (trimmed to --lines), which keeps logs short.
+Failing checks print only their failure blocks (trimmed to --lines, each line to LINE_CHARS), which keeps logs
+short.
 """
 import argparse
 import os
@@ -26,6 +28,7 @@ CORE_TESTS = sorted(p.stem for p in TESTS.glob("test_core*.py"))
 HOST_TESTS = sorted(p.stem for p in TESTS.glob("test_*.py") if p.stem not in CORE_TESTS)
 ORDER = ["core", "plugin", "host", "schema", "lint"]
 TIMEOUT = 900  # seconds per step
+LINE_CHARS = 300  # a failure line longer than this (e.g. a whole screen in an assert message) is cut
 
 
 def env():
@@ -56,7 +59,8 @@ def unittest_summary(output):
 def failure_blocks(output, limit):
     lines = output.splitlines()
     start = next((i for i, line in enumerate(lines) if line.startswith(("=====", "Traceback", "ERROR:", "FAIL:"))), 0)
-    picked = [line for line in lines[start:] if not line.startswith("-" * 20)]
+    picked = [line if len(line) <= LINE_CHARS else line[:LINE_CHARS] + f" … (+{len(line) - LINE_CHARS} chars)"
+              for line in lines[start:] if not line.startswith("-" * 20)]
     if len(picked) > limit:
         picked = picked[:limit] + [f"... ({len(picked) - limit} more lines; rerun the check with -v)"]
     return "\n".join(picked)
@@ -175,6 +179,8 @@ def main():
     parser.add_argument("checks", nargs="*", help="check names or test file names (tests/, noctalia-plugin/tests/)")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--lines", type=int, default=60, help="max failure lines per check")
+    parser.add_argument("-k", dest="patterns", action="append", default=[],
+                        help="with test file names: only tests whose names match (unittest -k)")
     args = parser.parse_args()
 
     names, files = [], []
@@ -200,7 +206,11 @@ def main():
             print(line, flush=True)
             ok &= passed
     if files:
-        line, passed = run_step("tests", ",".join(files), unittest_modules(files), "unittest", args.verbose, args.lines)
+        patterns = [arg for pattern in args.patterns for arg in ("-k", pattern)]
+        line, passed = run_step("tests", ",".join(files), unittest_modules([*files, *patterns]), "unittest",
+                                args.verbose, args.lines)
+        if patterns and "  0 tests" in line:  # a typo in -k would otherwise pass
+            line, passed = "FAIL" + line[4:] + "\nno test name matches -k " + " ".join(args.patterns), False
         print(line, flush=True)
         ok &= passed
     return 0 if ok else 1

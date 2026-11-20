@@ -1,7 +1,7 @@
 """Render the standalone app (shared Luau UI in the web view) offscreen and save PNGs.
 
-Usage (from python/):
-  QT_QPA_PLATFORM=offscreen PYTHONPATH=. python ../.claude/skills/edit-controls/render_app.py \
+Usage (from the repo root; offscreen and import path are set up by _render_common):
+  python .claude/skills/edit-controls/render_app.py \
       --out <scratchpad>/app [--config sample.toml] [--size 1280x860] [click texts ...]
 
 Each positional argument clicks the first clickable node showing that exact text (a sidebar page,

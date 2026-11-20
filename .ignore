@@ -4,5 +4,9 @@ noctalia-plugin/umbriel-settings/umbriel_core/
 # Generated or binary assets.
 python/umbriel_settings/host/web/fonts/
 docs/*.png
-noctalia-plugin/umbriel-settings/screenshot.png
+noctalia-plugin/umbriel-settings/*.png
 noctalia-plugin/umbriel-settings/thumbnail.webp
+python/umbriel_settings/assets/*.png
+appimage/recipe/*.png
+# Hash lockfiles (pins: appimage/pins.sh, python/requirements.txt).
+appimage/*.lock

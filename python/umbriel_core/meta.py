@@ -1,17 +1,15 @@
 """Describe pages, groups, fields, editors and actions as plain JSON for a declarative UI."""
 
-from . import CORE_VERSION, entry_ops
+from . import entry_ops
 from .actions import (
     ACTION_CATEGORIES,
-    ACTION_INFO,
     ARG_HELP,
-    REQUIRED_ARG_ACTIONS,
     RUN_BLOCKED,
     RUN_BLOCKED_SPAWN,
     SUBMAP_REASON,
 )
 from .cursor_themes import installed_cursor_themes
-from .fields import ACTION_TEMPLATES, NAV_SECTIONS, OPACITY_SLIDERS, TABS
+from .fields import NAV_SECTIONS, OPACITY_SLIDERS, TABS
 from .help import CATEGORY_HELP, choice_label, group_help, setting_help_text, split_label
 from .keybinds import BIND_BOOL_OPTIONS
 from .schema import field_schema_option
@@ -180,7 +178,7 @@ def build_meta(schema_options, schema_info=None, plugin_version=""):
         info["help"] = CATEGORY_HELP.get(page, "")
         info["glyph"] = PAGE_GLYPHS.get(page, "settings")
     return {
-        "version": plugin_version, "core_version": CORE_VERSION,
+        "version": plugin_version,
         "schema": schema_info or {"available": False},
         "nav": [
             {"title": title, "pages": names, "help": CATEGORY_HELP.get(title, "")}
@@ -192,9 +190,6 @@ def build_meta(schema_options, schema_info=None, plugin_version=""):
         "maps": maps,
         "actions": {
             "categories": [[name, [[a, d] for a, d in items]] for name, items in ACTION_CATEGORIES],
-            "templates": ACTION_TEMPLATES,
-            "required": sorted(REQUIRED_ARG_ACTIONS),
-            "examples": {head: info[0] for head, info in ACTION_INFO.items()},
             "args": ARG_HELP,
             "options": [[name, label] for name, label in BIND_BOOL_OPTIONS],
             "blocked": {"heads": RUN_BLOCKED, "spawn": RUN_BLOCKED_SPAWN, "submap": SUBMAP_REASON},

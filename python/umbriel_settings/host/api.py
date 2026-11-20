@@ -1,54 +1,23 @@
 """The `noctalia` and `panel` globals for the shared UI, implemented for the standalone app.
 
-Only the functions the shared Luau code calls are provided. Helper commands (umbriel_settings.py) run
-in-process on a worker thread instead of as a subprocess; other commands run as processes.
+Only the functions the shared Luau code calls are provided. `runAsync` only runs the helper
+(umbriel_settings.py), in-process on a worker thread instead of as a subprocess.
 """
 
-import collections
 import importlib.util
 import json
 import os
-import shutil
-import subprocess
 import sys
 import threading
 import time
 import traceback
 
-from umbriel_core.launch import child_env
 from umbriel_core.paths import atomic_write
 
-# Helper commands that wait on the user or the session; they run on the scheduler's separate slow pool.
-SLOW_HELPER_COMMANDS = {"pick-folder", "outputs", "launch-app", "open-config"}
-
-
-class ManualScheduler:
-    """Runs posted work when asked (tests). The Qt window uses QtScheduler with the same interface."""
-
-    def __init__(self):
-        self.queue = collections.deque()
-
-    def post(self, function):
-        self.queue.append(function)
-
-    def background(self, work, done, on_error=None, slow=False):
-        """Run work() off the GUI thread, then done(result) on it; here both run on the next drain."""
-        def run():
-            try:
-                result = work()
-            except Exception as error:  # same contract as QtScheduler.background
-                if on_error is None:
-                    raise
-                result = on_error(error)
-            done(result)
-        self.post(run)
-
-    def drain(self, limit=10000):
-        count = 0
-        while self.queue and count < limit:
-            self.queue.popleft()()
-            count += 1
-        return count
+# Helper commands that ask the running compositor (up to 5 s): the scheduler's separate slow pool.
+SLOW_HELPER_COMMANDS = {"outputs", "windows", "layers", "xkb", "run-action", "focused-window"}
+# Long polls (wait for a compositor event or a timer): a thread each, so they never hold a pool thread.
+LONG_HELPER_COMMANDS = {"wait-live", "wait"}
 
 
 def fuzzy_score(pattern, text):
@@ -89,9 +58,8 @@ class NoctaliaApi:
         lua = self.host
         noctalia = lua.to_lua({})
         for name in ("pluginDir", "pluginDataDir", "mkdirAll", "writeFile", "readFile", "readFileAsync",
-                     "fileExists", "removeFile", "renameFile", "fileInfo", "listDir", "getenv",
-                     "commandExists", "runAsync", "notify", "notifyError", "fuzzyScore", "appIconPath",
-                     "getColor", "nowMs", "togglePanel"):
+                     "fileExists", "removeFile", "getenv", "runAsync", "notify", "fuzzyScore",
+                     "appIconPath", "getColor", "nowMs", "copyToClipboard"):
             noctalia[name] = getattr(self, name)
         noctalia["json"] = lua.to_lua({})
         noctalia["json"]["encode"] = self.json_encode
@@ -100,14 +68,10 @@ class NoctaliaApi:
         noctalia["string"]["trim"] = lambda value: (value or "").strip()
         noctalia["state"] = lua.to_lua({})
         noctalia["state"]["set"] = self.on_state
-        noctalia["state"]["get"] = lambda key: None
-        noctalia["state"]["watch"] = lambda key, fn: None
         panel = lua.to_lua({})
         panel["render"] = lua.render
         panel["close"] = lambda: self.on_close()
         panel["setNeedsFrameTick"] = lambda wanted: self.on_frame_tick(bool(wanted))
-        panel["setWantsSecondTicks"] = lambda wanted: None
-        panel["openContextMenu"] = lambda request: False
         return {"noctalia": noctalia, "panel": panel}
 
     # ------------------------------------------------------------------ files
@@ -163,33 +127,9 @@ class NoctaliaApi:
         except OSError as error:
             return False, str(error)
 
-    def renameFile(self, source, target):
-        try:
-            os.replace(os.path.expanduser(source), os.path.expanduser(target))
-            return True
-        except OSError as error:
-            return False, str(error)
-
-    def fileInfo(self, path):
-        try:
-            info = os.stat(os.path.expanduser(path))
-        except OSError as error:
-            return None, str(error)
-        return self.host.to_lua({"size": info.st_size, "mtime": int(info.st_mtime),
-                                 "isDir": os.path.isdir(os.path.expanduser(path))})
-
-    def listDir(self, path):
-        try:
-            return self.host.to_lua(sorted(os.listdir(os.path.expanduser(path))))
-        except OSError as error:
-            return None, str(error)
-
     # ------------------------------------------------------------------ processes
     def getenv(self, name):
         return os.environ.get(name)
-
-    def commandExists(self, name):
-        return shutil.which(name) is not None
 
     def _helper(self, path):
         """Import umbriel_settings.py once and reuse it (its commands then run in this process)."""
@@ -211,28 +151,19 @@ class NoctaliaApi:
     def runAsync(self, argv, callback=None, timeout=None):
         is_list = self.host.is_table(argv)  # here, not in the worker thread: it would wait for the Lua lock
         args = [str(argv[i]) for i in range(1, len(argv) + 1)] if is_list else [str(argv)]
-        seconds = (timeout or 5000) / 1000
-        in_process = len(args) >= 3 and os.path.basename(args[2]) == "umbriel_settings.py"
-        slow = not in_process or (len(args) > 3 and args[3] in SLOW_HELPER_COMMANDS)
+        command = args[3] if len(args) > 3 else ""
+        lane = "long" if command in LONG_HELPER_COMMANDS else "slow" if command in SLOW_HELPER_COMMANDS else "fast"
 
         def work():
-            if in_process:
-                # The callback must always run: an exception here would leave the UI waiting for the helper.
-                try:
-                    return {"exitCode": 0, "stdout": self._helper(args[2]).run(args[3:]), "stderr": "",
-                            "timedOut": False}
-                except Exception:  # an import error or a helper bug; reported like a crashed process
-                    return {"exitCode": 1, "stdout": "", "stderr": traceback.format_exc(), "timedOut": False}
-            try:
-                command = args if is_list else ["/bin/sh", "-c", args[0]]
-                result = subprocess.run(command, capture_output=True, text=True, timeout=seconds, check=False,
-                                        env=child_env())
-                return {"exitCode": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
+            if len(args) < 3 or os.path.basename(args[2]) != "umbriel_settings.py":
+                return {"exitCode": 127, "stdout": "", "stderr": "The app only runs umbriel_settings.py.",
                         "timedOut": False}
-            except subprocess.TimeoutExpired:
-                return {"exitCode": -1, "stdout": "", "stderr": "", "timedOut": True}
-            except (OSError, ValueError) as error:  # ValueError: an argument with a NUL byte
-                return {"exitCode": 127, "stdout": "", "stderr": str(error), "timedOut": False}
+            # The callback must always run: an exception here would leave the UI waiting for the helper.
+            try:
+                return {"exitCode": 0, "stdout": self._helper(args[2]).run(args[3:]), "stderr": "",
+                        "timedOut": False}
+            except Exception:  # an import error or a helper bug; reported like a crashed process
+                return {"exitCode": 1, "stdout": "", "stderr": traceback.format_exc(), "timedOut": False}
 
         def done(result):
             if callback is not None:
@@ -240,7 +171,7 @@ class NoctaliaApi:
                 self.host.guard(callback, self.host.to_lua(result))
         self.scheduler.background(work, done, lambda error: {
             "exitCode": 1, "stdout": "", "stderr": "".join(traceback.format_exception(error)), "timedOut": False},
-            slow=slow)
+            lane=lane)
         return True
 
     # ------------------------------------------------------------------ misc
@@ -259,8 +190,6 @@ class NoctaliaApi:
     def notify(self, title, body=None):
         self.notify_cb(title, body or "")
 
-    notifyError = notify  # Noctalia has both; the app's status bar shows them alike
-
     def fuzzyScore(self, pattern, text):
         return fuzzy_score(pattern or "", text or "")
 
@@ -273,5 +202,18 @@ class NoctaliaApi:
     def nowMs(self):
         return int(time.time() * 1000)
 
-    def togglePanel(self, panel_id):
-        return None
+    def copyToClipboard(self, text, mime="text/plain"):
+        """Like Noctalia's: `text` on the clipboard as `mime`; False without a Qt application (tests)."""
+        from PySide6.QtCore import QMimeData
+        from PySide6.QtGui import QGuiApplication
+
+        app = QGuiApplication.instance()
+        if app is None:
+            return False
+        data = QMimeData()
+        if mime == "text/plain":
+            data.setText(str(text))
+        else:
+            data.setData(str(mime), str(text).encode("utf-8"))
+        app.clipboard().setMimeData(data)
+        return True

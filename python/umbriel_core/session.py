@@ -12,10 +12,11 @@ import tomllib
 
 import tomlkit
 
-from . import entry_ops, keybinds, legacy, values
+from . import entry_ops, keybinds, values
 from .backups import create_backup_snapshot
 from .fields import TABS
 from .included import included_names
+from .launch import child_env
 from .layout import (
     BANNER_RE,
     add_entry_name_comments,
@@ -78,7 +79,6 @@ class ConfigSession:
         self.data_dir = data_dir
         self.config_dir = config_gui_data_dir(self.path, data_dir)
         self._options = schema_options
-        legacy.migrate_config(self.path, self.config_dir)
 
     @property
     def options(self):
@@ -341,12 +341,13 @@ class ConfigSession:
         return sorted(new_locks), new_keys, (groups, assignments)
 
     # ---------------------------------------------------------------- preview/save
-    def preview(self, changes, validate=True):
-        """Return the diff, readable changes and validation result without writing anything."""
+    def preview(self, changes, validate=True, check=False):
+        """Return the diff, readable changes and validation result without writing anything; `check` validates
+        the config even when the changes leave it as it is."""
         old, new, _, _, summary = self.apply(changes)
-        return self._report(old, new, summary, validate)
+        return self._report(old, new, summary, validate, check)
 
-    def _report(self, old, new, summary, validate):
+    def _report(self, old, new, summary, validate, check=False):
         diff = "".join(difflib.unified_diff(
             old.splitlines(keepends=True), new.splitlines(keepends=True),
             fromfile="current", tofile="new", n=2,
@@ -356,7 +357,7 @@ class ConfigSession:
             "changed": old != new,
             "summary": summary,
             "sections": [{"title": title, "diff": "".join(lines)} for title, lines in sections.items()],
-            "validation": self.validate(new) if validate and old != new else {"ran": False},
+            "validation": self.validate(new) if validate and (old != new or check) else {"ran": False},
         }
         return report
 
@@ -386,7 +387,8 @@ class ConfigSession:
             try:
                 result = subprocess.run(
                     [executable, "config", "validate", "-c", name, "--json"],
-                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, check=False,
+                    stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    timeout=30, check=False, env=child_env(),
                 )
             except subprocess.TimeoutExpired:
                 return {"ran": True, "valid": False,

@@ -15,28 +15,34 @@ same core and interface code, so they look and behave alike; the app adds a side
   workspaces and keybinds, plus window, layer, workspace and security rules, outputs, scratchpads, input
   devices and environment variables.
 - **Search** (Ctrl+F) over setting names, help text, config keys (`border_width`), rule names and shortcuts.
-- **Clear rows**: control, default value (“Default 2”), ⓘ help with the config key and ↶ undo. Like Noctalia's
-  settings, a key that differs from the default shows an **Override** badge, and **Reset** (click twice to
-  confirm) removes the key so Umbriel's default applies. Units sit next to the number,
+- **Clear rows**: control, default value (“Default 2”), ⓘ help with the config key (and a button to copy it) and
+  ↶ undo. Like Noctalia's settings, a key that differs from the default shows an **Override** badge, and
+  **Reset** (click twice to confirm) removes the key so Umbriel's default applies. Units sit next to the number,
   special values such as “Automatic” (-1) have their own switch, and a ↻ glyph marks settings that need an
-  Umbriel restart. **Only customized** hides settings at their default.
+  Umbriel restart. **Only customized** hides settings at their default; a filter box narrows a page to the
+  settings whose name or key matches, and an open group can undo its unsaved edits at once.
 - **Home** (app) shows the config file, the settings that differ from Umbriel's defaults and the latest
   backups; the sidebar keeps **Customized**, **Backups** and **About** at hand and shrinks to icons in a
   narrow window (widen it again to use the search box).
 - **Undo** (Ctrl+Z or the save bar) steps back through unsaved edits, one action at a time (a dropped display
-  or a new default display is one step, however many settings it changes).
-- **Lists** for rules, devices and effects: edit, name, reorder, duplicate, delete.
+  or a new default display is one step, however many settings it changes); **Redo** (Ctrl+Y or
+  Ctrl+Shift+Z) steps forward again until the next edit.
+- **Lists** for rules, devices and effects: edit, name, reorder, duplicate, delete; the filter also matches
+  values such as an app id pattern.
 - **Outputs** draws the connected displays as numbered tiles at their real size and position. Drag one by its
   number onto an edge of another to place it there: displays snap to each other's center line, so two above a
   main display are centered as a pair, and a corner shifts it half a display that way. The star marks the
   default display (startup focus and XWayland's primary output). Click a display (or Tab to it and press
   Enter) to give it a name for the overview and pick its resolution and refresh rate from the modes it
-  reports; looking without changing anything leaves no entry behind.
+  reports; looking without changing anything leaves no entry behind. **Try** saves display changes at once and
+  asks whether to keep them: without an answer within 15 seconds (say, a display that shows nothing) the
+  previous file comes back and the changes are unsaved again. The page follows Umbriel as monitors come and go.
 
   ![The Outputs page in the plugin panel: three displays drawn to scale, the default one starred](docs/outputs-plugin.png)
 - **Pick from open windows** (window, workspace and security rules) and **Pick from open layers** (layer
   rules) fill a rule's match with an exact pattern such as `^org\.gajim\.Gajim$`, optionally with the
-  window's title.
+  window's title; the list updates as windows open and close. **Use the focused window** takes the app id of
+  the focused window (in the app: the one you switch to within 3 seconds).
 - **Names instead of typing**: an animation's Curve offers your own named Bézier and spring curves next to
   the built-in ones, effect settings offer your effect presets and pools, and output settings (X11 primary
   output, tablet/touch mapping, a rule's output) offer your configured and connected outputs, all still with
@@ -47,7 +53,8 @@ same core and interface code, so they look and behave alike; the app adds a side
   **Browse files…** for any other program (added as its quoted path).
 - **Keyboard layouts**: **Choose…** next to Layout, Variant and XKB options (also for input devices) picks
   layouts in order, a variant for each and options from XKB's own list, and shows the active layout.
-- **Keybinds** in groups: build shortcuts from modifier chips, pick actions from a searchable catalog, set
+- **Keybinds** in groups (a shortcut used twice shows **conflict**): build shortcuts from modifier chips or
+  **Record…** a key press (app only; shortcuts Umbriel already uses never reach a window), pick actions from a searchable catalog, set
   repeat/locked options, and lock shortcuts against accidental changes. **Run now** (click twice) sends the
   action to Umbriel once so you can see what it does; actions that end the session, close or kill the focused
   window, turn screens off or enter a submap are refused. When an action takes an output, effect preset or
@@ -65,7 +72,8 @@ same core and interface code, so they look and behave alike; the app adds a side
 
 Nothing is written until you press **Review & save** (Ctrl+S):
 
-- The review lists every change in words and shows the file diff by section.
+- The review lists every change in words, each with **Revert** and a link to its setting, and shows the file
+  diff by section. With nothing to save, **Check now** validates the file as it is.
 - **Check with Umbriel before writing** (on by default; `--no-validate` turns it off) runs
   `umbriel config validate` on a temporary copy. If Umbriel rejects it, nothing is written and each problem
   links to its setting. Skipped when `umbriel` isn't installed.
@@ -144,7 +152,8 @@ python python/umbriel-settings.py [path/to/config.toml]
 Without a path it opens the config used last, else `~/.config/umbriel/config.toml` (switch files at the
 bottom of the home page). Options: `--config PATH`, `--no-validate`, `--no-rebuild`, `--check-schema`
 (compare the app's fields with your Umbriel and exit), `--version`. Keys: Ctrl+F search, Ctrl+S review,
-Ctrl+Z undo (outside text fields), Alt+Left back, Esc clears the search or goes back.
+Ctrl+S again saves, Ctrl+Z undo and Ctrl+Y / Ctrl+Shift+Z redo (outside text fields), Alt+Left back, Esc
+clears the search, cancels a shortcut recording or goes back.
 
 Only one window runs at a time: starting the app again brings the open window to the front and opens the
 config given on the command line, unless the current one has unsaved changes.
@@ -167,8 +176,7 @@ download is checked against the SHA-256 checksums in `appimage/` (`*.lock`, `pin
 at the AppImage, so keep it at a stable path.
 
 **Upgrading from `umbriel-config-gui`** (the old name): data moves to `$XDG_DATA_HOME/umbriel-settings`
-automatically, and the desktop entry is replaced. Files earlier versions kept next to the config (rule names,
-keybind locks, backups) move into the data folder the first time each config is opened. By hand: point keybinds at `python/umbriel-settings.py`,
+automatically, and the desktop entry is replaced. By hand: point keybinds at `python/umbriel-settings.py`,
 and change the Noctalia palette template's `output_path` (see below); until then the old palette file is
 still read.
 

@@ -193,11 +193,9 @@ local function listPage(ctx)
   }) }
   if not store.keybinds then return { header = header, content = { kit.empty("Loading…", "loader") } } end
   local content = {
-    ui.input({ key = "kb-filter", value = view.kbFilter or "", controlSize = "sm",
-               placeholder = "Filter shortcuts and actions",
-               onChange = function(text) view.kbFilter = text; ctx.render() end }),
+    kit.filterBox(ctx, "kbFilter", { placeholder = "Filter shortcuts and actions" }),
   }
-  local filter = string.lower(noctalia.string.trim(view.kbFilter or ""))
+  local filter = kit.filterText(ctx, "kbFilter")
   -- Sorting needs every row of a group on screen: a gap between filtered rows would be ambiguous.
   local sortable = filter == ""
   if sortable then
@@ -210,6 +208,11 @@ local function listPage(ctx)
   table.insert(groups, "")
   view.kbCollapsed = view.kbCollapsed or {}
   local others = store.state and store.state.keybinds.other or {}
+  local keyUses = {}  -- normalized shortcut -> rows using it (a conflict badge on each)
+  for _, row in ipairs(store.keybinds.rows) do
+    local normalized = normalizeKey(row.key)
+    if normalized ~= "" then keyUses[normalized] = (keyUses[normalized] or 0) + 1 end
+  end
   for position, group in ipairs(groups) do
     local groupIndex = position < #groups and position or 0
     local groupRef = "g|" .. groupIndex .. "|" .. group
@@ -223,6 +226,9 @@ local function listPage(ctx)
         if not collapsed then
           local desc = describe(store.meta, row.action)
           local badges = {}
+          if (keyUses[normalizeKey(row.key)] or 0) > 1 then
+            table.insert(badges, kit.badge("conflict", "error", "kbc-" .. index))
+          end
           if row.locked then table.insert(badges, ui.glyph({ name = "lock", size = 14, color = kit.MUTED })) end
           local open = function() ctx.go({ name = "keybind", index = index }) end
           local ref = "r|" .. index .. "|" .. row.key
@@ -376,12 +382,37 @@ local function detailPage(ctx, route)
       row.key = joinShortcut(mods, noctalia.string.trim(text))
       edit("key"); ctx.render()
     end }))
+  if ctx.isApp then  -- app only: Noctalia passes the panel only its capture_keys
+    table.insert(chips, ui.button({ key = "kb-record", text = view.kbRecording and "Cancel" or "Record…",
+      glyph = "keyboard", controlSize = "sm", variant = view.kbRecording and "primary" or "outline",
+      enabled = not locked, tooltip = "Press the shortcut instead of typing it", onClick = function()
+        view.kbRecording = not view.kbRecording or nil
+        ctx.render()
+      end }))
+  end
   local clash = conflict(store, row.key, route.index)
   local shortcutCard = {
     kit.muted("Shortcut"),
-    ui.row({ gap = 6, align = "center" }, chips),
+    ui.row({ key = "kb-chips", gap = 6, align = "center" }, chips),
     kit.muted("Writes: " .. (row.key ~= "" and row.key or "—")),
   }
+  if view.kbRecording and not locked then
+    table.insert(shortcutCard, ui.row({ key = "kb-recorder", gap = 8, align = "center", padding = 10,
+      radius = kit.RADIUS.md, fill = "primary/0.12",
+      onKeyRecord = function(shortcut)
+        view.kbRecording = nil
+        if shortcut ~= "" then
+          row.key = shortcut
+          ctx.bump("kbkey")
+          edit("key")
+        end
+        ctx.render()
+      end }, {
+      ui.glyph({ name = "keyboard", size = 16, color = "primary" }),
+      kit.label("Press the shortcut now (Esc cancels). Shortcuts Umbriel already uses never reach this window.",
+                { flexGrow = 1, maxLines = 2 }),
+    }))
+  end
   if clash then table.insert(shortcutCard, kit.notice("Conflicts with “" .. clash .. "”.", "error", nil, "clash")) end
   table.insert(content, kit.card({ key = "shortcut" }, shortcutCard))
   -- action

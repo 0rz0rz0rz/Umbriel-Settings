@@ -2,6 +2,7 @@
 -- Unsaved edits survive a Noctalia restart (or an app crash) as draft.json in the plugin data directory;
 -- config edits for another config wait in draft-other-config.json until that config opens.
 local store = require("./store.luau")
+local kit = require("../ui/kit.luau")
 
 local M = {}
 
@@ -18,7 +19,7 @@ local function readJson(path)
   return raw and noctalia.json.decode(raw)
 end
 
-local function restoredNote(count) return "Restored " .. count .. " unsaved change(s) from last time." end
+local function restoredNote(count) return "Restored " .. kit.plural(count, "unsaved change") .. " from last time." end
 
 local function desktopDraft()
   local d = store.desktop
@@ -63,7 +64,7 @@ local function applyConfigDraft(draft)
     end
     if draft.keybinds then store.restoreKeybinds(draft.keybinds); restored = restored + 1 end
   end
-  store.history = {}  -- the restored draft is where undo stops
+  store.history, store.future = {}, {}  -- the restored draft is where undo stops
   return restored
 end
 

@@ -49,6 +49,19 @@ FAKE_UMBRIEL = textwrap.dedent("""\
     if sys.argv[1:] == ["layers", "--json"]:
         print(json.dumps([{"namespace": "noctalia-bar-default", "layer": "top", "output": "DP-1"}]))
         raise SystemExit(0)
+    if sys.argv[1:] == ["focused-window", "--json"]:
+        print(json.dumps({"app_id": "org.gajim.Gajim", "title": "Gajim (2)", "focused": True}))
+        raise SystemExit(0)
+    if sys.argv[1:2] == ["subscribe"]:  # each event's state, then $SUB_CHANGE's change (title-only ones first)
+        import time
+        for event in sys.argv[2].split(","):
+            print(json.dumps({"event": event, "data": [{"app_id": "a", "title": "x"}]}), flush=True)
+        change = os.environ.get("SUB_CHANGE")
+        if change:
+            print(json.dumps({"event": change, "data": [{"app_id": "a", "title": "y"}]}), flush=True)
+            print(json.dumps({"event": change, "data": [{"app_id": "b", "title": "y"}]}), flush=True)
+        time.sleep(30)
+        raise SystemExit(0)
     if sys.argv[1:] == ["keyboard-layouts", "--json"]:
         print(json.dumps({"current_index": 0, "names": ["German"]}))
         raise SystemExit(0)

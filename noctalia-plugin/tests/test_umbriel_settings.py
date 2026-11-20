@@ -155,6 +155,13 @@ class SaveTests(HelperTestCase):
         self.assertTrue(report["validation"]["valid"])
         self.assertEqual(self.config.read_text(), CONFIG)
 
+    def test_check_validates_an_unchanged_config(self):
+        unchanged = {"config": str(self.config), "changes": {"revision": self.read()["revision"]}}
+        self.assertFalse(self.ok("preview", unchanged)["validation"]["ran"])
+        report = self.ok("preview", {**unchanged, "check": True}, env={**self.env, "VALID": "no"})
+        self.assertFalse(report["changed"])
+        self.assertEqual((report["validation"]["ran"], report["validation"]["valid"]), (True, False))
+
     def test_invalid_values_and_conflicts_write_nothing(self):
         state = self.read()
         reply = self.fails("save", {"config": str(self.config), "changes": {
@@ -493,6 +500,22 @@ class LiveTests(HelperTestCase):
         self.assertEqual(self.ok("layers")["layers"][0]["pattern"], "^noctalia-bar-default$")
         env = {**self.env, "PATH": str(self.root / "nowhere")}
         self.assertEqual(self.fails("windows", env=env)["code"], "missing_umbriel")
+
+    def test_focused_window_gives_exact_patterns(self):
+        window = self.ok("focused-window")["window"]
+        self.assertEqual((window["pattern"], window["title_pattern"]), (r"^org\.gajim\.Gajim$", r"^Gajim \(2\)$"))
+
+    def test_wait_live_answers_on_a_change_that_a_page_shows(self):
+        env = {**self.env, "SUB_CHANGE": "windows"}
+        # a title change is no change to the window list; a new app id is
+        self.assertEqual(self.ok("wait-live", {"events": ["outputs", "windows"], "timeout": 10}, env=env),
+                         {"event": "windows"})
+        started = time.monotonic()
+        self.assertEqual(self.ok("wait-live", {"events": ["outputs"], "timeout": 1}), {"event": None})
+        self.assertLess(time.monotonic() - started, 5, "the umbriel subscribe process is stopped")
+        self.assertIn("events must list", self.fails("wait-live", {"events": ["theme"]})["error"])
+        missing = self.fails("wait-live", {"events": ["outputs"]}, env={**self.env, "PATH": str(self.root / "nowhere")})
+        self.assertEqual(missing["code"], "missing_umbriel")
 
     def test_xkb_lists_layouts_with_the_active_one(self):
         rules = self.root / "xkb" / "rules"

@@ -76,11 +76,6 @@ local function writeLayouts(ctx, keyboard, layouts, variants)
   end)
 end
 
-local function iconButton(key, glyph, tooltip, enabled, onClick)
-  return ui.button({ key = key, glyph = glyph, variant = "ghost", controlSize = "sm", tooltip = tooltip,
-                     enabled = enabled, onClick = onClick })
-end
-
 local function layoutRows(ctx, data, keyboard, layouts, variants)
   local rows = { kit.section("Layouts", "xkb-layouts") }
   if #layouts == 0 then
@@ -116,28 +111,22 @@ local function layoutRows(ctx, data, keyboard, layouts, variants)
                       writeLayouts(ctx, keyboard, layouts, variants)
                       ctx.render()
                     end }),
-        iconButton("xkb-up-" .. i, "arrow-up", "Move up", i > 1, function() move(i - 1) end),
-        iconButton("xkb-down-" .. i, "arrow-down", "Move down", i < #layouts, function() move(i + 1) end),
-        iconButton("xkb-remove-" .. i, "x", "Remove " .. name, true, function()
+        kit.iconButton("arrow-up", "Move up", function() move(i - 1) end, i > 1, "xkb-up-" .. i),
+        kit.iconButton("arrow-down", "Move down", function() move(i + 1) end, i < #layouts, "xkb-down-" .. i),
+        kit.iconButton("x", "Remove " .. name, function()
           table.remove(layouts, i)
           table.remove(variants, i)
           writeLayouts(ctx, keyboard, layouts, variants)
           ctx.render()
-        end),
+        end, true, "xkb-remove-" .. i),
       }),
     }))
   end
   return rows
 end
 
-local function search(ctx, key, placeholder)
-  local view = ctx.view
-  return ui.input({ key = key .. ":" .. ctx.gen(key), value = view[key] or "", controlSize = "sm",
-                    placeholder = placeholder,
-                    onChange = function(text) view[key] = text; ctx.render() end })
-end
-
-local function query(ctx, key) return string.lower(noctalia.string.trim(ctx.view[key] or "")) end
+local function search(ctx, key, placeholder) return kit.filterBox(ctx, key, { placeholder = placeholder }) end
+local query = kit.filterText
 
 local function addLayoutRows(ctx, data, keyboard, layouts, variants)
   local rows = { search(ctx, "xkb-layout-q", "Search layouts to add, e.g. German or de") }
@@ -177,7 +166,7 @@ local function optionRows(ctx, data, keyboard, options)
   end
   for _, name in ipairs(options) do
     table.insert(rows, kit.optionRow("xkb-opt-on-" .. name, data.optionDesc[name] or (name .. " (not a known option)"),
-      iconButton("xkb-opt-off-" .. name, "x", "Remove " .. name, true, function() toggle(name, false) end)))
+      kit.iconButton("x", "Remove " .. name, function() toggle(name, false) end, true, "xkb-opt-off-" .. name)))
   end
   table.insert(rows, search(ctx, "xkb-option-q", "Search options, e.g. caps, compose or grp"))
   local q = query(ctx, "xkb-option-q")

@@ -21,7 +21,8 @@ The same interface also runs as a standalone app: see the
 - `python-tomlkit`: edits the config while keeping its formatting. Without it the panel says what to
   install; user folders and default apps still work.
 - `umbriel` on `PATH`: defaults, ranges, validation before saving, the **Outputs** display arrangement and
-  mode lists, **Pick from open windows/layers** and **Run now**.
+  mode lists, **Pick from open windows/layers**, **Use the focused window**, live refresh (`umbriel subscribe`)
+  and **Run now**.
   Without it settings can still be edited, but aren't checked before writing.
 - Optional: `gio` (open the standalone app), `xdg-open` or an
   editor command set under **About** (**Edit file**). Buttons explain what's missing.
@@ -46,14 +47,17 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
 - **Home** has a search over setting names, help text, config keys (`border_width`), rule names and
   shortcuts, cards for every page with customized/unsaved counts, and **Customized**, a list of every
   setting that differs from Umbriel's default.
-- **Setting rows** show the control, the default (“Default 2”), ⓘ help with the config key and undo. Like
+- **Setting rows** show the control, the default (“Default 2”), ⓘ help with the config key (with a copy
+  button) and undo. Like
   Noctalia's settings, a key that differs from the default shows an **Override** badge, and **Reset** (click
   twice to confirm) removes the key so Umbriel's default applies. Units sit next to
   the number, special values such as “Automatic” (-1) have their own switch, and ↻ marks settings that need
-  an Umbriel restart. **Only customized** hides settings at their default.
-- **Rules, devices and effects** are lists: edit, name, reorder, duplicate, delete. **Pick from
-  open windows** / **Pick from open layers** on a rule fill its match (app id, optionally title, or layer
-  namespace) with an exact pattern from what Umbriel shows.
+  an Umbriel restart. **Only customized** hides settings at their default; the filter box narrows a page to
+  matching settings, and an open group can undo its unsaved edits at once.
+- **Rules, devices and effects** are lists (the filter also matches values): edit, name, reorder, duplicate,
+  delete. **Pick from open windows** / **Pick from open layers** on a rule fill its match (app id, optionally
+  title, or layer namespace) with an exact pattern from what Umbriel shows, and follow windows opening and
+  closing; **Use the focused window** takes the focused window's app id.
 - **Outputs** shows the connected displays as numbered tiles at their real size and position, filling the
   page. Drag a display by its number (the grip under it) onto an edge of another to place it there, or onto a
   top or bottom corner to place it above or below but shifted half a display that way: displays stay centered on
@@ -66,6 +70,9 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
   monitors that report the same name are told apart by connector. Entries for outputs that aren't connected
   are listed under **Not connected**. Moving displays or picking the default changes nothing on disk until you
   save; then each display's `position` (and `focus_at_startup`) is written to its `[output."…"]` entry.
+  **Try** saves display changes right away and asks to keep them; without an answer within 15 seconds the
+  previous file comes back (also when the panel was closed) and the changes are unsaved again. The tiles
+  follow monitors being plugged in or out.
 
   ![The Outputs page: three displays drawn to scale, the default one starred](screenshot-outputs.png)
 - **Curve, effect and output settings** offer your own named curves, effect presets and pools (also from
@@ -74,7 +81,8 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
   commands lists the installed apps like the default apps do. A keybind action's first argument (output,
   preset, pool, submap, scratchpad, named workspace) has a list too.
 - **Keyboard layouts**: **Choose…** next to Layout, Variant and XKB options picks from XKB's list.
-- **Keybinds** are grouped: build shortcuts from modifier chips, pick actions from a searchable catalog,
+- **Keybinds** are grouped (shortcuts used twice show **conflict**): build shortcuts from modifier chips (the
+  standalone app can also **Record…** a key press), pick actions from a searchable catalog,
   lock shortcuts against accidental changes. **Run now** (click twice) sends the action to Umbriel once;
   session, close/kill, screen-off and submap actions are refused. Window actions act on the window behind
   the panel. Drag groups and shortcuts by their grip to reorder them or
@@ -86,14 +94,15 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
   fixed color stops following. Each config follows on its own.
 - **About** shows the version, options your Umbriel has that aren't covered yet, and the editor command.
 
-Nothing is written until **Review & save** (Ctrl+S): the review lists every change, shows the diff and runs
+Nothing is written until **Review & save** (Ctrl+S, again to save): the review lists every change with
+**Revert**, shows the diff and runs
 `umbriel config validate` first; if Umbriel rejects the file, nothing is written and each problem links to
 its setting. Unsaved edits (including folders and default apps) survive closing the panel and restarting
 Noctalia as a draft; edits for another config file wait until that file is open again. Edits made while a
 save runs stay unsaved instead of being lost.
 
-Keys: Ctrl+F search, Ctrl+S review, Ctrl+Z undo the last unsaved edit (also **Undo** in the save bar),
-Alt+Left back, Esc close.
+Keys: Ctrl+F search, Ctrl+S review (again: save), Ctrl+Z undo the last unsaved edit and Ctrl+Y redo (also
+in the save bar), Alt+Left back, Esc close.
 
 ## Settings
 

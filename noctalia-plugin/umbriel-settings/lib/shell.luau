@@ -93,10 +93,37 @@ function M.create(layout, options)
     return review.render(ctx, current)
   end
 
+  -- Live refresh: a page showing what Umbriel reports calls ctx.watchLive(events, onChange) while rendering;
+  -- a `wait-live` long poll (`umbriel subscribe`) then runs until the page changes, and onChange (from the
+  -- newest render) runs on each change. A failed poll stops until the page asks for other events.
+  local liveWatch, livePoll, livePolls = nil, nil, 0
+  function ctx.watchLive(events, onChange) liveWatch = { key = table.concat(events, ","), events = events,
+                                                          onChange = onChange } end
+  local function syncLivePoll()
+    local wanted = liveWatch and liveWatch.key
+    if (livePoll and livePoll.key) == wanted then return end
+    livePoll = nil
+    if not wanted then return end
+    livePolls = livePolls + 1
+    local id, events = livePolls, liveWatch.events
+    livePoll = { key = wanted, id = id }
+    local function ask()
+      helper.call("wait-live", { events = events, timeout = 25 }, function(err, data)
+        if not livePoll or livePoll.id ~= id then return end
+        if err then return end  -- e.g. Umbriel not running: the Refresh buttons remain
+        if data.event and liveWatch and liveWatch.key == wanted then liveWatch.onChange(data.event) end
+        ask()
+      end, { timeout = 35000 })
+    end
+    ask()
+  end
+
   function ctx.render()
     local current = route()
     ctx.dropHandler = nil  -- set again by a page that draws drop zones
+    liveWatch = nil  -- set again by a page that shows live data
     local parts = body(current)
+    syncLivePoll()
     local noticeNodes = {}
     for index, notice in ipairs(notices) do
       table.insert(noticeNodes, kit.notice(notice.text, notice.kind, function()
@@ -125,6 +152,7 @@ function M.create(layout, options)
                    color = not dirty and kit.MUTED or nil, flexGrow = 1 }),
         ui.button({ text = "Undo", glyph = "arrow-back-up", variant = "ghost", controlSize = "sm", tooltip = "Ctrl+Z",
                     enabled = store.canUndo(), onClick = function() ctx.undo() end }),
+        kit.iconButton("arrow-forward-up", "Redo (Ctrl+Y)", function() ctx.redo() end, store.canRedo(), "redo"),
         ui.button({ text = "Discard", variant = "ghost", controlSize = "sm", enabled = dirty, onClick = function()
           ctx.discardAll()
           ctx.flash("All unsaved changes were discarded.", "info")
@@ -153,6 +181,15 @@ function M.create(layout, options)
     end
   end
 
+  function ctx.redo()
+    if store.redo() then
+      ctx.resetInputs()
+      ctx.render()
+    else
+      ctx.flash("Nothing to redo.", "info")
+    end
+  end
+
   -- Coalesce bursts (slider drags) into one render per frame.
   function ctx.renderSoon() panel.setNeedsFrameTick(true) end
 
@@ -170,6 +207,7 @@ function M.create(layout, options)
   local function leave(keepNotices)
     view.confirmReset = nil
     view.confirm = nil
+    view.kbRecording = nil
     dropProvisional()
     if not keepNotices then notices = {} end
   end
@@ -394,14 +432,25 @@ function M.create(layout, options)
   -- store.namedChoices can cache on it).
   function ctx.liveOutputs() return ctx.connectedOutputs().names end
   function ctx.forgetLiveOutputs() liveOutputs = nil end
+  -- Asks again but keeps showing the current outputs until the answer arrives (live refresh).
+  function ctx.refreshLiveOutputs()
+    local shown = liveOutputs
+    liveOutputs = nil
+    ctx.connectedOutputs()
+    if shown and not shown.loading and not shown.error and liveOutputs and liveOutputs.loading then
+      liveOutputs.outputs, liveOutputs.names, liveOutputs.loading = shown.outputs, shown.names, nil
+      liveOutputs.refreshing = true
+    end
+  end
 
   -- Busy flags of the live pickers (open windows/layers, XKB list, Run now): a dropped answer never clears them.
   function ctx.clearPickerBusy()
     view.kbRunning, view.xkbLoading = false, false
     if view.files and (view.files.loading or view.files.choosing) then view.files = nil end  -- listed again
-    view.appCommandBusy = false
+    view.appCommandBusy, view.focusBusy = false, false
     if view.live and view.live.loading then view.live = nil end
     if liveOutputs and liveOutputs.loading then liveOutputs = nil end
+    livePoll = nil  -- a closed panel dropped its answer: poll again
   end
 
   local handlers = {}
@@ -446,11 +495,17 @@ function M.create(layout, options)
       ctx.bump("search")
       ctx.render()
     elseif chord == "ctrl+s" then
-      if route().name ~= "review" and store.pendingCount() > 0 then ctx.go({ name = "review" }) end
+      if route().name == "review" then
+        if route().saveNow then route().saveNow() end
+      elseif store.pendingCount() > 0 then
+        ctx.go({ name = "review" })
+      end
     elseif chord == "alt+Left" then
       ctx.back()
     elseif chord == "ctrl+z" then
       ctx.undo()
+    elseif chord == "ctrl+y" or chord == "ctrl+shift+z" then
+      ctx.redo()
     elseif chord == "Escape" then  -- app only: in Noctalia, Escape always closes the panel
       if (view.query or "") ~= "" then
         ctx.clearSearch()

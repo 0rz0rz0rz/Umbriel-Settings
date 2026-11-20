@@ -24,7 +24,7 @@ flushReads()
 local store = loaded[pluginDir .. "/lib/store.luau"]
 assert(store.fieldChanges["general.mod_key"] == nil, "a drafted value equal to the file is dropped")
 assert(store.fieldChanges["appearance.border_width"].value == 9, "the real edit is restored")
-assert(hasText("Restored 1 unsaved change(s) from last time."), screen())
+assert(hasText("Restored 1 unsaved change from last time."), screen())
 assert(hasText("1 unsaved change"), "one pending change: " .. screen())
 
 -- Previous/Next reuse the page: each entry needs its own inputs, or the last entry's typed text stays
@@ -108,6 +108,27 @@ assert(#store.entryItems("window_rule") == rules + 1 and store.entryItems("windo
        and #store.entryOps == 1, "typing a label undoes as one step")
 entry.onKey("ctrl+z", true)
 assert(#store.entryItems("window_rule") == rules and #store.entryOps == 0, "the added rule is gone")
+-- Redo re-applies undone steps in order; a new edit drops what is left to redo
+entry.onKey("ctrl+y", true)
+assert(#store.entryItems("window_rule") == rules + 1 and store.entryItems("window_rule")[rules + 1].label == "",
+       "redo adds the rule again")
+entry.onKey("ctrl+shift+z", true)
+assert(store.entryItems("window_rule")[rules + 1].label == "Ab" and #store.entryOps == 2, "redo restores the label")
+entry.onKey("ctrl+y", true)
+assert(hasText("Nothing to redo."), screen())
+store.group(function()
+  store.setField("general.mod_key", "Alt")
+  store.setField("appearance.border_width", 7)
+end)
+entry.onKey("ctrl+z", true)
+assert(next(store.fieldChanges) == nil, "a group undoes as one step")
+entry.onKey("ctrl+y", true)
+assert(store.fieldChanges["general.mod_key"].value == "Alt" and store.fieldChanges["appearance.border_width"].value == 7,
+       "a group redoes as one step")
+entry.onKey("ctrl+z", true)
+store.setField("appearance.border_width", 3)
+assert(not store.canRedo(), "an edit after an undo drops the redo steps")
+store.discardAll()
 clickText("Keybinds")
 local firstKey = store.keybinds.rows[1].key
 H.clickShortcut(firstKey)
@@ -168,7 +189,7 @@ assert(note and note:find("/other/config.toml", 1, true), tostring(note))
 assert(files["/data/draft-other-config.json"] and next(store.fieldChanges) == nil, "parked, not applied")
 local ownPath = store.state.path
 store.state.path = "/other/config.toml"
-assert(drafts.restoreParked() == "Restored 1 unsaved change(s) from last time.", "parked edits restored")
+assert(drafts.restoreParked() == "Restored 1 unsaved change from last time.", "parked edits restored")
 assert(store.fieldChanges["appearance.border_width"].value == 3 and files["/data/draft-other-config.json"] == nil)
 store.state.path = ownPath
 store.discardAll()

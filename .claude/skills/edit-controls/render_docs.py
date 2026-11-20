@@ -1,8 +1,8 @@
 """Render the README screenshots offscreen: the app's Home and the plugin panel's Home, or (--page outputs)
 the panel's Outputs page.
 
-Run from python/:
-    QT_QPA_PLATFORM=offscreen PYTHONPATH=. python ../.claude/skills/edit-controls/render_docs.py [--out DIR]
+Run from the repo root:
+    python .claude/skills/edit-controls/render_docs.py [--out DIR]
         [--page home|outputs]
 
 Without --out it writes docs/home-app.png (1280x860), docs/home-plugin.png and the plugin's own copy

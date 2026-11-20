@@ -7,6 +7,17 @@ import shutil
 import subprocess
 
 from .fields import ENTRY_EDITORS, TABS, schema_prefix
+from .launch import child_env
+
+
+def run_umbriel(args, timeout):
+    """Run `umbriel <args>` (no input, output captured). Raises FileNotFoundError when umbriel is not on PATH
+    and subprocess.TimeoutExpired."""
+    executable = shutil.which("umbriel")
+    if not executable:
+        raise FileNotFoundError("Umbriel CLI was not found on PATH.")
+    return subprocess.run([executable, *args], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                          timeout=timeout, check=False, env=child_env())
 
 
 def run_umbriel_json(args, timeout):
@@ -15,11 +26,8 @@ def run_umbriel_json(args, timeout):
     Raises FileNotFoundError (no umbriel on PATH), subprocess.TimeoutExpired, RuntimeError (non-zero exit)
     or ValueError (invalid JSON).
     """
-    executable = shutil.which("umbriel")
-    if not executable:
-        raise FileNotFoundError("Umbriel CLI was not found on PATH.")
     command = "umbriel " + " ".join(args)
-    result = subprocess.run([executable, *args], capture_output=True, text=True, timeout=timeout, check=False)
+    result = run_umbriel(args, timeout)
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
         raise RuntimeError(f"`{command}` failed: {detail}")

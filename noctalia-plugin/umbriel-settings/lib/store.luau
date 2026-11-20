@@ -15,6 +15,7 @@ M.keybindsDirty = false
 M.desktop = nil      -- { userdirs = {...}, apps = {...} }
 M.rebuild = nil      -- nil follows the file (banners present), else true/false
 M.history = {}       -- undo steps, newest last (see M.undo)
+M.future = {}        -- redo steps, next last (see M.redo); valid while `serial` is unchanged
 
 local function deepCopy(value)
   if type(value) ~= "table" then return value end
@@ -465,11 +466,30 @@ function M.desktopChanges()
 end
 
 -- ------------------------------------------------------------------ undo
+-- The step that puts back what `step` is about to change (for redo).
+local function inverse(step)
+  if step.kind == "field" then return { kind = "field", id = step.id, previous = deepCopy(M.fieldChanges[step.id]) } end
+  if step.kind == "entry" then return { kind = "entry", editor = step.editor, ops = { table.unpack(M.entryOps) } } end
+  if step.kind == "map" then return { kind = "map", editor = step.editor, ops = { table.unpack(M.mapOps) } } end
+  if step.kind == "keybinds" then
+    return { kind = "keybinds", step = step.step, rows = deepCopy(M.keybinds.rows), groups = deepCopy(M.keybinds.groups),
+             dirty = M.keybindsDirty }
+  end
+  return { kind = "desktop", part = step.part, key = step.key,
+           previous = M.desktop and desktopTable(step.part)[step.key] or nil }
+end
+
+-- Applies `step` and returns its inverse. A group's parts run newest first; the inverse lists their inverses
+-- in that order, so applying it runs them oldest first.
 local function undoStep(step)
-  if step.kind == "keybinds" then keybindsSerial = M.serial end
   if step.kind == "group" then
-    for i = #step.steps, 1, -1 do undoStep(step.steps[i]) end
-  elseif step.kind == "field" then
+    local back = {}
+    for i = #step.steps, 1, -1 do table.insert(back, undoStep(step.steps[i])) end
+    return { kind = "group", steps = back }
+  end
+  local back = inverse(step)
+  if step.kind == "keybinds" then keybindsSerial = M.serial end
+  if step.kind == "field" then
     M.fieldChanges[step.id] = step.previous
   elseif step.kind == "entry" then
     M.entryOps = step.ops
@@ -483,14 +503,30 @@ local function undoStep(step)
   elseif step.kind == "desktop" then
     if M.desktop then desktopTable(step.part)[step.key] = step.previous end
   end
+  return back
 end
+
+local futureSerial = nil  -- `serial` after the last undo/redo: any edit since then drops the redo steps
 
 -- Reverts the newest step; returns false when there is nothing to undo.
 function M.undo()
   local step = table.remove(M.history)
   if not step then return false end
+  if futureSerial ~= M.serial then M.future = {} end
   M.serial = M.serial + 1
-  undoStep(step)
+  table.insert(M.future, undoStep(step))
+  futureSerial = M.serial
+  return true
+end
+
+function M.canRedo() return #M.future > 0 and futureSerial == M.serial end
+
+-- Re-applies the newest undone step; returns false when there is none (or an edit came after the undo).
+function M.redo()
+  if not M.canRedo() then return false end
+  M.serial = M.serial + 1
+  table.insert(M.history, undoStep(table.remove(M.future)))
+  futureSerial = M.serial
   return true
 end
 
@@ -558,7 +594,7 @@ function M.load(state)
     M.entries = deepCopy(state.editors)
     M.maps = deepCopy(state.maps)
     resetKeybinds(state.keybinds)
-    M.history = {}  -- steps of the old snapshot can't be replayed on this one
+    M.history, M.future = {}, {}  -- steps of the old snapshot can't be replayed on this one
   end
   if dropped then return "The config changed on disk; rule, curve and keybind edits were discarded." end
   return nil
@@ -593,14 +629,14 @@ function M.markSaved(state, mark)
     resetKeybinds(state.keybinds)
     M.keybindsDirty = false
   end
-  M.history = {}  -- older steps refer to the previous snapshot
+  M.history, M.future = {}, {}  -- older steps refer to the previous snapshot
   return newer
 end
 
 function M.discardAll()
   M.fieldChanges, M.entryOps, M.mapOps, M.keybindsDirty = {}, {}, {}, false
   M.desktopDraft = nil
-  M.history = {}
+  M.history, M.future = {}, {}
   if M.state then
     M.entries = deepCopy(M.state.editors)
     M.maps = deepCopy(M.state.maps)
@@ -672,7 +708,7 @@ end
 -- that would revert what was just saved.
 function M.desktopSavedAll()
   M.desktop = nil
-  M.history = {}
+  M.history, M.future = {}, {}
 end
 
 return M

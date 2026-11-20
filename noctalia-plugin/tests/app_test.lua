@@ -52,7 +52,7 @@ clickText("Window rules")
 clickText("Add")
 assert(exists("button", "back"), "entry page has back")
 find("button", function(n) return n.props.key == "back" end).props.onClick()
-assert(exists("input", "filter-Window rules"), "back to the rule list")
+assert(exists("row", "filter-Window rules-box"), "back to the rule list")
 
 -- --no-validate: the review starts with validation off
 replies.preview = function(request)
@@ -82,7 +82,7 @@ replies["palette-template"] = function() return true, json.encode({ palette = {
 clickText("About")
 clickText("Set up palette template")
 assert(lastCall("palette-template"), "template set up")
-assert(screen():find("next theme change", 1, true), "status after setup: " .. screen())
+assert(H.fullScreen():find("next theme change", 1, true), "status after setup: " .. screen())
 
 -- Escape clears the search first, then leaves a drill-down, then a root page goes Home
 H.input("^search:").props.onChange("blur")
@@ -94,7 +94,7 @@ assert(cleared.props.value == "", "the search is cleared: " .. tostring(cleared.
 clickText("Window rules")
 clickText("Add")
 entry.onKey("Escape", true)
-assert(exists("input", "filter-Window rules") and not exists("button", "back"), "back to the rule list")
+assert(exists("row", "filter-Window rules-box") and not exists("button", "back"), "back to the rule list")
 entry.onKey("Escape", true)
 assert(exists("column", "home-config"), "Home after Escape on a root page: " .. screen())
 -- the app's Home is a dashboard (the sidebar lists the pages); the sidebar's tools sit on top of Home
@@ -130,5 +130,17 @@ H.byKey("file-my tool").props.onClick()
 flushReads()
 local autostart = store.value("general.autostart")
 assert(autostart[#autostart] == "'/opt/my tool'" and H.byKey("f:general.autostart:browse"), screen())
+-- the app records a shortcut from a key press (the panel gets only its capture_keys); Esc cancels
+clickText("Keybinds")
+local recordKey = store.keybinds.rows[1].key
+H.clickShortcut(recordKey)
+clickText("Record…")
+H.byKey("kb-recorder").props.onKeyRecord("")
+assert(not H.byKey("kb-recorder") and store.keybinds.rows[1].key == recordKey, "Esc leaves the shortcut")
+clickText("Record…")
+H.byKey("kb-recorder").props.onKeyRecord("Super+Shift+K")
+assert(store.keybinds.rows[1].key == "Super+Shift+K" and not H.byKey("kb-recorder"), "recorded")
+assert(H.input("^kb%-key%-").props.value == "K", "the key box shows the recorded key")
+store.undo()
 H.checkBudget("app", 0.025)
 print("app ok")

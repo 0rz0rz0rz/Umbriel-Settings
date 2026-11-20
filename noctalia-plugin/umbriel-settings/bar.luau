@@ -27,7 +27,7 @@ local function icon()
 end
 
 local function refresh()
-  barWidget.setTooltip(pending > 0 and ("Umbriel Settings: " .. pending .. " unsaved change(s)")
+  barWidget.setTooltip(pending > 0 and ("Umbriel Settings: " .. pending .. (pending == 1 and " unsaved change" or " unsaved changes"))
     or "Open Umbriel Settings")
   local mode = display()
   if barWidget.isVertical and barWidget.isVertical() then mode = "icon" end

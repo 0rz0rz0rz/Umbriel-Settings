@@ -3,38 +3,42 @@
 local M = {}
 
 M.MUTED = "on_surface_variant"
+-- Design tokens: use these instead of literal sizes, so pages stay consistent (the app scales radii by
+-- Noctalia's corner radius setting).
+M.RADIUS = { sm = 6, md = 10, lg = 12 }
+M.FONT = { tiny = 10, caption = 11, small = 12, body = 13, item = 14, large = 16, title = 18 }
 
 function M.label(text, props)
   props = props or {}
   props.text = text
-  props.fontSize = props.fontSize or 13
+  props.fontSize = props.fontSize or M.FONT.body
   return ui.label(props)
 end
 
 function M.muted(text, props)
   props = props or {}
   props.color = props.color or M.MUTED
-  props.fontSize = props.fontSize or 12
+  props.fontSize = props.fontSize or M.FONT.small
   return M.label(text, props)
 end
 
 local function titleLabel(text, size)
-  return ui.label({ text = text, fontSize = size or 18, fontWeight = "bold" })
+  return ui.label({ text = text, fontSize = size or M.FONT.title, fontWeight = "bold" })
 end
 
 -- A small rounded tag such as "3 changed" or "restart".
 function M.badge(text, color, key)
-  return ui.row({ key = key, paddingH = 8, paddingV = 2, radius = 10, fill = (color or "primary") .. "/0.18",
+  return ui.row({ key = key, paddingH = 8, paddingV = 2, radius = M.RADIUS.md, fill = (color or "primary") .. "/0.18",
                   align = "center" }, {
-    ui.label({ text = text, fontSize = 11, color = color or "primary", fontWeight = "bold" }),
+    ui.label({ text = text, fontSize = M.FONT.caption, color = color or "primary", fontWeight = "bold" }),
   })
 end
 
 -- Noctalia's settings badge for a key that differs from the default.
 function M.overrideBadge(key)
-  return ui.row({ key = key, paddingH = 8, paddingV = 2, radius = 6, fill = "primary_container", align = "center",
+  return ui.row({ key = key, paddingH = 8, paddingV = 2, radius = M.RADIUS.sm, fill = "primary_container", align = "center",
                   tooltip = "Set in your config; differs from Umbriel's default" }, {
-    ui.label({ text = "Override", fontSize = 11, color = "on_primary_container", fontWeight = "bold" }),
+    ui.label({ text = "Override", fontSize = M.FONT.caption, color = "on_primary_container", fontWeight = "bold" }),
   })
 end
 
@@ -44,18 +48,47 @@ M.CARD_BORDER, M.CARD_BORDER_WIDTH = "outline_variant", 1
 function M.card(props, children)
   props.fill = props.fill or "surface_container"
   props.border, props.borderWidth = props.border or M.CARD_BORDER, props.borderWidth or M.CARD_BORDER_WIDTH
-  props.radius = props.radius or 12
+  props.radius = props.radius or M.RADIUS.lg
   props.padding = props.padding or 12
   props.gap = props.gap or 8
   return ui.column(props, children)
 end
 
-function M.fileSize(bytes) return string.format("%.1f KB", bytes / 1024) end
+function M.fileSize(bytes)
+  if bytes >= 1024 * 1024 then return string.format("%.1f MB", bytes / (1024 * 1024)) end
+  return string.format("%.1f KB", bytes / 1024)
+end
+
+-- A small ghost icon button; `tooltip` also names it for screen readers.
+function M.iconButton(glyph, tooltip, onClick, enabled, key)
+  return ui.button({ key = key, glyph = glyph, variant = "ghost", controlSize = "sm", tooltip = tooltip,
+                     enabled = enabled ~= false, onClick = onClick })
+end
+
+-- A list filter: the text in view[key], with a clear button like searchBox's (row `<key>-box`, input
+-- `<key>:<gen>`). props: placeholder, focus.
+function M.filterBox(ctx, key, props)
+  local view = ctx.view
+  return ui.row({ key = key .. "-box", gap = 4, align = "center" }, {
+    ui.input({ key = key .. ":" .. ctx.gen(key), value = view[key] or "", controlSize = "sm", flexGrow = 1,
+               placeholder = props.placeholder, focus = props.focus,
+               onChange = function(text) view[key] = text; ctx.render() end }),
+    ui.button({ key = key .. "-clear", glyph = "eraser", variant = "ghost", controlSize = "sm", tooltip = "Clear filter",
+                enabled = (view[key] or "") ~= "", onClick = function()
+                  view[key] = nil
+                  ctx.bump(key)
+                  ctx.render()
+                end }),
+  })
+end
+
+-- The filter text of filterBox `key`, trimmed and lower-cased ("" when empty).
+function M.filterText(ctx, key) return string.lower(noctalia.string.trim(ctx.view[key] or "")) end
 
 -- A settings row: label on the left, its control on the right.
 function M.optionRow(key, label, control, tooltip)
   return ui.row({ key = key, gap = 8, align = "center", tooltip = tooltip }, {
-    ui.label({ text = label, fontSize = 13, flexGrow = 1 }),
+    ui.label({ text = label, fontSize = M.FONT.body, flexGrow = 1 }),
     control,
   })
 end
@@ -100,13 +133,13 @@ function M.notice(text, kind, onDismiss, key)
   local glyph = kind == "error" and "alert-circle" or kind == "warning" and "alert-triangle" or "info-circle"
   local children = {
     ui.glyph({ name = glyph, size = 16, color = color }),
-    ui.label({ text = text, fontSize = 12, flexGrow = 1, maxLines = 6 }),
+    ui.label({ text = text, fontSize = M.FONT.small, flexGrow = 1, maxLines = 6 }),
   }
   if onDismiss then
     table.insert(children, ui.button({ glyph = "x", variant = "ghost", controlSize = "sm", tooltip = "Dismiss",
                                        onClick = onDismiss }))
   end
-  return ui.row({ key = key or ("notice-" .. text), gap = 8, align = "center", padding = 10, radius = 10,
+  return ui.row({ key = key or ("notice-" .. text), gap = 8, align = "center", padding = 10, radius = M.RADIUS.md,
                   fill = color .. "/0.12" }, children)
 end
 
@@ -120,13 +153,13 @@ end
 function M.empty(text, glyph)
   return ui.column({ key = "empty", align = "center", gap = 8, paddingV = 32 }, {
     ui.glyph({ name = glyph or "mood-empty", size = 32, color = M.MUTED }),
-    M.muted(text, { fontSize = 13, textAlign = "center" }),
+    M.muted(text, { fontSize = M.FONT.body, textAlign = "center" }),
   })
 end
 
 -- A clickable list row: glyph, title, subtitle, trailing badges and a chevron.
 function M.navRow(props)
-  local text = { ui.label({ text = props.title, fontSize = 14, fontWeight = props.bold and "bold" or nil,
+  local text = { ui.label({ text = props.title, fontSize = M.FONT.item, fontWeight = props.bold and "bold" or nil,
                             maxLines = 1 }) }
   if props.subtitle and props.subtitle ~= "" then
     table.insert(text, M.muted(props.subtitle, { maxLines = props.subtitleLines or 1 }))
@@ -140,7 +173,7 @@ function M.navRow(props)
   table.insert(children, ui.column({ gap = 2, flexGrow = 1 }, text))
   for _, badge in ipairs(props.badges or {}) do table.insert(children, badge) end
   table.insert(children, ui.glyph({ name = props.trailing or "chevron-right", size = 16, color = M.MUTED }))
-  return ui.row({ key = props.key, gap = 12, align = "center", paddingH = 12, paddingV = 6, radius = 10,
+  return ui.row({ key = props.key, gap = 12, align = "center", paddingH = 12, paddingV = 6, radius = M.RADIUS.md,
                   border = M.CARD_BORDER, borderWidth = M.CARD_BORDER_WIDTH, fill = props.fill or "surface_container",
                   tooltip = props.tooltip, onClick = props.onClick },
                 children)
@@ -166,7 +199,7 @@ end
 
 -- Section heading in its own case: string.upper is byte-wise and would leave "Bézier" as "BéZIER".
 function M.section(text, key)
-  return ui.label({ key = key or ("section-" .. text), text = text, fontSize = 12,
+  return ui.label({ key = key or ("section-" .. text), text = text, fontSize = M.FONT.small,
                     fontWeight = "bold", color = M.MUTED })
 end
 

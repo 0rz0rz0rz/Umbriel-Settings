@@ -1,4 +1,4 @@
-"""Environment for programs started from Umbriel Settings (xdg-open, gio, folder choosers, umbriel)."""
+"""Environment for programs started from Umbriel Settings (xdg-open, gio, editors, apps, umbriel)."""
 
 import os
 

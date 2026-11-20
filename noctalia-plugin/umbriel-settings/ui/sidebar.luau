@@ -11,10 +11,10 @@ local WIDTH = 270
 local function navItem(key, glyph, title, active, badge, onClick)
   local children = {
     ui.glyph({ name = glyph or "settings", size = 18, color = active and "primary" or kit.MUTED }),
-    ui.label({ text = title, fontSize = 13, fontWeight = active and "bold" or nil, flexGrow = 1, maxLines = 1 }),
+    ui.label({ text = title, fontSize = kit.FONT.body, fontWeight = active and "bold" or nil, flexGrow = 1, maxLines = 1 }),
   }
   if badge then table.insert(children, badge) end
-  return ui.row({ key = key, gap = 10, align = "center", paddingH = 10, paddingV = 7, radius = 10,
+  return ui.row({ key = key, gap = 10, align = "center", paddingH = 10, paddingV = 7, radius = kit.RADIUS.md,
                   fill = active and "primary_container" or nil, tooltip = title, onClick = onClick }, children)
 end
 
@@ -35,7 +35,7 @@ function M.render(ctx)
   end
   local active = tool and "" or (root.name == "home" and "Home" or root.page or "")
   local items = {
-    ui.label({ key = "app-title", text = "Umbriel Settings", fontSize = 16, fontWeight = "bold" }),
+    ui.label({ key = "app-title", text = "Umbriel Settings", fontSize = kit.FONT.large, fontWeight = "bold" }),
     kit.searchBox(ctx, { controlSize = "sm", placeholder = "Search  (Ctrl+F)",
                          onChange = function(text)
                            view.query = text
@@ -72,7 +72,7 @@ function M.render(ctx)
       ctx.go({ name = item[1] })
     end))
   end
-  return ui.column({ key = "sidebar", width = WIDTH, gap = 2, padding = 10, radius = 12,
+  return ui.column({ key = "sidebar", width = WIDTH, gap = 2, padding = 10, radius = kit.RADIUS.lg,
                      fill = "surface_container_low" }, {
     ui.scroll({ key = "sidebar-scroll", gap = 2, flexGrow = 1 }, items),
     ui.column({ key = "sidebar-tools", gap = 2 }, tools),

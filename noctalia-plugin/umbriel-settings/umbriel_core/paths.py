@@ -17,7 +17,6 @@ LABELS_FILE_NAME = "gui-labels.json"  # sidecars in each config's GUI data direc
 LOCK_FILE_NAME = "gui-locked-keybinds.json"
 
 
-
 def xdg_config_home():
     return os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
 

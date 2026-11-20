@@ -13,7 +13,7 @@ import unittest.mock
 
 import tomlkit
 
-from umbriel_core import backups, entry_ops, kde, keybinds, legacy, paths, schema
+from umbriel_core import entry_ops, kde, keybinds, paths, schema
 from umbriel_core.layout import BANNER_RE, rebuild_config
 from umbriel_core.tomlops import MISSING, getp
 
@@ -136,26 +136,9 @@ class CoreKeybindTests(unittest.TestCase):
             keybinds.check_action("super+x", "workspace-switch <n>")
         keybinds.check_action("super+x", "spawn kitty")
 
-    def test_old_sidecars_migrate_once(self):
+    def test_locked_keybinds_round_trip(self):
         with tempfile.TemporaryDirectory() as tmp:
-            config = os.path.join(tmp, "config.toml")
-            config_dir = paths.config_gui_data_dir(config, os.path.join(tmp, "data"))
-            with open(os.path.join(tmp, keybinds.LOCK_FILE_NAME), "w", encoding="utf-8") as f:
-                f.write('["super+q"]')
-            with open(config + ".gui-labels.json", "w", encoding="utf-8") as f:
-                f.write('{"window_rule": ["A"]}')
-            os.mkdir(config + ".backups")
-            with open(os.path.join(config + ".backups", "config.toml.bak"), "w", encoding="utf-8") as f:
-                f.write("old")
-            legacy.migrate_config(config, config_dir)
-            self.assertEqual(keybinds.load_locked(config_dir), {"super+q"})
-            self.assertEqual(paths.load_all_entry_labels(config_dir), {"window_rule": ["A"]})
-            self.assertFalse(os.path.exists(config + ".backups"))
-            self.assertEqual(len(backups.list_backup_snapshots(backups.backup_dir(config_dir), config)), 1)
-            with open(os.path.join(tmp, keybinds.LOCK_FILE_NAME), "w", encoding="utf-8") as f:
-                f.write('["super+w"]')
-            legacy.migrate_config(config, config_dir)
-            self.assertTrue(os.path.exists(os.path.join(tmp, keybinds.LOCK_FILE_NAME)), "the marker stops a re-run")
+            config_dir = paths.config_gui_data_dir(os.path.join(tmp, "config.toml"), os.path.join(tmp, "data"))
             keybinds.save_locked({"b", "a"}, config_dir)
             self.assertEqual(keybinds.load_locked(config_dir), {"a", "b"})
 

@@ -3,7 +3,8 @@
 -- entries (monitor name first, then connector), with their logical size, position and modes. Pure.
 local M = {}
 
-local function round(v) return math.floor(v + 0.5) end
+function M.round(v) return math.floor(v + 0.5) end
+local round = M.round
 
 local function monitorName(live)
   return type(live.config_name) == "string" and live.config_name ~= "" and live.config_name or nil

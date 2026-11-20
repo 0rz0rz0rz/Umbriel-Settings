@@ -1,5 +1,6 @@
 """Shared fixtures for the app host tests: a small config and a fake `umbriel` in temporary XDG dirs."""
 
+import collections
 import os
 import sys
 import tempfile
@@ -11,6 +12,33 @@ try:
     import lupa  # noqa: F401
 except ImportError:  # pragma: no cover - lupa is a runtime dependency of the app
     lupa = None
+
+
+class ManualScheduler:
+    """Runs background work when drained (tests); the Qt window uses QtScheduler with the same interface."""
+
+    def __init__(self):
+        self.queue = collections.deque()
+        self.lanes = []
+
+    def background(self, work, done, on_error, lane="fast"):
+        self.lanes.append(lane)
+
+        def run():
+            try:
+                result = work()
+            except Exception as error:  # same contract as QtScheduler.background
+                result = on_error(error)
+            done(result)
+        self.queue.append(run)
+
+    def drain(self, limit=10000):
+        count = 0
+        while self.queue and count < limit:
+            self.queue.popleft()()
+            count += 1
+        return count
+
 
 CONFIG = textwrap.dedent("""\
     # my config

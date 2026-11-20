@@ -19,7 +19,8 @@ python/umbriel_settings/             PySide6 host: lupa runs the Luau, QWebEngin
 
 | Area | Rule (auto) | Skills |
 | --- | --- | --- |
-| Shared UI, plugin, helper | `noctalia-plugin.md` | `edit-noctalia-panel`, `edit-noctalia-desktop-settings` |
+| Shared UI, plugin | `noctalia-plugin.md`, `noctalia-plugin-pages.md` | `edit-noctalia-panel`, `edit-noctalia-desktop-settings` |
+| Helper, core | `core-helper.md` | `add-setting-field` |
 | App host | `app-host.md` | `edit-controls`, `split-module` |
 | Tests | `tests.md`, `noctalia-plugin-tests.md` | `add-test` |
 
@@ -27,11 +28,11 @@ Also: `add-setting-field`, `sync-umbriel-schema`, `verify-changes`, `build-appim
 
 ## Commands
 
-Deps: Python 3.11+, PySide6 + QtWebEngine, tomlkit, lupa (`pyproject.toml` ranges; `python/requirements.txt` = AppImage pins; after changing it run `tools/update_appimage_pins.py`). Plugin: tomlkit. Optional (else `skip`): `umbriel`, `lua`/`luac`, `luau-compile`, `noctalia`, `ruff`, `shellcheck`.
+Deps: Python 3.11+, PySide6 + QtWebEngine, tomlkit, lupa (`pyproject.toml` ranges; `python/requirements.txt` = AppImage pins; after changing it run `tools/update_appimage_pins.py`). Plugin: tomlkit. Optional (else `skip`): `umbriel`, `lua`/`luac`, `luau-compile`, `noctalia`, `ruff`, `shellcheck`, `gio`.
 
 ```sh
 python tools/check.py                # checks picked from git status; failures only
-python tools/check.py core plugin host schema lint all | test_core_values   # or any test file
+python tools/check.py core plugin host schema lint all | test_core_values [-k name]   # or any test file
 python tools/sync_plugin_core.py     # after editing python/umbriel_core (--check: drift)
 python python/umbriel-settings.py [config.toml]   # --config --no-validate --no-rebuild --check-schema --version
 ```
@@ -40,7 +41,7 @@ Checks: `core` = sync + `tests/test_core*.py`; `plugin` = `noctalia-plugin/tests
 
 ## Verify (smallest set)
 
-Luau UI/helper → `plugin host`; core → `core plugin host`; fields/actions → `+schema`; visual → `render_app.py` PNGs (`edit-controls`). Never launch the app, build the AppImage, or touch the live Noctalia session or real config to verify.
+Run checks only after edits, only for what changed (`check.py` without arguments picks them); never `all` unasked; docs, rules and skills need none. Luau UI/helper → `plugin host`; core → `core plugin host`; fields/actions → `+schema`; visual → `render_app.py` PNGs (`edit-controls`). Never launch the app, build the AppImage, or touch the live Noctalia session or real config to verify.
 
 ## Tokens
 
@@ -50,9 +51,8 @@ Grep for symbols (`^function\|^local function\|^def \|^class `) and read ranges,
 
 - Config edits: tomlkit, only changed keys, validate, back up, refuse symlinks.
 - `umbriel_core`: no Qt; tomlkit only in TOML modules (`test_core.py` enforces). Edit `python/umbriel_core`, never the copy.
-- `plugin_api` = the oldest level the plugin needs, and never newer than the API of the Noctalia release before the newest one (user's rule: plugins that require an API before its release are annoying). Now: newest 5.6.0 = 56, previous 5.5.0 = 53 → use nothing above 53 (API levels are noted in official-plugins' `noctalia.d.luau`; check release notes).
-- Luau = Luau ∩ Lua 5.4/5.5 (no `continue`, `+=`, types, backticks), first line `--!nonstrict`; 25 ms per callback.
-- Files < ~800 lines. Tests: one file per area, `unittest`, temp paths.
+- `plugin_api` = the oldest level the plugin needs, never above the API of the Noctalia release before the newest one (numbers: `noctalia-plugin.md`).
+- Files < ~800 lines and ~40 KB. Tests: one file per area, `unittest`, temp paths.
 - After every code change, update whatever it made stale in the READMEs (root, `noctalia-plugin/`, `noctalia-plugin/umbriel-settings/`), skills, rules and this file before reporting done.
 - Names: "Umbriel Settings"; package `umbriel_settings`; launcher `python/umbriel-settings.py`; desktop ID/data dirs `umbriel-settings`; plugin ID `0rz0rz0rz/umbriel-settings`. Old `umbriel-config-gui` only for migration (`paths.LEGACY_DIR_NAME`); older file layouts move once via `umbriel_core/legacy.py`. The app imports the helper (`umbriel_settings.py`) under a private name and restores `sys.path`.
 - Versions: app `__version__` = `<Umbriel version>-<NNN>` (`0.1.0-NNN`), plugin = `<major>.<minor>.<NNN>` (`0.1.N`), plus README table. Versions change only when a new AppImage is built and released (app and plugin together, raising only `NNN`); never for commits or pushes; `0.1.0` follows Umbriel (`NNN` → `001`). Check Umbriel/Noctalia release notes after their updates.

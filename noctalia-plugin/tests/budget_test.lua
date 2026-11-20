@@ -53,7 +53,7 @@ H.drag("kbgrip-" .. #store.keybinds.rows, "kbgap-1")
 assert(store.keybinds.rows[1].key == last, "dropped first")
 entry.onKey("ctrl+z", true)
 -- shortcuts show as key caps in sections; filtering opens the section that holds the first one
-find("input", function(n) return n.props.key == "kb-filter" end).props.onChange(store.keybinds.rows[1].key)
+H.input("^kbFilter:").props.onChange(store.keybinds.rows[1].key)
 find("row", function(n) return tostring(n.props.key):match("^kb%-1%-") and n.props.onClick end).props.onClick()
 local keyInput = function() return find("input", function(n) return tostring(n.props.key):match("^kb%-key%-") end) end
 keyInput().props.onChange("F12")

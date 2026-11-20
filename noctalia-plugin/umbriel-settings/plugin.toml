@@ -54,4 +54,4 @@ placement = "floating"
 position = "center"
 keyboard_focus = "exclusive"
 dismiss_on_outside_click = false
-capture_keys = ["ctrl+f", "ctrl+s", "alt+Left", "ctrl+z"]
+capture_keys = ["ctrl+f", "ctrl+s", "alt+Left", "ctrl+z", "ctrl+y"]

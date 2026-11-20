@@ -18,12 +18,12 @@ import subprocess
 import sys
 import traceback
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, PLUGIN_DIR)
 
 from umbriel_core import backups, legacy, paths, schema  # noqa: E402
 from umbriel_core.launch import child_env  # noqa: E402
 
-PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 TOMLKIT_HINT = ("Python's tomlkit module is missing. Install it with your package manager "
                 "(Arch: pacman -S python-tomlkit) or `pip install --user tomlkit`.")
 
@@ -115,7 +115,8 @@ def cmd_read(request):
 
 
 def cmd_preview(request):
-    return session(request).preview(request.get("changes"), bool(request.get("validate", True)))
+    return session(request).preview(request.get("changes"), bool(request.get("validate", True)),
+                                    bool(request.get("check")))
 
 
 def cmd_save(request):
@@ -297,7 +298,7 @@ def ask_umbriel(command, read):
     except FileNotFoundError as error:
         raise HelperError("The umbriel command was not found.", "missing_umbriel") from error
     except subprocess.TimeoutExpired as error:
-        raise HelperError(f"`umbriel {command}` did not finish within 5 seconds. "
+        raise HelperError(f"`umbriel {command}` did not finish within {error.timeout:g} seconds. "
                           "Make sure Umbriel is running in this session.") from error
     except (RuntimeError, ValueError) as error:
         raise HelperError(str(error)) from error
@@ -316,6 +317,31 @@ cmd_windows = live_command("windows", "open_windows")
 cmd_layers = live_command("layers", "open_layers")
 
 
+def cmd_focused_window(request):
+    from umbriel_core import live
+    return {"window": ask_umbriel("focused-window --json", live.focused_window)}
+
+
+def cmd_wait_live(request):
+    """Long poll: answers {event} once what one of `events` reports changes, or {event: null} after `timeout`
+    seconds (at most 30)."""
+    from umbriel_core import live
+    events = request.get("events")
+    if not isinstance(events, list) or not events or any(event not in live.WATCHABLE_EVENTS for event in events):
+        raise HelperError("events must list some of: " + ", ".join(live.WATCHABLE_EVENTS) + ".")
+    timeout = request.get("timeout", 25)
+    timeout = min(max(timeout, 1), 30) if isinstance(timeout, (int, float)) else 25
+    return {"event": ask_umbriel("subscribe", lambda: live.wait_change(events, timeout))}
+
+
+def cmd_wait(request):
+    """A timer for the UI (e.g. a countdown): answers after `seconds` (0 to 5)."""
+    import time
+    seconds = request.get("seconds", 1)
+    time.sleep(min(max(seconds, 0), 5) if isinstance(seconds, (int, float)) else 1)
+    return {}
+
+
 def cmd_xkb(request):
     from umbriel_core import live, xkb
     catalog = xkb.catalog()
@@ -331,18 +357,11 @@ def cmd_run_action(request):
     reason = run_block_reason(action)
     if reason:
         raise HelperError(f"Not run: {reason}.", "blocked")
-    executable = shutil.which("umbriel")
-    if not executable:
-        raise HelperError("The umbriel command was not found.", "missing_umbriel")
     try:
         argv = msg_argv(action)
     except ValueError as error:  # unbalanced quotes
         raise HelperError(f"Can't read the action: {error}.") from error
-    try:
-        result = subprocess.run([executable, *argv], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                                timeout=5, check=False, env=child_env())
-    except subprocess.TimeoutExpired as error:
-        raise HelperError("Umbriel did not answer within 5 seconds.") from error
+    result = ask_umbriel("msg", lambda: schema.run_umbriel(argv, 5))
     if result.returncode:
         detail = (result.stderr.strip() or result.stdout.strip()).splitlines()
         raise HelperError(detail[-1] if detail else f"umbriel msg failed (exit code {result.returncode}).")
@@ -353,17 +372,14 @@ def cmd_kde_colors(request):
     from umbriel_core import kde
     try:
         scheme = kde.qt6ct_scheme_path()
-        colors, backgrounds, errors = kde.read_title_bar_rgb(scheme)
+        colors, backgrounds, _ = kde.read_title_bar_rgb(scheme)
     except (OSError, UnicodeError, ValueError) as error:
-        return {"available": False, "reason": str(error)}
+        return {"available": False, "reason": str(error)}  # reason: for debugging only
 
     def hex_map(found):
         return {".".join(path): "#{:02X}{:02X}{:02X}FF".format(*rgb) for path, rgb in found.items()}
 
-    return {
-        "available": True, "scheme": scheme, "colors": hex_map(colors), "backgrounds": hex_map(backgrounds),
-        "errors": {".".join(path): message for (_, path), message in errors.items()},
-    }
+    return {"available": True, "colors": hex_map(colors), "backgrounds": hex_map(backgrounds)}
 
 
 def expand_home(path):
@@ -587,7 +603,8 @@ COMMANDS = {
     "app-command": cmd_app_command, "launch-app": cmd_launch_app, "open-config": cmd_open_config,
     "set-editor": cmd_set_editor, "about": cmd_about, "palette-template": cmd_palette_template,
     "titlebar": cmd_titlebar, "titlebar-follow": cmd_titlebar_follow, "windows": cmd_windows,
-    "layers": cmd_layers, "xkb": cmd_xkb, "run-action": cmd_run_action,
+    "layers": cmd_layers, "xkb": cmd_xkb, "run-action": cmd_run_action, "focused-window": cmd_focused_window,
+    "wait-live": cmd_wait_live, "wait": cmd_wait,
 }
 
 # Commands that write the config, its sidecars, backups or desktop files; they run one at a time across the

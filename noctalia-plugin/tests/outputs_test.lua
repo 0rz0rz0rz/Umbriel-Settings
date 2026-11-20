@@ -277,7 +277,7 @@ store.entryOp("output", { op = "set", index = 2, field = "enabled", value = fals
 H.goHome()
 clickText("Outputs")
 assert(not byKey("display-HDMI-A-1") and byKey("display-off-HDMI-A-1"), "off displays are listed instead")
-assert(not H.byKey("filter-Outputs") and not pcall(H.input, "^new%-output:"), "no entry list or Add box")
+assert(not H.byKey("filter-Outputs-box") and not pcall(H.input, "^new%-output:"), "no entry list or Add box")
 
 -- an entry for an output that isn't connected stays reachable, with a text box for the mode
 store.entryOp("output", { op = "add", name = "DP-9" })
@@ -287,5 +287,51 @@ assert(hasText("Not connected"), screen())
 clickText("DP-9")
 assert(hasText("DP-9") and not pcall(select, ":resolution$"), "no dropdowns for a disconnected output")
 assert(H.input("mode"), "mode text box")
+
+-- Try: display edits are saved at once and kept only when confirmed in time; otherwise the backup comes back
+-- and the edits are pending again
+store.discardAll()
+H.goHome()
+clickText("Outputs")
+assert(byKey("display-try").props.enabled == false, "nothing to try")
+H.drag("display-DP-2", "display-above-DP-1")
+local tried = positions()["Acme 2"]
+assert(byKey("display-try").props.enabled, "display edits can be tried")
+local state = json.decode(H.fixtures.state)
+replies.save = function(request)
+  assert(request.validate == true, "a try is validated")
+  return true, json.encode({ saved = true, state = state, backup = "/b/config.toml.9.bak",
+                             validation = { ran = true, valid = true, diagnostics = {} } })
+end
+replies.restore = function(request)
+  assert(request.snapshot == "/b/config.toml.9.bak" and json.encode(request.revision) == json.encode(state.revision),
+         "restores the try's backup at the tried revision")
+  return true, json.encode({ state = state, backups = { backups = {} } })
+end
+H.hold("wait")
+clickText("Try")
+flushReads()
+assert(hasText("Keep these display settings? Going back in 15 seconds."), screen())
+assert(#store.entryOps == 0, "saved")
+H.release("wait")
+assert(hasText("Keep these display settings? Going back in 14 seconds."), screen())
+for _ = 1, 14 do H.release("wait") end
+assert(H.lastCall("restore") and hasText("No answer within 15 seconds. The previous display settings are back; your edits are unsaved again."), screen())
+assert(not byKey("display-try-card") and positions()["Acme 2"].y == tried.y, "the tried edits are pending again")
+assert(store.undo() and positions()["Acme 2"] == nil, "and undo as one step")
+H.drag("display-DP-2", "display-above-DP-1")
+clickText("Try")
+flushReads()
+clickText("Keep")
+assert(hasText("Display settings kept.") and #store.entryOps == 0, screen())
+assert(H.release("wait") == 1 and not byKey("display-try-card"), "the countdown stops")
+H.drag("display-DP-2", "display-above-DP-1")
+clickText("Try")
+flushReads()
+clickText("Go back")
+flushReads()
+assert(hasText("Went back. The previous display settings are back; your edits are unsaved again.") and #store.entryOps > 0, screen())
+H.release("wait", true)
+store.discardAll()
 
 print("outputs ok")

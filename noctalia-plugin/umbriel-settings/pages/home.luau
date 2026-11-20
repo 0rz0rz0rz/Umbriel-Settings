@@ -98,7 +98,7 @@ local function results(ctx, query)
       local subtitle = where and (where.page .. (where.group and (" › " .. where.group) or "")) or field.path
       local value, set = store.value(hit.id)
       local badges = {}
-      if store.isChanged(hit.id) then table.insert(badges, kit.badge("changed", "primary", key .. "-c")) end
+      if store.isChanged(hit.id) then table.insert(badges, kit.badge("unsaved", "primary", key .. "-c")) end
       if where and not where.editor and set then
         table.insert(badges, kit.badge(format.value(field, value), "secondary", key .. "-v"))
       end

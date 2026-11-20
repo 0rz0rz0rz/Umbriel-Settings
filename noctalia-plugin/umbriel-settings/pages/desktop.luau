@@ -97,7 +97,7 @@ local function foldersPage(ctx)
     local value = dirs.values[key] or ""
     local ok, problem = validFolder(value)
     local badges = {}
-    if value ~= (dirs.original[key] or "") then table.insert(badges, kit.badge("changed", "primary", "fb-" .. key)) end
+    if value ~= (dirs.original[key] or "") then table.insert(badges, kit.badge("unsaved", "primary", "fb-" .. key)) end
     local rows = {
       ui.row({ gap = 6, align = "center" }, {
         ui.label({ text = label, fontSize = 13, fontWeight = "bold", flexGrow = 1 }),
@@ -141,7 +141,7 @@ local function appsPage(ctx)
     local subtitle = value == "<multiple>" and "Different apps for different file types"
       or (value ~= "" and appLine(apps, value)) or "Not set"
     local badges = {}
-    if value ~= (apps.originalRoles[role] or "") then table.insert(badges, kit.badge("changed", "primary", "rb-" .. role)) end
+    if value ~= (apps.originalRoles[role] or "") then table.insert(badges, kit.badge("unsaved", "primary", "rb-" .. role)) end
     local icon = icons.icon(value)
     table.insert(content, kit.navRow({ key = "role-" .. role, image = icon or nil, glyph = ROLE_GLYPHS[role],
       title = role, subtitle = subtitle, badges = badges, onClick = function()
@@ -150,9 +150,7 @@ local function appsPage(ctx)
   end
   icons.finish(ctx)
   table.insert(content, kit.section("Other file types"))
-  table.insert(content, ui.input({ key = "mime-filter", value = view.mimeFilter or "", controlSize = "sm",
-                                   placeholder = "Filter file types or apps",
-                                   onChange = function(text) view.mimeFilter = text; ctx.render() end }))
+  table.insert(content, kit.filterBox(ctx, "mimeFilter", { placeholder = "Filter file types or apps" }))
   local addKey = "mime-add-" .. ctx.gen("mimeAdd")
   local function addMime(mime)
     mime = noctalia.string.trim(mime or "")
@@ -179,7 +177,7 @@ local function appsPage(ctx)
       end)
     end }),
   }))
-  local filter = string.lower(noctalia.string.trim(view.mimeFilter or ""))
+  local filter = kit.filterText(ctx, "mimeFilter")
   local names = {}
   for mime in pairs(apps.mimes) do table.insert(names, mime) end
   for mime in pairs(view.addedMimes or {}) do
@@ -200,15 +198,19 @@ local function appsPage(ctx)
     if shown < 50 and (filter == "" or string.find(haystack, filter, 1, true)) then
       shown = shown + 1
       table.insert(content, ui.row({ key = "mime-" .. mime, gap = 6, align = "center", paddingH = 12, paddingV = 6,
-                                     radius = 10, fill = "surface_container" }, {
+                                     radius = kit.RADIUS.md, fill = "surface_container", border = kit.CARD_BORDER,
+                                     borderWidth = kit.CARD_BORDER_WIDTH }, {
         ui.column({ gap = 2, flexGrow = 1 }, {
           ui.label({ text = exts ~= "" and (mime .. "  ·  " .. exts) or mime, fontSize = 13 }),
           kit.muted(name and (name == value and value or (name .. "  ·  " .. value)) or "Removed when you save"),
         }),
         ui.button({ text = "Change", controlSize = "sm", variant = "outline",
                     onClick = function() ctx.go({ name = "appPicker", kind = "mime", target = mime }) end }),
-        ui.button({ glyph = "trash", variant = "ghost", controlSize = "sm", tooltip = "Remove this association",
-                    enabled = value ~= "", onClick = function() store.setDesktop("mimes", mime, ""); ctx.render() end }),
+        kit.iconButton("trash", "Remove this association", function()
+          if view.addedMimes then view.addedMimes[mime] = nil end
+          store.setDesktop("mimes", mime, "")
+          ctx.render()
+        end, value ~= "" or (view.addedMimes or {})[mime] == true),
       }))
     end
   end

@@ -5,6 +5,10 @@ import shutil
 import sys
 import tempfile
 
+# Runs from anywhere: offscreen Qt and the app's package on the import path (no `cd python`, no env prefix).
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "python"))
+
 
 def temp_home(source, prefix):
     """A temp dir as XDG_DATA_HOME (its data/) holding a copy of `source`; returns (temp dir, config path)."""

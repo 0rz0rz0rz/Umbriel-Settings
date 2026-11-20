@@ -5,6 +5,7 @@
 local kit = require("../ui/kit.luau")
 local arrange = require("../lib/arrange.luau")
 local displays = require("../lib/displays.luau")
+local trymode = require("./trymode.luau")
 
 local M = {}
 
@@ -16,7 +17,7 @@ local EXTRA_ROW, EXTRA_MAX = 56, 168  -- rows for disabled and unplugged outputs
 local GAP = 2  -- drawn between neighbouring tiles
 local PRIMARY_FIELD = "general.xwayland_primary_output"
 
-local function round(v) return math.floor(v + 0.5) end
+local round = displays.round
 
 -- The connected displays matched to the config's output entries (empty while Umbriel hasn't answered).
 function M.connected(ctx)
@@ -120,6 +121,7 @@ local function setDefault(ctx, display)
   ctx.render()
 end
 
+local TRY_CARD = 60  -- height of the Try confirm card and its gap, taken from the drawing in the panel
 local MAX_ACCEPTS = 16  -- Noctalia's limit of drag types per drop zone
 
 -- Each display drags as its own type, and a tile's zones accept only the others: Noctalia keeps the dragged
@@ -327,6 +329,7 @@ end
 -- The page content and whether it fills the page (the arrangement does; loading and error states scroll).
 function M.content(ctx)
   local live = ctx.connectedOutputs()
+  if not live.error then ctx.watchLive({ "outputs" }, function() ctx.refreshLiveOutputs(); ctx.render() end) end
   local list = M.connected(ctx)
   local shown = arranged(list)
   if live.loading or live.error or #shown == 0 then
@@ -367,10 +370,13 @@ function M.content(ctx)
     -- the panel's fixed height, less the scrolling rows under the drawing
     area = { w = PANEL_AREA.w, h = PANEL_AREA.h - (extraHeight > 0 and extraHeight + 8 or 0) }
   end
+  local tryCard = trymode.card(ctx)
+  if tryCard and not ctx.isApp then area.h = area.h - TRY_CARD end
   local rows = {
     ui.row({ key = "display-tools", gap = 8, align = "center" }, {
       kit.muted("Drag a display by its number onto an edge or corner of another to place it there; click it to edit it.",
                 { fontSize = 13, flexGrow = 1, maxLines = 2 }),
+      trymode.button(ctx),
       ui.button({ key = "display-tidy", text = "Tidy up", glyph = "layout-align-center", variant = "outline",
                   enabled = untidy, tooltip = "Center the displays on each other again, starting at 0, 0",
                   onClick = function()
@@ -386,6 +392,7 @@ function M.content(ctx)
     }),
     canvas(ctx, shown, rects, default, area),
   }
+  if tryCard then table.insert(rows, 2, tryCard) end
   ctx.dropHandler = function(payload, value)
     local side, target = string.match(value, "^([%a%-]+)|(.+)$")
     if target and payload ~= target then place(ctx, payload, target, side) end

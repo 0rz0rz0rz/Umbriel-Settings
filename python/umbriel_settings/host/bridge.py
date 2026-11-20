@@ -2,9 +2,9 @@
 
 import concurrent.futures
 import json
-import traceback
+import threading
 
-from PySide6.QtCore import QObject, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, Signal, Slot
 
 
 class Bridge(QObject):
@@ -49,34 +49,29 @@ class Bridge(QObject):
 
 
 class QtScheduler(QObject):
-    """post() runs on the GUI thread's event loop; background() runs work on a pool, done() on the GUI thread."""
+    """background() runs work off the GUI thread, then done(result) on it."""
 
     _deliver = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-        # commands that wait on the user or the session (folder chooser, `umbriel outputs`): they must not
-        # use up the threads that saves and file reads need
+        # commands that ask the compositor (`umbriel outputs`, up to 5 s) must not use up the threads that saves
+        # and file reads need
         self.slow_pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         self._deliver.connect(lambda function: function())
 
-    def post(self, function):
-        QTimer.singleShot(0, function)
-
-    def background(self, work, done, on_error=None, slow=False):
-        """work() on a pool thread (`slow`: a separate pool), then done(result) on the GUI thread.
-
-        If work() raises, done(on_error(error)) runs instead, so a Lua callback waiting on the result is never
-        left hanging; without on_error the traceback is printed and done is skipped.
-        """
+    def background(self, work, done, on_error, lane="fast"):
+        """work() on a pool thread ("slow": a separate pool; "long": a thread of its own, for long polls), then
+        done(result) on the GUI thread. If work() raises, done(on_error(error)) runs instead, so a Lua callback
+        waiting on the result is never left hanging."""
         def run():
             try:
                 result = work()
             except Exception as error:  # every failure must reach the GUI thread
-                if on_error is None:
-                    traceback.print_exception(error)
-                    return
                 result = on_error(error)
             self._deliver.emit(lambda: done(result))
-        (self.slow_pool if slow else self.pool).submit(run)
+        if lane == "long":
+            threading.Thread(target=run, daemon=True).start()
+        else:
+            (self.slow_pool if lane == "slow" else self.pool).submit(run)

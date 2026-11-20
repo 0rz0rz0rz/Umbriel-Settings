@@ -120,6 +120,14 @@ class AppRenderTests(unittest.TestCase):
         self.assertEqual(self.win.view.page().console_errors, [])
         self.assertEqual(self.win.host.errors, [])
 
+    def test_copy_to_clipboard_sets_the_text(self):
+        from umbriel_settings.host.api import NoctaliaApi
+        api = NoctaliaApi(None, None, "/nonexistent")
+        self.assertTrue(api.copyToClipboard("general.mod_key", "text/plain"))
+        self.assertEqual(QApplication.clipboard().text(), "general.mod_key")
+        self.assertTrue(api.copyToClipboard("file:///tmp/x", "text/uri-list"))
+        self.assertEqual(bytes(QApplication.clipboard().mimeData().data("text/uri-list")).strip(), b"file:///tmp/x")
+
     def test_window_size_is_remembered_across_runs(self):
         self.assertEqual(load_window_state(self.win.data_dir), {})
         self.win.resize(1000, 700)
@@ -178,7 +186,7 @@ class AppRenderTests(unittest.TestCase):
         self.js(f"(() => {{ const p = {pointer}, g = {grip}, r = g.getBoundingClientRect();"
                 "p(g, 'pointerdown', r.x + 5, r.y + 5); p(g, 'pointerup', r.x + 5, r.y + 5); g.click(); return 'ok'; })()")
         self.pause(300)
-        self.assertEqual(self.js("String(!!document.querySelector('[data-key=\"kb-filter\"]'))"), "true",
+        self.assertEqual(self.js("String(!!document.querySelector('[data-key=\"kbFilter-box\"]'))"), "true",
                          "still on the list, not the shortcut's page")
         # Drag past the threshold onto the group's header: the shortcut moves into the group.
         self.js(f"(() => {{ const p = {pointer}, g = {grip}, r = g.getBoundingClientRect();"

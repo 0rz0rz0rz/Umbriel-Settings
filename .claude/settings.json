@@ -13,7 +13,23 @@
       "Bash(luac -p *)",
       "Bash(umbriel config validate *)",
       "Bash(umbriel config --help)",
-      "Bash(noctalia --version)"
+      "Bash(noctalia --version)",
+
+      "Bash(python3 tools/check.py:*)",
+      "Bash(python python/umbriel-settings.py --check-schema)",
+      "Bash(python tools/update_appimage_pins.py --check)",
+      "Bash(python .claude/skills/edit-controls/render_app.py:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git branch:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run watch:*)",
+      "Bash(rg:*)",
+      "Bash(wc:*)",
+      "Bash(luau-compile --null *)",
+      "Bash(ruff check:*)",
+      "Bash(shellcheck:*)"
     ]
   }
 }

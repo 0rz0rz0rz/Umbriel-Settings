@@ -9,14 +9,16 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
 
+from host_support import ManualScheduler
 from umbriel_core.meta import PAGE_GLYPHS
-from umbriel_settings.host.api import ManualScheduler, NoctaliaApi, fuzzy_score
+from umbriel_settings.host.api import NoctaliaApi, fuzzy_score
 from umbriel_settings.host.bridge import Bridge, QtScheduler
 
 ROOT = Path(__file__).resolve().parents[1]
 UI_DIR = ROOT / "noctalia-plugin" / "umbriel-settings"
 GLYPH_MAP = ROOT / "python" / "umbriel_settings" / "host" / "web" / "fonts" / "tabler-map.json"
-GLYPH_NAME = re.compile(r'\b(?:glyph|icon)\s*=\s*"([a-z0-9-]+)"|ui\.glyph\(\{\s*name\s*=\s*"([a-z0-9-]+)"')
+GLYPH_NAME = re.compile(r'\b(?:glyph|icon)\s*=\s*"([a-z0-9-]+)"|ui\.glyph\(\{\s*name\s*=\s*"([a-z0-9-]+)"'
+                        r'|kit\.iconButton\("([a-z0-9-]+)"')
 
 
 def wait_until(app, predicate, timeout_ms=3000):
@@ -72,10 +74,8 @@ class BridgeTests(unittest.TestCase):
         gui_thread = threading.get_ident()
         seen = {}
         scheduler.background(lambda: threading.get_ident(),
-                             lambda worker: seen.update(worker=worker, done=threading.get_ident()))
-        posted = []
-        scheduler.post(lambda: posted.append(True))
-        self.assertTrue(wait_until(self.app, lambda: "done" in seen and posted))
+                             lambda worker: seen.update(worker=worker, done=threading.get_ident()), str)
+        self.assertTrue(wait_until(self.app, lambda: "done" in seen))
         self.assertEqual(seen["done"], gui_thread)
         self.assertNotEqual(seen["worker"], gui_thread)
 
@@ -100,17 +100,23 @@ class BridgeTests(unittest.TestCase):
                 return value
 
             def is_table(self, value):
-                return isinstance(value, list)
+                return isinstance(value, dict)  # a Lua array: 1-based
         scheduler = ManualScheduler()
         api = NoctaliaApi(Host(), scheduler, "/nonexistent")
         answers = []
         with unittest.mock.patch.object(api, "readFile", side_effect=MemoryError("too big")):
             api.readFileAsync("/x", lambda contents, error: answers.append((contents, error)))
             scheduler.drain()
-        with unittest.mock.patch("umbriel_settings.host.api.child_env", side_effect=RuntimeError("bad env")):
-            api.runAsync("true", lambda result: answers.append(result["exitCode"]))
-            scheduler.drain()
-        self.assertEqual(answers, [(None, "MemoryError: too big"), 1])
+        def lua_list(*items):
+            return dict(enumerate(items, 1))
+        api.runAsync(lua_list("sh", "-c", "true"), lambda result: answers.append(result["exitCode"]))
+        with unittest.mock.patch.object(api, "_helper", side_effect=RuntimeError("broken")):
+            for command in ("outputs", "wait-live", "read"):
+                api.runAsync(lua_list("python3", "-I", "/x/umbriel_settings.py", command),
+                             lambda result: answers.append(result["exitCode"]))
+        scheduler.drain()
+        self.assertEqual(answers, [(None, "MemoryError: too big"), 127, 1, 1, 1])  # only the helper runs here
+        self.assertEqual(scheduler.lanes, ["fast", "fast", "slow", "long", "fast"])
 
 
 class SingleInstanceTests(unittest.TestCase):
@@ -143,7 +149,7 @@ class SharedAssetTests(unittest.TestCase):
         used = set(PAGE_GLYPHS.values())
         for path in UI_DIR.rglob("*.luau"):
             for match in GLYPH_NAME.finditer(path.read_text(encoding="utf-8")):
-                used.add(match.group(1) or match.group(2))
+                used.add(match.group(1) or match.group(2) or match.group(3))
         self.assertGreater(len(used), 20)
         self.assertEqual(sorted(used - glyphs.keys()), [])
 

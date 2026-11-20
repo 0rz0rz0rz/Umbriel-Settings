@@ -19,6 +19,8 @@ function color(value) {
   return alpha ? `color-mix(in srgb, ${base} ${Math.round(parseFloat(alpha) * 100)}%, transparent)` : base;
 }
 function px(value) { return typeof value === "number" ? `${value}px` : ""; }
+// Corner radii follow Noctalia's corner radius setting (--radius-scale), like the shell's own widgets.
+function radius(value) { return typeof value === "number" ? `calc(${value}px * var(--radius-scale, 1))` : ""; }
 function attr(el, name, value) {
   if (value == null || value === "") el.removeAttribute(name); else el.setAttribute(name, String(value));
 }
@@ -209,10 +211,8 @@ function layout(el, p, kind) {
     const pad = p.padding;
     target.style.padding = `${px(p.paddingV ?? pad) || 0} ${px(p.paddingH ?? pad) || 0}`;
     s.background = color(p.fill);
-    s.borderRadius = px(p.radius);
+    s.borderRadius = radius(p.radius);
     s.border = p.border ? `${p.borderWidth || 1}px solid ${color(p.border)}` : "";
-    s.minWidth = px(p.minWidth);
-    s.minHeight = px(p.minHeight);
     el.classList.toggle("clickable", !!p.onClick);
     el.tabIndex = p.onClick ? 0 : -1;
   }
@@ -257,6 +257,7 @@ function apply(el, node) {
   el.dataset.key = p.key == null ? "" : String(p.key);
   layout(el, p, kind);
   if (p.onResize || el.__resizeObserver) watchSize(el);
+  el.classList.toggle("key-record", !!p.onKeyRecord);
   // Screen readers: clickable containers act as buttons; icon-only controls are named by their tooltip.
   if (CLICKABLE_KINDS.includes(kind)) {
     attr(el, "role", p.onClick ? "button" : null);
@@ -349,7 +350,7 @@ function apply(el, node) {
     if (el.getAttribute("src") !== src) el.src = src;
     el.alt = p.tooltip || "";
     el.style.objectFit = p.fit || "contain";
-    el.style.borderRadius = px(p.radius);
+    el.style.borderRadius = radius(p.radius);
   } else if (kind === "separator") {
     el.className = "separator";
     el.style.height = px(p.thickness || 1);
@@ -451,13 +452,43 @@ function markdown(source) {
 }
 
 // ------------------------------------------------------------------ keys and startup
-// Ctrl+Z in a text field stays the field's own text undo; elsewhere it undoes the last settings edit.
+// Ctrl+Z/Ctrl+Y in a text field stay the field's own text undo/redo; elsewhere they undo/redo settings edits.
 const typing = (e) => e.target instanceof HTMLElement && e.target.matches("input[type=text]");
 const KEYS = { "ctrl+f": (e) => e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f",
                "ctrl+s": (e) => e.ctrlKey && !e.altKey && e.key.toLowerCase() === "s",
                "ctrl+z": (e) => e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "z" && !typing(e),
+               "ctrl+y": (e) => e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "y" && !typing(e),
+               "ctrl+shift+z": (e) => e.ctrlKey && !e.altKey && e.shiftKey && e.key.toLowerCase() === "z" && !typing(e),
                "alt+Left": (e) => e.altKey && e.key === "ArrowLeft",
                "Escape": (e) => e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey };
+// onKeyRecord (app only, not a Noctalia prop): while a container with it is shown, the next key press goes to it
+// as an Umbriel shortcut ("Super+Shift+Return"); Escape sends "" (cancel). Modifier presses alone wait.
+const KEY_NAMES = { Enter: "Return", " ": "space", Backspace: "BackSpace", PageUp: "Page_Up", PageDown: "Page_Down",
+                    ArrowLeft: "Left", ArrowRight: "Right", ArrowUp: "Up", ArrowDown: "Down",
+                    AudioVolumeUp: "XF86AudioRaiseVolume", AudioVolumeDown: "XF86AudioLowerVolume",
+                    AudioVolumeMute: "XF86AudioMute", MediaPlayPause: "XF86AudioPlay", MediaTrackNext: "XF86AudioNext",
+                    MediaTrackPrevious: "XF86AudioPrev", MediaStop: "XF86AudioStop", Print: "Print" };
+function shortcutOf(e) {
+  if (["Shift", "Control", "Alt", "Meta", "Super", "Hyper", "AltGraph", "CapsLock"].includes(e.key)) return null;
+  if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) return "";
+  let key = KEY_NAMES[e.key];
+  if (!key && /^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+  if (!key && /^Digit\d$/.test(e.code)) key = e.code.slice(5);
+  key = key || e.key;
+  const mods = [e.metaKey && "Super", e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift"].filter(Boolean);
+  return [...mods, key].join("+");
+}
+
+// Capture phase: before a focused input or button handles the key.
+document.addEventListener("keydown", (e) => {
+  const recorder = document.querySelector(".key-record");
+  if (!recorder || !recorder.__props || !recorder.__props.onKeyRecord) return;
+  const shortcut = shortcutOf(e);
+  e.preventDefault();
+  e.stopPropagation();
+  if (shortcut !== null && !e.repeat) invoke(recorder.__props.onKeyRecord, shortcut);
+}, true);
+
 document.addEventListener("keydown", (e) => {
   for (const [chord, test] of Object.entries(KEYS)) {
     if (test(e)) { e.preventDefault(); bridge && bridge.key(chord); return; }

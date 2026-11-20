@@ -39,19 +39,40 @@ local function nameTaken(store, eid, name)
   return false
 end
 
+-- The filter matches the title, the entry name and any text or number value (e.g. an app id pattern).
+local function matches(title, item, filter)
+  if string.find(string.lower(title), filter, 1, true) then return true end
+  if item.name and string.find(string.lower(item.name), filter, 1, true) then return true end
+  for _, value in pairs(item.values) do
+    local kind = type(value)
+    if (kind == "string" or kind == "number") and string.find(string.lower(tostring(value)), filter, 1, true) then
+      return true
+    end
+  end
+  return false
+end
+
 local function editorList(ctx, eid, filter, multiple)
   local store, view = ctx.store, ctx.view
   local editor = store.meta.editors[eid]
   local items = store.entryItems(eid)
   local rows = {}
-  if multiple then table.insert(rows, kit.section(editor.title)) end
+  local unsaved = store.entryOpCount(eid)
+  if multiple or unsaved > 0 then
+    local heading = { kit.section(editor.title) }
+    if unsaved > 0 then
+      table.insert(heading, ui.spacer({ flexGrow = 1 }))
+      table.insert(heading, kit.badge(kit.plural(unsaved, "unsaved change"), "primary"))
+    end
+    table.insert(rows, ui.row({ key = "heading-" .. eid, gap = 8, align = "center" }, heading))
+  end
   local shown = 0
   for index, item in ipairs(items) do
     local title = store.entryTitle(eid, index, item)
     local count = 0
     for _ in pairs(item.values) do count = count + 1 end
     local subtitle = kit.plural(count, "setting")
-    if filter == "" or string.find(string.lower(title), filter, 1, true) then
+    if filter == "" or matches(title, item, filter) then
       shown = shown + 1
       table.insert(rows, kit.navRow({ key = "entry-" .. eid .. "-" .. index, title = title, subtitle = subtitle,
         onClick = function() ctx.go({ name = "entry", editor = eid, index = index }) end }))
@@ -91,10 +112,8 @@ local function listPage(ctx, route)
     return { header = header, content = content, fill = fill }
   end
   local filterKey = "filter-" .. route.page
-  table.insert(content, ui.input({ key = filterKey, value = view[filterKey] or "", controlSize = "sm",
-                                   placeholder = "Filter by name",
-                                   onChange = function(text) view[filterKey] = text; ctx.render() end }))
-  local filter = string.lower(noctalia.string.trim(view[filterKey] or ""))
+  table.insert(content, kit.filterBox(ctx, filterKey, { placeholder = "Filter by name or value" }))
+  local filter = kit.filterText(ctx, filterKey)
   for _, eid in ipairs(page.editors) do
     for _, row in ipairs(editorList(ctx, eid, filter, #page.editors > 1)) do table.insert(content, row) end
   end
@@ -113,6 +132,44 @@ local function liveKind(editor, eid)
     end
   end
   return found
+end
+
+-- The app is itself the focused window, so it waits FOCUS_DELAY seconds for a switch to the window to match;
+-- the panel is a layer surface and leaves the focus where it is.
+local FOCUS_DELAY = 3
+local function focusedWindowButton(ctx, eid, index)
+  local store, view = ctx.store, ctx.view
+  local function ask()
+    ctx.helper.call("focused-window", {}, function(err, data)
+      view.focusBusy = false
+      local window = not err and data.window or nil
+      if err then
+        ctx.flash(err.error, "error")
+      elseif type(window) ~= "table" then
+        ctx.flash("No window has the focus.", "warning")
+      elseif window.app_id == "umbriel-settings" then
+        ctx.flash("That is this window: switch to the other one within " .. FOCUS_DELAY .. " seconds.", "warning")
+      else
+        store.entryOpsBatch(eid, { { op = "set", index = index - 1, field = "match.app_id", value = window.pattern } })
+        ctx.flash("The rule now matches “" .. window.app_id .. "”.", "info")
+      end
+      ctx.render()
+    end)
+  end
+  return ui.button({ key = "focused-window", glyph = "focus-2", controlSize = "sm", variant = "outline",
+    text = view.focusBusy and (ctx.isApp and "Switch to the window…" or "Asking…") or "Use the focused window",
+    enabled = not view.focusBusy,
+    tooltip = ctx.isApp and ("Match the app of the window you switch to within " .. FOCUS_DELAY .. " seconds")
+      or "Match the app of the focused window",
+    onClick = function()
+      view.focusBusy = true
+      ctx.render()
+      if ctx.isApp then
+        ctx.helper.call("wait", { seconds = FOCUS_DELAY }, function() ask() end)
+      else
+        ask()
+      end
+    end })
 end
 
 local function entryPage(ctx, route)
@@ -146,21 +203,18 @@ local function entryPage(ctx, route)
       end }))
   end
   if editor.mode == "aot" then
-    table.insert(actions, ui.button({ glyph = "arrow-up", variant = "ghost", controlSize = "sm", enabled = index > 1,
-      tooltip = "Move up (rules are checked in order)", onClick = function()
-        store.entryOp(eid, { op = "move", index = index - 1, to = index - 2 })
-        ctx.replace({ name = "entry", editor = eid, index = index - 1 })
-      end }))
-    table.insert(actions, ui.button({ glyph = "arrow-down", variant = "ghost", controlSize = "sm",
-      enabled = index < #items, tooltip = "Move down", onClick = function()
-        store.entryOp(eid, { op = "move", index = index - 1, to = index })
-        ctx.replace({ name = "entry", editor = eid, index = index + 1 })
-      end }))
-    table.insert(actions, ui.button({ glyph = "copy", variant = "ghost", controlSize = "sm", tooltip = "Duplicate",
-      onClick = function()
-        store.entryOp(eid, { op = "duplicate", index = index - 1 })
-        ctx.replace({ name = "entry", editor = eid, index = index + 1 })
-      end }))
+    table.insert(actions, kit.iconButton("arrow-up", "Move up (rules are checked in order)", function()
+      store.entryOp(eid, { op = "move", index = index - 1, to = index - 2 })
+      ctx.replace({ name = "entry", editor = eid, index = index - 1 })
+    end, index > 1))
+    table.insert(actions, kit.iconButton("arrow-down", "Move down", function()
+      store.entryOp(eid, { op = "move", index = index - 1, to = index })
+      ctx.replace({ name = "entry", editor = eid, index = index + 1 })
+    end, index < #items))
+    table.insert(actions, kit.iconButton("copy", "Duplicate", function()
+      store.entryOp(eid, { op = "duplicate", index = index - 1 })
+      ctx.replace({ name = "entry", editor = eid, index = index + 1 })
+    end))
   end
   table.insert(actions, ui.spacer({ flexGrow = 1 }))
   table.insert(actions, kit.confirmButton(ctx, { key = "delete-" .. eid .. "-" .. index, text = "Delete",
@@ -172,7 +226,7 @@ local function entryPage(ctx, route)
   local content = { ui.row({ key = "entry-actions", gap = 6, align = "center" }, actions) }
   local live = liveKind(editor, eid)
   if live then
-    table.insert(content, ui.row({ key = "entry-live", gap = 6, align = "center" }, {
+    local liveButtons = {
       ui.button({ text = live == "windows" and "Pick from open windows" or "Pick from open layers",
                   glyph = live == "windows" and "app-window" or "stack-2", controlSize = "sm", variant = "outline",
                   onClick = function()
@@ -180,7 +234,9 @@ local function entryPage(ctx, route)
                     ctx.bump("live-filter")
                     ctx.go({ name = "pick-live", editor = eid, index = index, kind = live })
                   end }),
-    }))
+    }
+    if live == "windows" then table.insert(liveButtons, focusedWindowButton(ctx, eid, index)) end
+    table.insert(content, ui.row({ key = "entry-live", gap = 6, align = "center" }, liveButtons))
   end
   if editor.mode == "map" and eid ~= "output" then  -- a copy of an effect preset or pool; outputs are hardware
     table.insert(content, nameForm(ctx, "dup-" .. eid, "Name for a copy", "Duplicate", function(name)
@@ -221,6 +277,16 @@ local function pickLivePage(ctx, route)
       if not view.live or view.live.kind ~= kind then return end
       view.live = { kind = kind, items = (not err) and data[kind] or nil, error = err and err.error or nil }
       ctx.render()
+    end)
+  end
+  if not view.live.error then
+    -- a window opening or closing updates the list in place (the old one stays until the new one arrives)
+    ctx.watchLive({ kind }, function()
+      ctx.helper.call(kind, {}, function(err, data)
+        if err or not view.live or view.live.kind ~= kind or view.live.loading then return end
+        view.live = { kind = kind, items = data[kind] }
+        ctx.render()
+      end)
     end)
   end
   local live = view.live

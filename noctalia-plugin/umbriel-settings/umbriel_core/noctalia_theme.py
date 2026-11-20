@@ -94,11 +94,10 @@ def palette_from_kde_scheme(path):
     return {role: "#{:02x}{:02x}{:02x}".format(*colors[place]) for role, place in KDE_ROLES.items() if place in colors}
 
 
-def qt6ct_scheme(config_dir=None):
+def qt6ct_scheme():
     """qt6ct's selected KDE scheme even while its custom palette is off (only the colors are used), or None."""
-    path = os.path.join(config_dir, "qt6ct", "qt6ct.conf") if config_dir else None
     try:
-        return kde.qt6ct_scheme_path(path, require_custom=False)
+        return kde.qt6ct_scheme_path(None, require_custom=False)
     except ValueError:
         return None
 
@@ -157,10 +156,10 @@ def load_roles(fallback=None):
     return fill_roles(fallback or {}), "qt"
 
 
-def shell_style(path=None):
+def shell_style():
     """Font family and corner radius scale from Noctalia's [shell] settings (defaults when absent)."""
     try:
-        with open(path or noctalia_config_file(), "rb") as handle:
+        with open(noctalia_config_file(), "rb") as handle:
             shell = tomllib.load(handle).get("shell", {})
     except (OSError, tomllib.TOMLDecodeError):
         shell = {}
@@ -193,9 +192,9 @@ TEMPLATE_ENTRY = {
 }
 
 
-def template_status(config=None):
+def template_status():
     """Whether Noctalia is set up to write the palette the app follows."""
-    config = config or noctalia_config_file()
+    config = noctalia_config_file()
     entry = False
     try:
         with open(config, "rb") as handle:
@@ -218,14 +217,14 @@ def _write_config(config, updated, backup_dir):
     atomic_write(config, updated)
 
 
-def write_user_template(key, template, text, entry, backup_dir, config=None):
+def write_user_template(key, template, text, entry, backup_dir):
     """Write a Noctalia user template and make [theme.templates.user.<key>] point at it.
 
     Noctalia's config is changed only when the entry is missing or different; the old file is backed up first.
     """
     import tomlkit
 
-    config = config or noctalia_config_file()
+    config = noctalia_config_file()
     for path in (config, template):
         if os.path.islink(path):
             raise ValueError(f"{path} is a symlink; edit its target directly.")
@@ -253,11 +252,11 @@ def write_user_template(key, template, text, entry, backup_dir, config=None):
         _write_config(config, tomlkit.dumps(document), backup_dir)
 
 
-def remove_user_template(key, template, backup_dir, config=None):
+def remove_user_template(key, template, backup_dir):
     """Drop [theme.templates.user.<key>] from Noctalia's config (backed up first) and delete the template file."""
     import tomlkit
 
-    config = config or noctalia_config_file()
+    config = noctalia_config_file()
     if os.path.isfile(config) and not os.path.islink(config):
         with open(config, encoding="utf-8") as handle:
             original = handle.read()
@@ -272,8 +271,8 @@ def remove_user_template(key, template, backup_dir, config=None):
         os.remove(template)
 
 
-def install_template(backup_dir, config=None):
+def install_template(backup_dir):
     """Write the palette template and add its user-template entry to Noctalia's config (backed up first)."""
-    write_user_template(TEMPLATE_KEY, template_file(), PALETTE_TEMPLATE, TEMPLATE_ENTRY, backup_dir, config)
+    write_user_template(TEMPLATE_KEY, template_file(), PALETTE_TEMPLATE, TEMPLATE_ENTRY, backup_dir)
     os.makedirs(os.path.join(xdg_config_home(), DATA_DIR_NAME), exist_ok=True)
-    return template_status(config)
+    return template_status()
