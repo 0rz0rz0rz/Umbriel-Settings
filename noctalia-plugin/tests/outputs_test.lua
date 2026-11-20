@@ -145,7 +145,8 @@ assert(#items == 1 and items[1].name == "Acme 1", "entry named after the monitor
 assert(hasText("Acme 1") and hasText("Outputs · 1 of 1 · Display 1"), screen())
 assert(not pcall(H.input, "^dup%-output"), "no “Name for a copy” box on an output")
 
--- the mode is two dropdowns: resolution, then refresh rate
+-- the mode is two dropdowns: resolution, then refresh rate (in Basics; groups start closed)
+clickText("Basics")
 local function select(suffix)
   return find("select", function(n) return tostring(n.props.key):match(suffix) ~= nil end)
 end

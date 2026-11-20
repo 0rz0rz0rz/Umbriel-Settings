@@ -186,6 +186,8 @@ class MetaPickerTests(unittest.TestCase):
         self.assertEqual(fields["output:color_profile"]["picker"], "file")
         self.assertEqual(fields["output:mode"]["picker"], "mode")  # Resolution + Refresh rate dropdowns
         self.assertEqual(fields["include.optional.files"]["file"]["filter"], ["TOML files", "*.toml"])
+        self.assertEqual(fields["general.autostart"]["picker"], "file")  # Browse… next to Add
+        self.assertTrue(fields["general.autostart"]["file"]["command"])
 
     def test_without_a_schema_effect_fields_stay_text(self):
         self.assertEqual(build_meta({})["fields"]["animation.windows_in.effect"]["kind"], "str")

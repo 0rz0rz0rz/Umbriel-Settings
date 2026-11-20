@@ -1,6 +1,7 @@
 --!nonstrict
 -- User folders (user-dirs.dirs) and default applications (mimeapps.list), with a searchable app picker.
 local kit = require("../ui/kit.luau")
+local files = require("../pages/files.luau")
 
 local M = {}
 
@@ -107,18 +108,12 @@ local function foldersPage(ctx)
                    controlSize = "sm", placeholder = "Not set",
                    onChange = function(text) store.setDesktop("userdirs", key, text); ctx.render() end }),
         ui.button({ text = "Browse…", glyph = "folder-open", controlSize = "sm", variant = "outline",
-                    enabled = not view.browsing, onClick = function()
-                      view.browsing = true
-                      ctx.render()
-                      ctx.helper.call("pick-folder", { start = value }, function(err, data)
-                        view.browsing = false
-                        if err then ctx.flash(err.error, "error")
-                        elseif data.path then
-                          store.setDesktop("userdirs", key, data.path)
+                    onClick = function()
+                      files.open(ctx, { mode = "folder", title = "Choose the " .. label .. " folder", start = value },
+                        function(path)
+                          store.setDesktop("userdirs", key, path)
                           ctx.bump("fold-" .. key)
-                        end
-                        ctx.render()
-                      end, { timeout = 60000 })
+                        end)
                     end }),
       }),
     }
@@ -221,15 +216,40 @@ local function appsPage(ctx)
   return { header = header, content = content }
 end
 
+-- Kind `command` (autostart Browse…, `view.pick` from fields.luau): the app's command goes to `pick.onChosen`.
 local function pickerPage(ctx, route)
   local store, view = ctx.store, ctx.view
+  local command = route.kind == "command"
+  local pick = command and view.pick
+  if command and not pick then return { header = { kit.header(ctx, "Choose an app") }, content = {} } end
   if not store.desktop then return loading(ctx, "Choose an app") end
   local apps = store.desktop.apps
   local current = route.kind == "role" and apps.roles[route.target] or apps.mimes[route.target]
-  local header = { kit.header(ctx, "Choose an app", route.target),
-    ui.input({ key = "app-search", value = view.appQuery or "", focus = true, placeholder = "Search installed apps",
-               onChange = function(text) view.appQuery = text; ctx.render() end }) }
+  if command then current = nil end
+  local search = ui.input({ key = "app-search", value = view.appQuery or "", focus = true, flexGrow = 1,
+                            placeholder = "Search installed apps",
+                            onChange = function(text) view.appQuery = text; ctx.render() end })
+  if command then  -- any other program: next to the search, not below the list
+    search = ui.row({ key = "app-search-row", gap = 6, align = "center" }, { search,
+      ui.button({ key = "app-file", text = "Browse files…", glyph = "folder-open", controlSize = "sm",
+                  variant = "outline", tooltip = "Choose a program or script",
+                  onClick = function() files.open(ctx, pick.options, pick.onChosen, true) end }) })
+  end
+  local header = { kit.header(ctx, "Choose an app", route.target), search }
   local function choose(id)
+    if command then
+      if view.appCommandBusy then return end
+      view.appCommandBusy = true
+      ctx.helper.call("app-command", { id = id }, function(err, data)
+        view.appCommandBusy = false
+        if view.pick ~= pick then return end
+        if err then ctx.flash(err.error, "warning"); ctx.render(); return end
+        view.pick, view.appQuery = nil, ""
+        pick.onChosen(data.command)
+        ctx.back()
+      end)
+      return
+    end
     store.setDesktop(route.kind == "role" and "roles" or "mimes", route.target, id)
     view.appQuery, view.appManual = "", nil
     ctx.back()
@@ -250,6 +270,7 @@ local function pickerPage(ctx, route)
   icons.finish(ctx)
   if shown == 40 then table.insert(content, kit.muted("Type to find more apps.")) end
   if shown == 0 then table.insert(content, kit.empty("No installed app matches.", "apps")) end
+  if command then return { header = header, content = content } end
   table.insert(content, kit.section("Or enter a desktop file ID"))
   table.insert(content, ui.row({ key = "app-manual", gap = 6 }, {
     ui.input({ key = "app-id-" .. route.kind .. "-" .. route.target, value = current ~= "<multiple>" and current or "",

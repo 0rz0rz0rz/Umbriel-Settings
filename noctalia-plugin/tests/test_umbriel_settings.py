@@ -516,39 +516,20 @@ class LiveTests(HelperTestCase):
         self.assertEqual(failed["error"], "unknown action: nonsense")
 
 
-class ChooserTests(HelperTestCase):
-    """`pick-file` / `pick-folder` with a fake zenity that logs its arguments and prints $CHOSEN."""
+class FileBrowserTests(HelperTestCase):
+    """`list-dir` (the UI's file browser) and `pick-file` / `pick-folder`, which map the path it chose."""
 
-    def setUp(self):
-        super().setUp()
-        bin_dir = self.root / "chooser-bin"
-        bin_dir.mkdir()
-        self.log = self.root / "chooser.log"
-        fake = bin_dir / "zenity"
-        fake.write_text(f"#!{sys.executable}\n"
-                        "import json, os, sys\n"
-                        f"open({str(self.log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
-                        "chosen = os.environ.get('CHOSEN', '')\n"
-                        "print(chosen)\n"
-                        "raise SystemExit(0 if chosen else 1)\n")
-        fake.chmod(0o755)
-        self.env["PATH"] = str(bin_dir) + os.pathsep + self.env["PATH"]
+    def pick(self, request, chosen):
+        return self.ok("pick-file", {**request, "chosen": chosen})["path"]
 
-    def test_pick_file_filters_and_writes_paths_relative_to_the_config_when_asked(self):
-        folder = self.config.parent
-        inside = str(folder / "shaders" / "glow.frag")
-        request = {"config": str(self.config), "relative": True, "title": "Choose a shader file"}
-        self.assertEqual(self.ok("pick-file", request, env={**self.env, "CHOSEN": inside})["path"], "shaders/glow.frag")
-        self.assertEqual(self.ok("pick-file", {**request, "relative": False}, env={**self.env, "CHOSEN": inside})["path"],
-                         inside)
-        self.assertEqual(self.ok("pick-file", request, env={**self.env, "CHOSEN": "/usr/share/x.frag"})["path"],
-                         "/usr/share/x.frag")
-        self.ok("pick-file", {"config": str(self.config), "filter": ["ICC profiles", "*.icc *.icm"]},
-                env={**self.env, "CHOSEN": "/tmp/a.icc"})
-        last = json.loads(self.log.read_text().splitlines()[-1])
-        self.assertIn("--file-filter=ICC profiles | *.icc *.icm", last)
-        self.assertIn(f"--filename={folder}/", last)  # starts in the config's folder
+    def test_pick_file_writes_paths_relative_to_the_config_when_asked(self):
+        inside = str(self.config.parent / "shaders" / "glow.frag")
+        request = {"config": str(self.config), "relative": True}
+        self.assertEqual(self.pick(request, inside), "shaders/glow.frag")
+        self.assertEqual(self.pick({**request, "relative": False}, inside), inside)
+        self.assertEqual(self.pick(request, "/usr/share/x.frag"), "/usr/share/x.frag")
         self.assertEqual(self.ok("pick-file", request), {"cancelled": True})
+        self.assertEqual(self.ok("pick-folder", {}), {"cancelled": True})
 
     def test_pick_file_is_relative_through_a_symlinked_config_folder(self):
         real = self.root / "dotfiles"
@@ -558,10 +539,41 @@ class ChooserTests(HelperTestCase):
         linked = self.root / "linked-config"
         linked.symlink_to(real)
         request = {"config": str(linked / "config.toml"), "relative": True}
-        chosen = str(real / "shaders" / "glow.frag")  # choosers may return the resolved path
-        self.assertEqual(self.ok("pick-file", request, env={**self.env, "CHOSEN": chosen})["path"], "shaders/glow.frag")
+        self.assertEqual(self.pick(request, str(real / "shaders" / "glow.frag")), "shaders/glow.frag")
 
-    def test_choosers_need_zenity_or_kdialog(self):
-        env = {**self.env, "PATH": str(self.root / "nowhere")}
-        self.assertEqual(self.fails("pick-file", {}, env=env)["code"], "missing_chooser")
-        self.assertEqual(self.fails("pick-folder", {}, env=env)["code"], "missing_chooser")
+    def test_pick_file_for_a_command_writes_an_apps_exec_line_or_the_quoted_program(self):
+        apps = self.root / "apps"
+        apps.mkdir()
+        (apps / "foo.desktop").write_text("[Desktop Entry]\nName=Foo\nExec=foo  --new %U --pct=50%%\n"
+                                          "[Desktop Action x]\nExec=foo --other\n")
+        (apps / "empty.desktop").write_text("[Desktop Entry]\nName=Empty\n")
+        request = {"command": True, "relative": True, "config": str(self.config)}
+        self.assertEqual(self.pick(request, str(apps / "foo.desktop")), "foo --new --pct=50%")
+        program = str(self.config.parent / "my tools" / "start.sh")  # quoted, and never relative
+        self.assertEqual(self.pick(request, program), f"'{program}'")
+        self.assertEqual(self.pick(request, "/usr/bin/kitty"), "/usr/bin/kitty")
+        failed = self.fails("pick-file", {**request, "chosen": str(apps / "empty.desktop")})
+        self.assertEqual(failed["code"], "no_command")
+
+    def test_pick_folder_writes_home_as_a_variable(self):
+        home = self.env.get("HOME") or os.path.expanduser("~")
+        env = {**self.env, "HOME": home}
+        self.assertEqual(self.ok("pick-folder", {"chosen": home + "/Music"}, env=env)["path"], "$HOME/Music")
+        self.assertEqual(self.ok("pick-folder", {"chosen": "/srv/media"}, env=env)["path"], "/srv/media")
+
+    def test_list_dir_lists_folders_then_matching_files_without_hidden_ones(self):
+        folder = self.root / "browse"
+        (folder / "Sub").mkdir(parents=True)
+        (folder / ".hidden").mkdir()
+        for name in ("b.ICC", "a.icm", "notes.txt", ".secret.icc"):
+            (folder / name).write_text("")
+        listing = self.ok("list-dir", {"path": str(folder), "filter": ["ICC profiles", "*.icc *.icm"]})
+        self.assertEqual((listing["path"], listing["parent"]), (str(folder), str(self.root)))
+        self.assertEqual((listing["folders"], listing["files"]), (["Sub"], ["a.icm", "b.ICC"]))
+        self.assertEqual(self.ok("list-dir", {"path": str(folder), "folders": True})["files"], [])
+        self.assertEqual(len(self.ok("list-dir", {"path": str(folder)})["files"]), 3)
+        # no path: where the browser opens (start, else the config's folder)
+        self.assertEqual(self.ok("list-dir", {"start": str(folder / "missing"), "config": str(self.config)})["path"],
+                         str(self.config.parent))
+        self.assertIsNone(self.ok("list-dir", {"path": "/"})["parent"])
+        self.assertEqual(self.fails("list-dir", {"path": str(folder / "notes.txt")})["code"], "not_folder")

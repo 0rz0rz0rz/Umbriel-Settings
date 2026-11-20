@@ -40,8 +40,11 @@ same core and interface code, so they look and behave alike; the app adds a side
 - **Names instead of typing**: an animation's Curve offers your own named Bézier and spring curves next to
   the built-in ones, effect settings offer your effect presets and pools, and output settings (X11 primary
   output, tablet/touch mapping, a rule's output) offer your configured and connected outputs, all still with
-  **Custom…**. Curves, presets and pools from your include files count too. **Browse…** picks the files for
-  includes, effect shaders (relative to the config when inside its folder) and ICC color profiles.
+  **Custom…**. Curves, presets and pools from your include files count too. **Browse…** (a file browser of its
+  own, the same in the app and the panel) picks the files for includes, effect shaders (relative to the config
+  when inside its folder) and ICC color profiles. For
+  autostart commands it lists the installed apps like the default apps do (an app adds its command), with
+  **Browse files…** for any other program (added as its quoted path).
 - **Keyboard layouts**: **Choose…** next to Layout, Variant and XKB options (also for input devices) picks
   layouts in order, a variant for each and options from XKB's own list, and shows the active layout.
 - **Keybinds** in groups: build shortcuts from modifier chips, pick actions from a searchable catalog, set

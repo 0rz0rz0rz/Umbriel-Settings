@@ -79,6 +79,17 @@ class DefaultAppsPluginTests(HelperTestCase):
         self.assertEqual(self.helper("extension", ".pdf")["mime"], "application/pdf")
         self.helper("extension", "bad/extension", success=False)
 
+    def test_app_command_is_the_exec_line_of_the_installed_app(self):
+        appdir = self.root / "data" / "applications"
+        (appdir / "kde").mkdir(parents=True)
+        (appdir / "term.desktop").write_text("[Desktop Entry]\nName=Term\nExec=term --login %F\n")
+        (appdir / "kde" / "sub.desktop").write_text("[Desktop Entry]\nName=Sub\nExec=sub\n")
+        (appdir / "noexec.desktop").write_text("[Desktop Entry]\nName=None\n")
+        self.assertEqual(self.call("app-command", {"id": "term.desktop"})["command"], "term --login")
+        self.assertEqual(self.call("app-command", {"id": "kde-sub.desktop"})["command"], "sub")
+        for app_id in ("noexec.desktop", "missing.desktop", "../term.desktop", "term"):
+            self.assertEqual(self.fails("app-command", {"id": app_id})["code"], "no_command", app_id)
+
     def test_only_the_desktop_entry_group_counts_and_broken_files_are_skipped(self):
         appdir = self.root / "data" / "applications"
         (appdir / "kde").mkdir(parents=True)

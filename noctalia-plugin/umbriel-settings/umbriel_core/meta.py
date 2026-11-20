@@ -46,6 +46,8 @@ FILE_FIELDS = {
                                     "start": "/usr/share/color/icc"},
     "include.files": {"title": "Choose a config file to include", "filter": ["TOML files", "*.toml"]},
     "include.optional.files": {"title": "Choose a config file to include", "filter": ["TOML files", "*.toml"]},
+    # `command`: Browse… lists the installed apps (their Exec command) and offers files for other programs
+    "general.autostart": {"title": "Choose a program to start", "start": "~", "command": True},
 }
 
 # output modes the UI offers as Resolution and Refresh rate lists while the output is connected

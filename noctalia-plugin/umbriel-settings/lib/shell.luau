@@ -18,6 +18,7 @@ local desktop = require("../pages/desktop.luau")
 local review = require("../pages/review.luau")
 local about = require("../pages/about.luau")
 local xkb = require("../pages/xkb.luau")
+local files = require("../pages/files.luau")
 
 local M = {}
 
@@ -30,7 +31,7 @@ function M.create(layout, options)
   local draftChecked = false
   local firstLoad = true
   local ctx = { view = view, store = store, helper = helper, loading = loading, options = options,
-                isApp = options.isApp == true, menuHandlers = {} }
+                isApp = options.isApp == true }
   local epoch = 0
 
   -- Input keys carry view.gen[key]. Keys that were never bumped read the epoch, so raising it replaces the
@@ -87,6 +88,7 @@ function M.create(layout, options)
     if name == "keybinds" or name == "keybind" or name == "actions" then return keybinds.render(ctx, current) end
     if name == "folders" or name == "apps" or name == "appPicker" then return desktop.render(ctx, current) end
     if name == "about" then return about.render(ctx, current) end
+    if name == "files" then return files.render(ctx, current) end
     if name == "customized" then return home.renderCustomized(ctx) end
     return review.render(ctx, current)
   end
@@ -395,7 +397,9 @@ function M.create(layout, options)
 
   -- Busy flags of the live pickers (open windows/layers, XKB list, Run now): a dropped answer never clears them.
   function ctx.clearPickerBusy()
-    view.kbRunning, view.xkbLoading, view.browsing = false, false, false
+    view.kbRunning, view.xkbLoading = false, false
+    if view.files and (view.files.loading or view.files.choosing) then view.files = nil end  -- listed again
+    view.appCommandBusy = false
     if view.live and view.live.loading then view.live = nil end
     if liveOutputs and liveOutputs.loading then liveOutputs = nil end
   end
@@ -457,12 +461,6 @@ function M.create(layout, options)
         ctx.home()
       end
     end
-  end
-
-  -- Context menus must call a global function of the entry script; entries forward it here.
-  function handlers.onMenu(action, context)
-    local handler = ctx.menuHandlers[tostring(context)]
-    if handler then handler(action) end
   end
 
   -- Drop zones name a global too (Noctalia validates onDrop as a string); the page that drew them owns it.

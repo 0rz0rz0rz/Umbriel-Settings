@@ -103,8 +103,33 @@ def desktop_entry(path, wanted):
     return entry
 
 
+FIELD_CODE = re.compile(r"%(.)")
+
+
+def exec_command(path):
+    """A desktop file's Exec command without its field codes (%U, %f, …; %% stays a %), or None."""
+    entry = desktop_entry(path, {"exec"})
+    command = FIELD_CODE.sub(lambda match: "%" if match.group(1) == "%" else "", (entry or {}).get("exec", ""))
+    return " ".join(command.split()) or None
+
+
 def application_roots():
     return [Path(root) / "applications" for root in (xdg_data_home(), *xdg_data_dirs())]
+
+
+def app_path(app_id):
+    """The desktop file an installed app ID names (the first root wins; `kde-foo.desktop` may be `kde/foo.desktop`)."""
+    if not app_id.endswith(".desktop") or "/" in app_id or app_id.startswith("."):
+        return None
+    for root in application_roots():
+        if (root / app_id).is_file():
+            return root / app_id
+        for directory, _subdirs, filenames in os.walk(root):
+            for filename in filenames:
+                path = Path(directory) / filename
+                if filename.endswith(".desktop") and str(path.relative_to(root)).replace(os.sep, "-") == app_id:
+                    return path
+    return None
 
 
 def entry_name(entry, languages):

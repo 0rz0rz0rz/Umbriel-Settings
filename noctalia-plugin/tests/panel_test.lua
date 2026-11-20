@@ -250,11 +250,6 @@ local function opacitySlider(id)
               "opacity slider for " .. id)
 end
 assert(opacitySlider("colors.title_bar.background").props.value == 1, "the picked #112233FF is fully opaque")
--- a mouse-wheel notch over a slider changes nothing (it is meant to scroll the page)
-local before = opacitySlider("colors.title_bar.background")
-H.slide(before, 0.99, true)
-assert(store.fieldChanges["colors.title_bar.background"].value == "#112233FF", "the wheel changed nothing")
-assert(opacitySlider("colors.title_bar.background").props.key ~= before.props.key, "the slider is rebuilt at its value")
 -- dragging previews the value and stores it on release
 local dragged = opacitySlider("colors.title_bar.background")
 dragged.props.onChange("0.6")
@@ -262,7 +257,6 @@ flushReads()
 assert(hasText("0.60 · 99") and store.fieldChanges["colors.title_bar.background"].value == "#112233FF",
        "previewed, not stored yet: " .. screen())
 dragged.props.onChange("0.5")
-H.clock = H.clock + 150
 dragged.props.onDragEnd()
 assert(store.fieldChanges["colors.title_bar.background"].value == "#11223380", "0.5 is alpha 80, color kept")
 H.slide(opacitySlider("colors.title_bar.background_unfocused"), 0.84)
@@ -478,34 +472,98 @@ assert(launcherAction() == "workspace-move-to-output HDMI-A-1 --output HDMI-A-1"
 H.input("^kb%-action%-").props.onChange("spawn kitty")
 assert(not H.byKey("kb-arg"), "no picker for a command line")
 
--- Browse… fills path settings from a file chooser
+-- Browse… in the panel (it stays above every window): a file browser page of its own (helper `list-dir`)
+local listings = {}
+replies["list-dir"] = function(request)
+  table.insert(listings, request)
+  if request.path == "/nope" then return false, "/nope is not a folder." end
+  local path = request.path or "/usr/share/umbriel"
+  if path == "/usr/share/umbriel/effects" then
+    return true, json.encode({ path = path, parent = "/usr/share/umbriel", folders = {},
+                               files = { "glow.toml", "pulse.toml" } })
+  end
+  return true, json.encode({ path = path, parent = "/usr/share", folders = { "effects" }, files = { "config.toml" } })
+end
 replies["pick-file"] = function(request)
-  assert(request.filter[2] == "*.toml" and request.config, "TOML filter and the config for relative paths")
-  return true, json.encode({ path = "/usr/share/umbriel/effects/border/pulse/effect.toml" })
+  assert(request.chosen, "the panel sends the file it chose")
+  return true, json.encode({ path = request.relative and "shaders/glow.frag" or request.chosen })
 end
 goHome()
 clickText("General")
 clickText("Includes")
-find("button", function(n) return n.props.key == "f:include.files:browse" end).props.onClick()
+byKey("f:include.files:browse").props.onClick()
+flushReads()
+assert(listings[1].filter[2] == "*.toml" and listings[1].config and not listings[1].path, "opens where a chooser would")
+assert(byKey("folder-effects") and byKey("file-config.toml"), screen())
+byKey("folder-effects").props.onClick()
+flushReads()
+assert(listings[#listings].path == "/usr/share/umbriel/effects")
+H.input("^files%-search%-").props.onChange("pul")
+assert(not byKey("file-glow.toml") and byKey("file-pulse.toml"), "the filter narrows the folder")
+H.input("^files%-path%-").props.onSubmit("/nope")
+flushReads()
+assert(hasText("/nope is not a folder.") and byKey("file-pulse.toml"), "a wrong path keeps the folder shown")
+byKey("file-pulse.toml").props.onClick()
 flushReads()
 local includes = store.value("include.files")
-assert(includes[#includes] == "/usr/share/umbriel/effects/border/pulse/effect.toml", "appended to the list")
-replies["pick-file"] = function() return true, json.encode({ cancelled = true }) end
-find("button", function(n) return n.props.key == "f:include.files:browse" end).props.onClick()
+assert(includes[#includes] == "/usr/share/umbriel/effects/pulse.toml", "appended to the list")
+byKey("f:include.files:browse").props.onClick()
 flushReads()
-assert(#store.value("include.files") == #includes, "cancelling changes nothing")
+byKey("back").props.onClick()
+assert(#store.value("include.files") == #includes, "going back changes nothing")
+-- autostart: Browse… lists the installed apps like the default apps; the app's command is appended
+table.insert(store.desktop.apps.apps, 1, { id = "aaa-term.desktop", name = "AAA Term" })
+replies["app-command"] = function(request) return true, json.encode({ command = "aaa-term --login" }) end
+goHome()
+clickText("General")
+clickText("Session")
+byKey("f:general.autostart:browse").props.onClick()
+assert(hasText("Choose an app"), screen())
+byKey("app-aaa-term.desktop").props.onClick()
+flushReads()
+assert(lastCall("app-command").request.id == "aaa-term.desktop")
+local autostart = store.value("general.autostart")
+assert(autostart[#autostart] == "aaa-term --login", "the app's command is appended")
+assert(byKey("f:general.autostart:browse"), "back on the form")
+-- …or any program: the file browser takes the app list's place, so choosing returns to the form
+byKey("f:general.autostart:browse").props.onClick()
+clickText("Browse files…")
+flushReads()
+byKey("file-config.toml").props.onClick()
+flushReads()
+assert(lastCall("pick-file").request.command == true, "autostart asks for a command")
+autostart = store.value("general.autostart")
+assert(autostart[#autostart] == "/usr/share/umbriel/config.toml" and byKey("f:general.autostart:browse"), screen())
 -- on a text setting, the chosen path replaces the box's text (a new key: inputs are uncontrolled)
 goHome()
 clickText("Effects")
 clickText("glow")
+clickText("Preset")  -- groups start closed
 local function shaderInput()
   return find("input", function(n) return tostring(n.props.key):match("shader:text:") ~= nil end)
 end
 local shaderKey = shaderInput().props.key
-replies["pick-file"] = function() return true, json.encode({ path = "shaders/glow.frag" }) end
 find("button", function(n) return tostring(n.props.key):match("shader:browse$") ~= nil end).props.onClick()
 flushReads()
+byKey("file-config.toml").props.onClick()
+flushReads()
 assert(shaderInput().props.key ~= shaderKey and shaderInput().props.value == "shaders/glow.frag", "the box shows the path")
+-- user folders: folders only, then "Use this folder"
+replies["pick-folder"] = function(request) return true, json.encode({ path = "$HOME/" .. request.chosen:match("[^/]+$") }) end
+goHome()
+clickText("User folders")
+find("button", function(n) return n.props.text == "Browse…" end).props.onClick()
+flushReads()
+assert(listings[#listings].folders == true, "only folders")
+byKey("folder-effects").props.onClick()
+flushReads()
+clickText("Use this folder")
+flushReads()
+assert(lastCall("pick-folder").request.chosen == "/usr/share/umbriel/effects")
+local changedDir = false
+for _, value in pairs(store.desktop.userdirs.values) do if value == "$HOME/effects" then changedDir = true end end
+assert(changedDir, "the folder is set")
+store.undo()
 
 -- maps: edit a row in place
 goHome()
@@ -588,7 +646,7 @@ clickText("Save")
 assert(lastCall("set-editor").request.editor == "code --new-window", "editor saved")
 assert(not hasText("Set up palette template"), "palette template is app-only")
 
--- number sliders: a wheel notch changes nothing; a drag shows its value in the box and stores it on release
+-- number sliders: a drag shows its value in the box and stores it on release
 local store = loaded[pluginDir .. "/lib/store.luau"]
 entry.onKey("ctrl+f", true)
 clickText("Appearance")
@@ -600,13 +658,10 @@ local function widthBox()
   return find("input", function(n) return tostring(n.props.key):find("f:appearance.border_width:num:", 1, true) == 1 end)
 end
 local width = store.value("appearance.border_width")
-H.slide(widthSlider(), (width or 0) + 1, true)
-assert(store.value("appearance.border_width") == width, "the wheel changed nothing")
 local drag = widthSlider()
 drag.props.onChange("7")
 flushReads()
 assert(widthBox().props.value == "7" and store.value("appearance.border_width") == width, "previewed in the box")
-H.clock = H.clock + 150
 drag.props.onDragEnd()
 assert(store.value("appearance.border_width") == 7, "stored on release")
 -- typing into the box moves the slider; Noctalia reports that move, which must not replace the box being typed in

@@ -3,6 +3,7 @@
 local kit = require("./kit.luau")
 local format = require("./format.luau")
 local displays = require("../lib/displays.luau")
+local files = require("../pages/files.luau")
 
 local M = {}
 
@@ -46,22 +47,16 @@ local function hasDefault(field) return field.default ~= nil end
 local function gen(view, key) return tostring(view.gen[key] or 0) end
 local function bump(view, key) view.gen[key] = (view.gen[key] or 0) + 1 end
 
--- Sliders commit on onDragEnd, not on every onChange. Noctalia steps a slider on mouse-wheel notches (plugins
--- can't turn that off), so scrolling the page over one changed settings by accident. A notch arrives as a
--- single onChange followed at once by onDragEnd, a few steps from the shown value; the pointer changes the value
--- on press and ends on release. Such gestures are dropped in the panel and the slider is rebuilt at its value.
--- (Arrow keys on a focused slider look the same; the number box next to it takes typed values.)
+-- Sliders commit on onDragEnd, not on every onChange.
 -- props: key, min, max, step, value, ...; preview(number) runs on every change; commit(number) once at the end.
-local WHEEL_MS, WHEEL_STEPS = 20, 3
-local function now() return noctalia.nowMs and noctalia.nowMs() or 0 end
 -- Noctalia also calls onChange when a render moves the slider (Slider::setValue reports every new value), and it
 -- calls the previous render's handler. Without a gesture, a value at the one rendered last is that echo: taking it
 -- for a drag would rebuild the number box next to it while someone types there.
 local function slider(ctx, props, preview, commit)
-  local view, key, shown = ctx.view, props.key, props.value
+  local view, key = ctx.view, props.key
   view.sliding = view.sliding or {}
   view.sliderShown = view.sliderShown or {}
-  view.sliderShown[key] = shown
+  view.sliderShown[key] = props.value
   props.key = key .. ":" .. gen(view, key)
   props.onChange = function(text)
     local number = tonumber(text)
@@ -70,10 +65,10 @@ local function slider(ctx, props, preview, commit)
     local rendered = view.sliderShown[key]
     if not gesture and rendered ~= nil and math.abs(number - rendered) <= (props.step or 0) / 2 + 1e-9 then return end
     if not gesture then
-      gesture = { at = now(), count = 0 }
+      gesture = {}
       view.sliding[key] = gesture
     end
-    gesture.count, gesture.value = gesture.count + 1, number
+    gesture.value = number
     if preview then preview(number) end
     ctx.renderSoon()
   end
@@ -81,14 +76,7 @@ local function slider(ctx, props, preview, commit)
     local gesture = view.sliding[key]
     view.sliding[key] = nil
     if not gesture then return end
-    local final = tonumber(text) or gesture.value  -- the app passes the final value along
-    local wheel = not ctx.isApp and gesture.count == 1 and now() - gesture.at <= WHEEL_MS
-      and math.abs(final - (shown or final)) <= (props.step or 0) * WHEEL_STEPS + 1e-9
-    if wheel then
-      bump(view, key)  -- a new slider shows the stored value again; Noctalia moved the old one's thumb
-    else
-      commit(final)
-    end
+    commit(tonumber(text) or gesture.value)  -- the app passes the final value along
     ctx.render()
   end
   return ui.slider(props)
@@ -421,23 +409,20 @@ local function modeControl(ctx, spec)
   return { resSelect, rateSelect }
 end
 
--- Browse… for path fields (meta `picker = "file"`): `onChosen(path)` gets the chosen file.
+-- Browse… for path fields (meta `picker = "file"`): `onChosen(value)` gets the chosen file; a `command` field
+-- (autostart) first lists the installed apps, like the default apps.
 local function browseButton(ctx, spec, onChosen)
   local field, view = spec.field, ctx.view
   local options = field.file or {}
   return ui.button({ key = spec.key .. ":browse", text = "Browse…", glyph = "folder-open", controlSize = "sm",
-    variant = "outline", enabled = not view.browsing, tooltip = options.title,
+    variant = "outline", tooltip = options.command and "Choose an app" or options.title,
     onClick = function()
-      view.browsing = true
-      ctx.render()
-      ctx.helper.call("pick-file", { title = options.title, filter = options.filter, start = options.start,
-                                     relative = options.relative, config = ctx.store.state and ctx.store.state.path },
-        function(err, data)
-          view.browsing = false
-          if err then ctx.flash(err.error, "warning")
-          elseif data.path then onChosen(data.path) end
-          ctx.render()
-        end)
+      if options.command then
+        view.pick, view.appQuery = { options = options, onChosen = onChosen }, ""
+        ctx.go({ name = "appPicker", kind = "command", target = field.label })
+      else
+        files.open(ctx, options, onChosen)
+      end
     end })
 end
 

@@ -23,7 +23,7 @@ The same interface also runs as a standalone app: see the
 - `umbriel` on `PATH`: defaults, ranges, validation before saving, the **Outputs** display arrangement and
   mode lists, **Pick from open windows/layers** and **Run now**.
   Without it settings can still be edited, but aren't checked before writing.
-- Optional: `zenity` or `kdialog` (**Browse** for folders and files), `gio` (open the standalone app), `xdg-open` or an
+- Optional: `gio` (open the standalone app), `xdg-open` or an
   editor command set under **About** (**Edit file**). Buttons explain what's missing.
 
 ## Usage
@@ -70,8 +70,9 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
   ![The Outputs page: three displays drawn to scale, the default one starred](screenshot-outputs.png)
 - **Curve, effect and output settings** offer your own named curves, effect presets and pools (also from
   include files) and your configured and connected outputs; **Browse…** picks include files, effect shaders
-  and ICC profiles. A keybind action's first argument (output, preset, pool, submap, scratchpad, named
-  workspace) has a list too.
+  and ICC profiles in a file browser of its own (the panel stays above other windows), and for autostart
+  commands lists the installed apps like the default apps do. A keybind action's first argument (output,
+  preset, pool, submap, scratchpad, named workspace) has a list too.
 - **Keyboard layouts**: **Choose…** next to Layout, Variant and XKB options picks from XKB's list.
 - **Keybinds** are grouped: build shortcuts from modifier chips, pick actions from a searchable catalog,
   lock shortcuts against accidental changes. **Run now** (click twice) sends the action to Umbriel once;
@@ -92,8 +93,7 @@ Noctalia as a draft; edits for another config file wait until that file is open 
 save runs stay unsaved instead of being lost.
 
 Keys: Ctrl+F search, Ctrl+S review, Ctrl+Z undo the last unsaved edit (also **Undo** in the save bar),
-Alt+Left back, Esc close. Scrolling the mouse wheel over a slider doesn't change it; drag it or type in the
-box next to it.
+Alt+Left back, Esc close.
 
 ## Settings
 
@@ -142,7 +142,7 @@ box next to it.
   bytecode cache in the plugin data directory); `umbriel config validate` (on a temporary `.umbriel-settings-*.toml` next to the config,
   removed afterwards), `umbriel config schema --json`, `umbriel outputs --json`, `umbriel windows --json`, `umbriel layers --json`,
   `umbriel keyboard-layouts --json`; on button press only: `umbriel msg <action>` (**Run now**),
-  `zenity`/`kdialog`, `gio launch`, `xdg-open` or your editor. Noctalia runs `python3 titlebar_apply.py`
+  `gio launch`, `xdg-open` or your editor. Noctalia runs `python3 titlebar_apply.py`
   after palette changes while a title-bar color follows it.
 - **Network**: none.
 - `umbriel_core/` is the config library shared with the standalone app, bundled so the plugin works alone.

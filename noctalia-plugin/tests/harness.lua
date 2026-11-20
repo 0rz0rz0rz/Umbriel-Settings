@@ -260,7 +260,7 @@ entry.require = makeRequire(pluginDir)
 function H.start(name, app)
   entry.APP = app
   assert(loadfile(pluginDir .. "/" .. name, "t", entry))()
-  for _, global in ipairs({ "onOpen", "onClose", "onFrameTick", "onKey", "onMenu", "onDrop", "onExternalChange" }) do
+  for _, global in ipairs({ "onOpen", "onClose", "onFrameTick", "onKey", "onDrop", "onExternalChange" }) do
     if type(rawget(entry, global)) == "function" then entry[global] = timed(global, rawget(entry, global)) end
   end
   return entry
@@ -368,11 +368,9 @@ function H.drag(sourceKey, zoneKey)
   entry[zone.props.onDrop](source.props.payload, zone.props.value)
   flushReads()
 end
--- Moves a slider like the pointer does (press, drag, release later); `wheel` = a mouse-wheel notch, which Noctalia
--- reports as one change and an immediate drag end.
-function H.slide(node, value, wheel)
+-- Moves a slider like the pointer does: changes, then releases.
+function H.slide(node, value)
   node.props.onChange(tostring(value))
-  if not wheel then H.clock = H.clock + 150 end
   node.props.onDragEnd()
 end
 H.timing = timing

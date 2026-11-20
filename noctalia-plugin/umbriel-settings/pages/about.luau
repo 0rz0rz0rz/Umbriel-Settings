@@ -110,12 +110,13 @@ function M.render(ctx, route)
     "",
     schemaText(meta.schema or {}),
     "",
-    "**Keys:** Ctrl+F search · Ctrl+S review and save · Alt+Left back · Esc close (edits are kept).",
+    "**Keys:** Ctrl+F search · Ctrl+S review and save · Ctrl+Z undo · Alt+Left back · "
+      .. (ctx.isApp and "Esc clears the search or goes back." or "Esc closes the panel (edits are kept)."),
     "",
     "Edits stay unsaved until you review them. Before writing, the new file is checked with "
       .. "`umbriel config validate`; a copy of the old file is kept under Backups. Comments and formatting are preserved.",
     "",
-    "Needs Python 3 with **tomlkit** (Arch: `python-tomlkit`). Folder browsing uses zenity or kdialog.",
+    "Needs Python 3 with **tomlkit** (Arch: `python-tomlkit`).",
   }
   local content = { ui.markdown({ key = "about", text = table.concat(lines, "\n") }) }
   if state.error then table.insert(content, kit.notice(state.error, "error", nil, "about-error")) end

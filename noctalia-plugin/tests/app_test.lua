@@ -111,5 +111,24 @@ local kb = loaded[pluginDir .. "/lib/store.luau"].keybinds
 local second = kb.rows[2].key
 H.drag("kbgrip-2", "kbgap-1")
 assert(kb.rows[1].key == second, "dragged before the first shortcut")
+-- autostart in the app: Browse files… on the app list opens the same file browser as the panel, then the form
+local store = loaded[pluginDir .. "/lib/store.luau"]
+clickText("General")
+if not H.byKey("f:general.autostart:browse") then clickText("Session") end
+H.byKey("f:general.autostart:browse").props.onClick()
+assert(hasText("Choose an app"), screen())
+replies["list-dir"] = function()
+  return true, json.encode({ path = "/opt", parent = "/", folders = {}, files = { "my tool" } })
+end
+replies["pick-file"] = function(request)
+  assert(request.command and request.chosen == "/opt/my tool", "the browser's file, as a command")
+  return true, json.encode({ path = "'/opt/my tool'" })
+end
+clickText("Browse files…")
+flushReads()
+H.byKey("file-my tool").props.onClick()
+flushReads()
+local autostart = store.value("general.autostart")
+assert(autostart[#autostart] == "'/opt/my tool'" and H.byKey("f:general.autostart:browse"), screen())
 H.checkBudget("app", 0.025)
 print("app ok")

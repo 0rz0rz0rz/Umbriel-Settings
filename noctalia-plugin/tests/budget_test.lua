@@ -124,5 +124,23 @@ flushReads()
 if not H.walk(H.tree(), function(n) return tostring(n.props.key):match(":resolution$") end) then click("Basics") end
 find("select", function(n) return tostring(n.props.key):match(":resolution$") end).props.onChange("3")
 flushReads()
+-- the panel's own file browser on a folder at the helper's 2000-entry cap, filtered as the user types
+if layout == "panel" then
+  local programs = {}
+  for i = 1, 1990 do table.insert(programs, "program-" .. i) end
+  H.replies["list-dir"] = function()
+    return true, H.json.encode({ path = "/usr/bin", parent = "/usr", folders = { "lib" }, files = programs })
+  end
+  search("")
+  assert(click("General"), "General card")
+  if not H.byKey("f:include.files:browse") then click("Includes") end  -- still open from the page sweep
+  local browse = H.byKey("f:include.files:browse")
+  assert(browse, "Includes Browse…\nScreen: " .. H.screen())
+  browse.props.onClick()
+  flushReads()
+  assert(H.byKey("file-program-1"), "file rows\nScreen: " .. H.screen())
+  H.input("^files%-search%-").props.onChange("program-19")
+  flushReads()
+end
 H.checkBudget("budget " .. layout, 0.025)
 print("budget ok")

@@ -51,7 +51,7 @@ end
 function M.groups(ctx, pageKey, groups, spec, counts)
   local view = ctx.view
   if view.expanded[pageKey] == nil then
-    view.expanded[pageKey] = (not ctx.isApp and groups[1] and groups[1].title) or false
+    view.expanded[pageKey] = false  -- every group closed until one is opened
   end
   local open = view.expanded[pageKey]
   local onlyCustomized = view.onlyCustomized
