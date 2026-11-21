@@ -14,6 +14,9 @@ The same interface also runs as a standalone app: see the
 | --- | --- |
 | ID | `0rz0rz0rz/umbriel-settings` |
 | Entries | Bar widget: `settings`; panel: `main` |
+| Version | `0.2.0` |
+| Made for Umbriel | `0.1.0` |
+| Needs Noctalia | `5.4.0` or newer (plugin API 43) |
 
 ## Requirements
 
@@ -92,7 +95,8 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
 - **Title-bar colors**: on Colors → Title bar, **KDE** / **KDE header** make a background follow Noctalia's
   palette at the chosen opacity; after one save, palette changes update it even with the panel closed. A
   fixed color stops following. Each config follows on its own.
-- **About** shows the version, options your Umbriel has that aren't covered yet, and the editor command.
+- **About** shows the version, the Umbriel and Noctalia versions it is made for (and notes when your Umbriel
+  differs), options your Umbriel has that aren't covered yet, and the editor command.
 
 Nothing is written until **Review & save** (Ctrl+S, again to save): the review lists every change with
 **Revert**, shows the diff and runs

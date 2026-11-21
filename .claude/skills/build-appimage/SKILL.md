@@ -1,6 +1,6 @@
 ---
 name: build-appimage
-description: "Use when building, releasing, or republishing a new Umbriel Settings AppImage: bumping the <Umbriel version>-<revision> version, running appimage/build-appimage.sh, testing the result, and updating the GitHub release."
+description: "Use when building, releasing, or republishing a new Umbriel Settings AppImage: bumping the MAJOR.MINOR.PATCH version, running appimage/build-appimage.sh, testing the result, and updating the GitHub release."
 ---
 
 # Build and release an Umbriel Settings AppImage
@@ -9,14 +9,14 @@ description: "Use when building, releasing, or republishing a new Umbriel Settin
 
 ## Version scheme
 
-`__version__` in `python/umbriel_settings/__init__.py` is `<Umbriel version>-<NNN>`, for example `0.1.0-001`.
+`__version__` in `python/umbriel_settings/__init__.py` is the project's own `MAJOR.MINOR.PATCH` (`0.2.0`); `plugin.toml` `version`, the AppImage file name, `--version` and the tag `v<version>` use the same string. Bump from the latest tag (`git describe --tags --abbrev=0`):
 
-- New GUI build for the same Umbriel version: increment `NNN` (`001` -> `002`).
-- New Umbriel version (check `umbriel --version`): use it and reset `NNN` to `001`.
+- PATCH: only fixes since the last release.
+- MINOR (PATCH → 0): new settings, pages or features, a new Umbriel target (`UMBRIEL_VERSION`) or a raised `plugin_api` (`NOCTALIA_VERSION`).
+- MAJOR stays 0 until the user decides on 1.0.0. Releases up to `0.1.0-006` used the old `<Umbriel version>-<NNN>` names.
+- If `__version__` is already above the latest tag (set when the scheme changed), build it as is.
 
-Versions are raised only here, as part of building and releasing a new AppImage; commits and pushes in between keep the released version.
-
-This single value is used by `--version`, the AppImage file name; `plugin.toml` follows it as `<major>.<minor>.<NNN>` (`0.1.0-004` → `0.1.4`; `tests/test_core.py` checks it). Never raise the `0.1.0` part on your own.
+Versions are raised only here, as part of building and releasing a new AppImage; commits and pushes in between keep the released version. Also update the Versions tables in `README.md` (incl. **Latest release**), `noctalia-plugin/README.md` and `noctalia-plugin/umbriel-settings/README.md`; `tests/test_core.py` (`test_versions_agree`) checks app, plugin, targets and READMEs agree.
 
 The build bundles `python/umbriel_settings`, `python/umbriel_core` (one `-x` with two paths) and the shared Luau UI from the plugin (`app.luau`, `lib/`, `ui/`, `pages/`, `umbriel_settings.py`) as `umbriel_settings/ui_shared/`. It installs `python/requirements.txt` (PySide6, tomlkit, lupa) and keeps QtWebEngine, QtWebChannel and their Qt libraries (`libexec/QtWebEngineProcess`, `resources/`, `translations/qtwebengine_locales`). If the built app fails at runtime, check that `umbriel_core/` sits next to `umbriel_settings/` and `ui_shared/app.luau` exists, and run it from a terminal (WebEngine fails when a pruned library is missing). The script prunes unused Qt libraries, plugins and Python stdlib/tooling, then fails if a remaining Qt library still needs a pruned `libQt6*` (uses `readelf`); extend the prune lists, not the guard.
 

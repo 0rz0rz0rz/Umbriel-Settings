@@ -65,8 +65,8 @@ same core and interface code, so they look and behave alike; the app adds a side
 - **Follows your theme** (Noctalia or qt6ct/KDE colors, see [Theming](#theming)) and your locale's decimal
   separator.
 - **Title bars that follow Noctalia's palette** at an opacity you choose ([details](#title-bar-colors)).
-- **About** shows the version and which options of your Umbriel version have no setting yet, and sets the
-  editor for **Edit file**.
+- **About** shows the version, the Umbriel version it is made for, which options of your Umbriel version have
+  no setting yet, and sets the editor for **Edit file**.
 
 ## Saving safely
 
@@ -285,12 +285,16 @@ icon is used if none exists or the file is invalid.
 
 | Item | Version |
 | --- | --- |
-| App (`python/umbriel_settings/__init__.py`) | `0.1.0-006` |
-| AppImage (latest release) | `0.1.0-006` |
-| Noctalia plugin (`plugin.toml`) | `0.1.6` |
+| Umbriel Settings (app, AppImage and Noctalia plugin) | `0.2.0` |
+| Made for Umbriel | `0.1.0` |
+| Needs Noctalia (plugin only) | `5.4.0` or newer (plugin API 43) |
+| Latest release | `0.2.0` |
 
-The app version is `<Umbriel version>-<revision>`; each build raises the revision, which restarts at `001`
-when Umbriel's version changes. The plugin uses plain `MAJOR.MINOR.PATCH` (`0.1.0-006` → `0.1.6`).
+Umbriel Settings has its own `MAJOR.MINOR.PATCH` version, shared by the app, the AppImage, the plugin and the
+git tag (`v0.2.0`). A fix raises PATCH; new settings or features, a new Umbriel version or a newer Noctalia
+plugin API raise MINOR. The Umbriel and Noctalia versions it is made for are listed here and in both plugin
+READMEs, and **About** shows them. Releases up to `0.1.0-006` were named `<Umbriel version>-<build>`, all for
+Umbriel 0.1.0.
 
 ## Development
 

@@ -5,14 +5,17 @@ import os
 import sys
 import traceback
 
+from umbriel_core.meta import NOCTALIA_VERSION, UMBRIEL_VERSION
 from umbriel_core.paths import normalize_config_path
 
 from . import APP_NAME, __version__
 
+VERSION_TEXT = f"{APP_NAME} {__version__} (Umbriel {UMBRIEL_VERSION}, Noctalia {NOCTALIA_VERSION}+)"
+
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Edit an Umbriel TOML config file through a graphical interface.")
-    parser.add_argument("--version", action="version", version=f"{APP_NAME} {__version__}")
+    parser.add_argument("--version", action="version", version=VERSION_TEXT)
     parser.add_argument("config", nargs="?", help="Path to the Umbriel config TOML file to edit.")
     parser.add_argument("--config", dest="config_option", help="Explicit path to the Umbriel config TOML file to edit.")
     parser.add_argument("--no-validate", action="store_true", help="Start with validation before saving turned off.")

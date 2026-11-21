@@ -17,13 +17,16 @@ local function pathList(list)
   return text
 end
 
-local function schemaText(schema)
+local function schemaText(schema, targets)
   if not schema.available then
     return "Umbriel's option list is unavailable: " .. tostring(schema.reason or "unknown reason")
       .. ". Built-in defaults are shown."
   end
   local lines = { "Using the option list of Umbriel " .. tostring(schema.version) .. " ("
     .. tostring(schema.revision) .. ")." }
+  if targets.umbriel and schema.version and tostring(schema.version) ~= targets.umbriel then
+    table.insert(lines, "This version of Umbriel Settings was made for Umbriel " .. targets.umbriel .. ".")
+  end
   local missing, stale = schema.missing or {}, schema.stale or {}
   if #missing == 0 and #stale == 0 then
     table.insert(lines, "Every option of this version has a setting here.")
@@ -105,10 +108,15 @@ function M.render(ctx, route)
   local meta = ctx.store.meta
   local title = ctx.isApp and ("**Umbriel Settings** — version " .. tostring(ctx.options.appVersion or meta.version))
     or ("**Umbriel Settings** for Noctalia — version " .. tostring(meta.version))
+  local targets = meta.targets or {}
+  local madeFor = "Made for Umbriel " .. tostring(targets.umbriel)
+    .. (ctx.isApp and "." or (" and Noctalia " .. tostring(targets.noctalia) .. " or newer."))
   local lines = {
     title,
     "",
-    schemaText(meta.schema or {}),
+    madeFor,
+    "",
+    schemaText(meta.schema or {}, targets),
     "",
     "**Keys:** Ctrl+F search · Ctrl+S review and save · Ctrl+Z undo · Alt+Left back · "
       .. (ctx.isApp and "Esc clears the search or goes back." or "Esc closes the panel (edits are kept)."),

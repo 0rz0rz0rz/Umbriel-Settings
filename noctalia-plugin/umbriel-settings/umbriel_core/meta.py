@@ -15,6 +15,10 @@ from .keybinds import BIND_BOOL_OPTIONS
 from .schema import field_schema_option
 from .values import to_ui
 
+# What this version of Umbriel Settings is made for (READMEs list both; tests/test_core.py checks them).
+UMBRIEL_VERSION = "0.1.0"  # fields synced against this Umbriel (sync-umbriel-schema)
+NOCTALIA_VERSION = "5.4.0"  # oldest Noctalia the plugin runs on; follows plugin_api in plugin.toml
+
 PAGE_KINDS = {
     "User folders": "userdirs",
     "Default apps": "apps",
@@ -179,6 +183,7 @@ def build_meta(schema_options, schema_info=None, plugin_version=""):
         info["glyph"] = PAGE_GLYPHS.get(page, "settings")
     return {
         "version": plugin_version,
+        "targets": {"umbriel": UMBRIEL_VERSION, "noctalia": NOCTALIA_VERSION},
         "schema": schema_info or {"available": False},
         "nav": [
             {"title": title, "pages": names, "help": CATEGORY_HELP.get(title, "")}

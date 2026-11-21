@@ -10,6 +10,6 @@ description: "Use when Umbriel was updated or the GUI may be out of date: compar
 3. For each unsupported option, find a sibling field with `grep -n "<sibling path>" python/umbriel_core/fields.py` and add a new `F(...)` entry next to it in the same group (see `F` in `umbriel_core/fields.py`). Use `umbriel config schema --json` for the option's type, default and range, and the comment next to the key in `/usr/share/umbriel/config.toml` for help text (see `add-setting-field`). The Umbriel version string can stay the same while the build hash in `umbriel --version` changes and adds options.
 4. Remove or rename stale fields flagged by the check. Keep keybind actions in `umbriel_core/actions.py` in step with the schema.
 5. Re-run the check until it reports `0 unsupported option(s), 0 stale GUI field(s)`, then run `python tools/sync_plugin_core.py` and `python tools/check.py core plugin host schema`. Both frontends pick the fields up from the core.
-6. If the Umbriel version changed, set `__version__` in `python/umbriel_settings/__init__.py` to `<new Umbriel version>-001`.
+6. If the Umbriel version changed, set `UMBRIEL_VERSION` in `python/umbriel_core/meta.py` and the **Made for Umbriel** rows of the three READMEs (`README.md`, `noctalia-plugin/README.md`, `noctalia-plugin/umbriel-settings/README.md`), then sync the core. Leave `__version__` alone: the next release raises MINOR (`build-appimage`).
 
 Do not read `umbriel_core/fields.py` whole. Work from grep hits and short view ranges.

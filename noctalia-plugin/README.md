@@ -8,6 +8,12 @@ backups, rule names and keybind locks.
 Requirements, usage and the files it touches: [plugin README](umbriel-settings/README.md). This page covers
 running it from a checkout and developing it.
 
+| Item | Version |
+| --- | --- |
+| Plugin (same as the app) | `0.2.0` |
+| Made for Umbriel | `0.1.0` |
+| Needs Noctalia | `5.4.0` or newer (plugin API 43) |
+
 ## Run from a checkout
 
 ```sh

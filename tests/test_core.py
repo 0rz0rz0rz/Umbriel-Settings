@@ -52,15 +52,24 @@ class CoreIsolationTests(unittest.TestCase):
         result = import_blocked(sorted(TOMLKIT_FREE), ["PySide6", "tomlkit"])
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_app_and_plugin_share_one_version(self):
-        """App `<Umbriel version>-<NNN>`; plugin `<major>.<minor>.<NNN>` (Noctalia needs plain semver)."""
+    def test_versions_agree(self):
+        """One MAJOR.MINOR.PATCH for app and plugin; the Umbriel/Noctalia targets match plugin_api and every README."""
+        from umbriel_core.meta import NOCTALIA_VERSION, UMBRIEL_VERSION, build_meta
+        noctalia_for_api = {43: "5.4.0", 53: "5.5.0", 56: "5.6.0"}  # first release with each API (noctalia-plugin.md)
         with open(os.path.join(PYTHON_DIR, "umbriel_settings", "__init__.py"), encoding="utf-8") as handle:
             app_version = re.search(r'^__version__ = "([^"]+)"', handle.read(), re.M).group(1)
         with open(os.path.join(ROOT, "noctalia-plugin", "umbriel-settings", "plugin.toml"), "rb") as handle:
-            plugin_version = tomllib.load(handle)["version"]
-        match = re.fullmatch(r"(\d+)\.(\d+)\.\d+-(\d{3})", app_version)
-        self.assertTrue(match, app_version)
-        self.assertEqual(plugin_version, f"{match[1]}.{match[2]}.{int(match[3])}")
+            plugin = tomllib.load(handle)
+        self.assertRegex(app_version, r"^\d+\.\d+\.\d+$")
+        self.assertEqual(plugin["version"], app_version)
+        self.assertEqual(noctalia_for_api.get(plugin["plugin_api"]), NOCTALIA_VERSION)
+        self.assertEqual(build_meta({})["targets"], {"umbriel": UMBRIEL_VERSION, "noctalia": NOCTALIA_VERSION})
+        wanted = [f"`{app_version}`", f"| Made for Umbriel | `{UMBRIEL_VERSION}` |",
+                  f"`{NOCTALIA_VERSION}` or newer (plugin API {plugin['plugin_api']})"]
+        for readme in ("README.md", "noctalia-plugin/README.md", "noctalia-plugin/umbriel-settings/README.md"):
+            with open(os.path.join(ROOT, readme), encoding="utf-8") as handle:
+                text = handle.read()
+            self.assertEqual([item for item in wanted if item not in text], [], readme)
 
     def test_appimage_lock_matches_the_requirements(self):
         """The build installs only hashed wheels from appimage/requirements.lock; a version bump needs new pins."""
