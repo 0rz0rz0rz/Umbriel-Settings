@@ -156,7 +156,9 @@ in the save bar), Alt+Left back, Esc close.
 - **Processes**: `python3 umbriel_settings.py <command>` (JSON request/response files and the helper's
   bytecode cache in the plugin data directory); `umbriel config validate` (on a temporary `.umbriel-settings-*.toml` next to the config,
   removed afterwards), `umbriel config schema --json`, `umbriel outputs --json`, `umbriel windows --json`, `umbriel layers --json`,
-  `umbriel keyboard-layouts --json`; on button press only: `umbriel msg <action>` (**Run now**),
+  `umbriel keyboard-layouts --json`, `umbriel subscribe <events>` (live refresh, ends after 25 s or the first
+  change, while a page that shows live state is open); on button press only: `umbriel focused-window --json`
+  (**Use the focused window**), `umbriel msg <action>` (**Run now**),
   `gio launch`, `xdg-open` or your editor. Noctalia runs `python3 titlebar_apply.py`
   after palette changes while a title-bar color follows it.
 - **Network**: none.
