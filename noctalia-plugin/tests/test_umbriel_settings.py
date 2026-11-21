@@ -29,6 +29,25 @@ class ConfigHelperTestCase(ConfigTestCase):
 
 
 class MetaAndReadTests(ConfigHelperTestCase):
+    def test_old_run_files_of_dropped_callbacks_are_swept(self):
+        run = self.root / "run"
+        run.mkdir()
+        old = [run / "titlebar-cleanup-1795278892897-1.req.json", run / "wait-live-1795276748361-10.res.json"]
+        kept = [run / "outputs-1795276748361-9.res.json", run / "notes.json"]  # recent, not a run file
+        for path in old + kept:
+            path.write_text("{}")
+        for path in old + kept[1:]:
+            os.utime(path, (time.time() - 3600,) * 2)
+        request, response = run / "about-1-1.req.json", run / "about-1-1.res.json"
+        request.write_text("{}")
+        result = subprocess.run(
+            [sys.executable, "-B", str(HELPER), "about", "--request", str(request), "--response", str(response)],
+            env=self.env, capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(json.loads(result.stdout), {"ok": True})
+        self.assertEqual(sorted(path.name for path in run.iterdir()),
+                         sorted([request.name, response.name] + [path.name for path in kept]))
+
     def test_meta_files_split_search_text(self):
         out = self.root / "meta"
         response = self.root / "response.json"
