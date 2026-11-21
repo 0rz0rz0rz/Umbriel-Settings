@@ -41,6 +41,7 @@ class AppRenderTests(unittest.TestCase):
 
     def close_window(self):
         self.win.pending = 0
+        self.win.trying = False
         self.win.close()
         # Let background helper calls finish before the temp dir goes: they still write to app-ui/run.
         self.win.scheduler.pool.shutdown(wait=True)
@@ -135,6 +136,7 @@ class AppRenderTests(unittest.TestCase):
         self.win.pending = 0
         self.win.close()
         self.assertEqual(load_window_state(self.win.data_dir), {"width": 1000, "height": 700, "maximized": False})
+        self.assertEqual(os.stat(os.path.join(self.win.data_dir, "window.json")).st_mode & 0o777, 0o600)
         save_window_state(self.win.data_dir, {"width": 5, "height": 5})  # unusable: falls back to the default
         self.assertEqual(load_window_state(self.win.data_dir), {})
 
@@ -331,6 +333,22 @@ class AppRenderTests(unittest.TestCase):
         while str(config) not in self.win.watcher.files() and time.monotonic() < deadline:
             self.pause(50)
         self.assertIn(str(config), self.win.watcher.files())
+
+    def test_closing_during_a_display_try_asks_first(self):
+        self.win.on_state("umbriel.trying", 1)
+        self.assertTrue(self.win.trying)
+        with patch("umbriel_settings.app_window.QMessageBox") as box:
+            box.return_value.clickedButton.return_value = None  # Cancel
+            self.win.close()
+        self.assertTrue(box.called, "the Try prompt is shown")
+        self.assertIn("about 30 seconds", box.return_value.setInformativeText.call_args[0][0])
+        self.assertTrue(self.win.isVisible(), "Cancel keeps the window open")
+        with patch("umbriel_settings.app_window.QMessageBox") as box:
+            box.return_value.clickedButton.side_effect = lambda: box.return_value.addButton.return_value
+            self.win.close()
+        self.assertFalse(self.win.isVisible(), "Close anyway closes")
+        self.win.on_state("umbriel.trying", 0)
+        self.assertFalse(self.win.trying)
 
     def test_sigterm_closes_like_the_close_button_without_asking(self):
         import signal

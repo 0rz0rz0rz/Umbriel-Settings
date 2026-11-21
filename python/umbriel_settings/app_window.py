@@ -54,7 +54,7 @@ class Page(QWebEnginePage):
 def icon_file(app_id, size, cache_dir):
     """Resolve a desktop app id to an icon file the page can show (themed icons are rendered to PNG)."""
     name = (app_id or "").removesuffix(".desktop")
-    if not name:
+    if not name or "/" in name or name.startswith("."):  # the name becomes a file name in the cache
         return None
     icon = QIcon.fromTheme(name)
     if icon.isNull():
@@ -83,7 +83,7 @@ def load_window_state(data_dir):
 
 def save_window_state(data_dir, state):
     with contextlib.suppress(OSError):
-        atomic_write(os.path.join(data_dir, "window.json"), json.dumps(state))
+        atomic_write(os.path.join(data_dir, "window.json"), json.dumps(state), 0o600)
 
 
 def quit_on_signals(app, window):
@@ -112,6 +112,7 @@ class AppWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(f"{TITLE}[*]")
         self.pending = 0
+        self.trying = False  # a display Try waits for Keep or Go back (Lua state umbriel.trying)
         self.config_path = ""
         self.closing_confirmed = False
         self.data_dir = app_data_dir()
@@ -223,6 +224,8 @@ class AppWindow(QMainWindow):
         if key == "umbriel.pending":
             self.pending = int(value or 0)
             self.setWindowModified(self.pending > 0)
+        elif key == "umbriel.trying":
+            self.trying = bool(int(value or 0))
         elif key == "umbriel.config" and value != self.config_path:
             if self.config_path:
                 self.watcher.removePaths([self.config_path, os.path.dirname(self.config_path)])
@@ -265,6 +268,19 @@ class AppWindow(QMainWindow):
 
     # ------------------------------------------------------------------ closing
     def closeEvent(self, event):
+        if self.trying and not self.closing_confirmed:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setWindowTitle("Display Try running")
+            box.setText("Display settings are being tried and wait for Keep or Go back.")
+            box.setInformativeText("If you close now, the previous display settings come back automatically "
+                                   "in about 30 seconds.")
+            close = box.addButton("Close anyway", QMessageBox.ButtonRole.DestructiveRole)
+            box.addButton(QMessageBox.StandardButton.Cancel)
+            box.exec()
+            if box.clickedButton() is not close:
+                event.ignore()
+                return
         if self.pending > 0 and not self.closing_confirmed:
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Icon.Question)

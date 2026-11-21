@@ -300,12 +300,14 @@ assert(byKey("display-try").props.enabled, "display edits can be tried")
 local state = json.decode(H.fixtures.state)
 replies.save = function(request)
   assert(request.validate == true, "a try is validated")
-  return true, json.encode({ saved = true, state = state, backup = "/b/config.toml.9.bak",
+  assert(request.trial == 15, "the helper arms its own rollback before writing")
+  return true, json.encode({ saved = true, state = state, backup = "/b/config.toml.9.bak", trial = "t1",
                              validation = { ran = true, valid = true, diagnostics = {} } })
 end
 replies.restore = function(request)
   assert(request.snapshot == "/b/config.toml.9.bak" and json.encode(request.revision) == json.encode(state.revision),
          "restores the try's backup at the tried revision")
+  assert(request.trial == "t1", "going back claims the trial, so the watcher doesn't restore again")
   return true, json.encode({ state = state, backups = { backups = {} } })
 end
 H.hold("wait")
@@ -316,22 +318,86 @@ assert(#store.entryOps == 0, "saved")
 H.release("wait")
 assert(hasText("Keep these display settings? Going back in 14 seconds."), screen())
 for _ = 1, 14 do H.release("wait") end
-assert(H.lastCall("restore") and hasText("No answer within 15 seconds. The previous display settings are back; your edits are unsaved again."), screen())
+local AGAIN = " Your display edits are unsaved again."
+assert(H.lastCall("restore") and hasText("No answer within 15 seconds. The previous display settings are back." .. AGAIN),
+       screen())
 assert(not byKey("display-try-card") and positions()["Acme 2"].y == tried.y, "the tried edits are pending again")
 assert(store.undo() and positions()["Acme 2"] == nil, "and undo as one step")
+-- Keep
 H.drag("display-DP-2", "display-above-DP-1")
 clickText("Try")
 flushReads()
+replies["trial-end"] = function(request)
+  assert(request.trial == "t1", "keep ends this trial")
+  return true, json.encode({ ended = true })
+end
 clickText("Keep")
-assert(hasText("Display settings kept.") and #store.entryOps == 0, screen())
+assert(H.lastCall("trial-end") and hasText("Display settings kept.") and #store.entryOps == 0, screen())
 assert(H.release("wait") == 1 and not byKey("display-try-card"), "the countdown stops")
+-- Go back; while a Try runs its card shows on every page and Save waits
 H.drag("display-DP-2", "display-above-DP-1")
 clickText("Try")
 flushReads()
+H.goHome()
+assert(byKey("display-try-card"), "Keep and Go back stay reachable from Home: " .. screen())
+store.setField("appearance.border_width", 7)
+replies.preview = function()
+  return true, json.encode({ summary = {}, sections = {}, changed = true, validation = { ran = false } })
+end
+entry.onKey("ctrl+s", true)
+flushReads()
+replies.preview = nil
+assert(not H.find("button", function(n) return n.props.key == "review-save" or n.props.text == "Save" end).props.enabled,
+       "no save while a Try runs: " .. screen())
+store.revertField("appearance.border_width")
+H.goHome()
 clickText("Go back")
 flushReads()
-assert(hasText("Went back. The previous display settings are back; your edits are unsaved again.") and #store.entryOps > 0, screen())
+assert(hasText("Went back. The previous display settings are back." .. AGAIN) and #store.entryOps > 0, screen())
 H.release("wait", true)
+-- Keep after the watcher already went back: the edits come back too
+H.hold("wait")
+clickText("Outputs")
+clickText("Try")
+flushReads()
+replies["trial-end"] = function()
+  return true, json.encode({ ended = false, message = "The previous display settings were already restored." })
+end
+clickText("Keep")
+flushReads()
+assert(hasText("Too late: The previous display settings were already restored." .. AGAIN) and #store.entryOps > 0,
+       screen())
+H.release("wait", true)
+-- Go back after the watcher went back: trial_over, not an error
+H.hold("wait")
+clickText("Try")
+flushReads()
+local restoreReply = replies.restore
+replies.restore = function() return false, "The previous display settings were already restored.", "trial_over" end
+clickText("Go back")
+flushReads()
+replies.restore = restoreReply
+assert(hasText("The previous display settings were already restored." .. AGAIN) and #store.entryOps > 0, screen())
+H.release("wait", true)
+-- the panel closes while the try is being saved: the answer still starts the countdown, which goes back and
+-- queues the edits again (the store outlives the panel)
+H.hold("save")
+H.hold("wait")
+clickText("Try")
+entry.onClose()
+local closedAt = #H.calls
+H.release("save", true)
+local ticking = false
+for i = closedAt + 1, #H.calls do ticking = ticking or H.calls[i].command == "wait" end
+assert(ticking, "the countdown starts although the panel is closed")
+for _ = 1, 15 do H.release("wait") end
+flushReads()
+assert(H.notifications[#H.notifications] == "No answer within 15 seconds. The previous display settings are back."
+       .. AGAIN, tostring(H.notifications[#H.notifications]))
+assert(#store.entryOps > 0, "the edits are pending when the panel opens again")
+H.release("wait", true)
+entry.onOpen()
+flushReads()
 store.discardAll()
 
 print("outputs ok")

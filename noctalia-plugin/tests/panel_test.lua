@@ -217,18 +217,20 @@ assert(hasText("disk on fire"), "error shown: " .. screen())
 
 -- title-bar follow state (background follows the KDE header color at D7)
 local titlebarState = { noctalia = true, palette = true, old_include = "titlebar.toml", fields = {
-  background = { source = "kde_header", role = "surface_container", alpha = "D7", color = "#202020D7" } } }
+  background = { source = "kde_header", role = "surface_container", alpha = "D7", color = "#202020D7" } },
+  sources = { background = { kde = "#303030", kde_header = "#202020" },
+              background_unfocused = { kde = "#101010", kde_header = "#101010" } } }
 replies.titlebar = function() return true, json.encode(titlebarState) end
 replies["kde-colors"] = function() return true, json.encode({ available = true,
   colors = { ["colors.title_bar.background"] = "#303030", ["colors.title_bar.background_unfocused"] = "#101010" },
   backgrounds = { ["colors.title_bar.background"] = "#202020", ["colors.title_bar.background_unfocused"] = "#101010" } }) end
-replies["titlebar-follow"] = function(request)
-  if request.source then
-    titlebarState.fields[request.field] = { source = request.source, role = "surface", alpha = "FF", color = "#101010FF" }
-  else
-    titlebarState.fields[request.field] = nil
+-- following starts and stops only with a save: nothing before it may write
+local function followWrites()
+  local count = 0
+  for _, call in ipairs(H.calls) do
+    if call.command == "titlebar-follow" or call.command == "titlebar-cleanup" then count = count + 1 end
   end
-  return true, json.encode(titlebarState)
+  return count
 end
 
 -- smoke: every page and every group renders (covers every field kind's row)
@@ -249,8 +251,8 @@ clickText("Colors")
 find("box", function(n) return n.props.onClick ~= nil end).props.onClick()
 local picker = find("colorPicker", function() return true end)
 picker.props.onChangeEnd("#112233ff")
-flushReads()  -- a picked color stops following; deliver that answer
-assert(lastCall("titlebar-follow").request.source == nil, "picking a color stops following")
+flushReads()
+assert(store.fieldChanges["colors.title_bar.background"].follow == false, "a picked color stops following once saved")
 if not hasText("Background unfocused") then clickText("Title bar") end
 local function opacitySlider(id)
   return find("slider", function(n) return tostring(n.props.key):find("f:" .. id .. ":opacity-slider:", 1, true) == 1 end,
@@ -277,28 +279,37 @@ store.revertField("colors.title_bar.background_unfocused")
 goHome()
 clickText("Colors")
 if not hasText("Background unfocused") then clickText("Title bar") end
-find("button", function(n) return n.props.key == "f:colors.title_bar.background:kde:KDE header" end).props.onClick()
+local function changeOf(name) return store.fieldChanges["colors.title_bar." .. name] end
+find("button", function(n) return n.props.key == "f:colors.title_bar.background_unfocused:kde:KDE header" end)
+  .props.onClick()
 flushReads()
-assert(hasText("Follows Noctalia · KDE header"), "follow state shown: " .. screen())
-H.slide(opacitySlider("colors.title_bar.background"), 0.5)
-local followCall = lastCall("titlebar-follow")
-assert(followCall.request.field == "background" and followCall.request.source == "kde_header"
-       and followCall.request.opacity == 0.5, "slider changes the followed opacity")
-assert(store.fieldChanges["colors.title_bar.background"].value == "#101010FF", "the followed color is queued for review")
+assert(hasText("Follows Noctalia · KDE header"), "the pending start shows: " .. screen())
+local started = changeOf("background_unfocused")
+assert(started.value == "#101010FF" and started.follow.source == "kde_header" and started.follow.alpha == "FF",
+       "the followed color is queued for review with its intent")
+H.slide(opacitySlider("colors.title_bar.background_unfocused"), 0.5)
+assert(changeOf("background_unfocused").value == "#10101080" and changeOf("background_unfocused").follow.alpha == "80",
+       "the slider changes the followed opacity")
 store.setField("include.optional.files", { "effect.toml", "titlebar.toml", "noctalia.toml" })
-find("button", function(n) return n.props.key == "f:colors.title_bar.background_unfocused:kde:KDE" end).props.onClick()
-followCall = lastCall("titlebar-follow")
-assert(followCall.request.field == "background_unfocused" and followCall.request.source == "kde", "KDE button follows")
-flushReads()
-assert(store.fieldChanges["colors.title_bar.background_unfocused"].value == "#101010FF", "KDE color queued")
+find("button", function(n) return n.props.key == "f:colors.title_bar.background:kde:KDE" end).props.onClick()
+assert(changeOf("background").value == "#303030D7" and changeOf("background").follow.source == "kde",
+       "KDE on a field that follows the header switches the source, opacity kept")
 local includes = store.fieldChanges["include.optional.files"].value
 assert(#includes == 2 and includes[2] == "noctalia.toml", "the old titlebar.toml include is removed")
-assert(hasText("Follows Noctalia · KDE"), screen())
--- typing a fixed color stops following
+-- a fixed color on a field whose start isn't saved yet just drops the start
 local hex = find("input", function(n) return tostring(n.props.key):match("^f:colors%.title_bar%.background_unfocused:hex") end)
 hex.props.onChange("#123456FF")
-followCall = lastCall("titlebar-follow")
-assert(followCall.request.field == "background_unfocused" and followCall.request.source == nil, "a fixed color stops following")
+assert(changeOf("background_unfocused").value == "#123456FF" and changeOf("background_unfocused").follow == nil,
+       "no stop for something that never followed")
+-- Stop following on what follows on disk is an edit of its own; the save carries both intents
+store.revertField("colors.title_bar.background")
+clickText("Stop following")
+assert(changeOf("background").follow == false and changeOf("background").value == "#202020D7", "stop keeps the color")
+assert(store.changeSet().fields["colors.title_bar.background"].follow == false, "the save carries the stop")
+assert(followWrites() == 0, "nothing follows or stops before the save")
+store.revertField("colors.title_bar.background")
+assert(store.fieldChanges["colors.title_bar.background"] == nil, "reverting drops the intent with the edit")
+store.revertField("colors.title_bar.background_unfocused")
 store.revertField("include.optional.files")
 goHome()
 clickText("Appearance")
@@ -505,6 +516,20 @@ assert(launcherAction() == "workspace-move-to-output HDMI-A-1 --output HDMI-A-1"
   "replaces only the first argument: " .. launcherAction())
 H.input("^kb%-action%-").props.onChange("spawn kitty")
 assert(not H.byKey("kb-arg"), "no picker for a command line")
+-- a keybind option is Default, On or Off (Off was lost to `i == 2 and false or nil` once)
+local optionName = store.meta.actions.options[1][1]
+local function optionSelect()
+  return H.walk(H.byKey("opt-" .. optionName), function(n) return n.kind == "select" end)
+end
+local function launcherOpts()
+  for _, row in ipairs(store.keybinds.rows) do if row.key == launcher then return row.opts end end
+end
+optionSelect().props.onChange("2")
+assert(launcherOpts()[optionName] == false and optionSelect().props.selectedIndex == 2, "Off is kept")
+optionSelect().props.onChange("1")
+assert(launcherOpts()[optionName] == true, "On")
+optionSelect().props.onChange("0")
+assert(launcherOpts()[optionName] == nil, "Default")
 
 -- Browse… in the panel (it stays above every window): a file browser page of its own (helper `list-dir`)
 local listings = {}

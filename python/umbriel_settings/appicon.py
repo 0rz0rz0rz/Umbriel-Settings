@@ -6,9 +6,10 @@ import re
 import sys
 import warnings
 
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice
 from PySide6.QtGui import QIcon, QPixmap
 
-from umbriel_core.paths import DESKTOP_ENTRY, LEGACY_DIR_NAME, write_text_file, xdg_data_home
+from umbriel_core.paths import DESKTOP_ENTRY, LEGACY_DIR_NAME, atomic_write, write_text_file, xdg_data_home
 
 from . import APP_NAME
 
@@ -65,8 +66,18 @@ def install_desktop_icon(icon):
     desktop_path = os.path.join(application_directory, DESKTOP_ENTRY)
     os.makedirs(icon_directory, exist_ok=True)
     os.makedirs(application_directory, exist_ok=True)
-    if not icon.pixmap(128, 128).save(icon_path, "PNG"):
-        raise OSError(f"Could not write application icon to {icon_path}")
+    png = QByteArray()
+    buffer = QBuffer(png)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    if not icon.pixmap(128, 128).save(buffer, "PNG"):
+        raise OSError(f"Could not render the application icon for {icon_path}")
+    try:
+        with open(icon_path, "rb") as handle:
+            unchanged = handle.read() == bytes(png)
+    except OSError:
+        unchanged = False
+    if not unchanged:  # like the entry below: an unchanged icon is not rewritten on every start
+        atomic_write(icon_path, bytes(png), 0o644)
     exec_line = launch_command()
     desktop_entry = exec_line and (
         "[Desktop Entry]\n"

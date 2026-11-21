@@ -13,11 +13,35 @@ barWidget = {
   render = function(node) rendered = node end,
   isVertical = function() return vertical end,
 }
+local helperRuns = {}
 noctalia = {
   togglePanel = function(value) table.insert(toggles, value) end,
   getConfig = function(key) return config[key] end,
   state = { watch = function(key, fn) watchers[key] = fn end },
+  -- what lib/helper.luau needs to start a helper (onExit)
+  pluginDir = function() return "/plugin" end,
+  pluginDataDir = function() return "/data" end,
+  mkdirAll = function() return true end,
+  writeFile = function() return true end,
+  json = { encode = function() return "{}" end },
+  runAsync = function(argv) table.insert(helperRuns, argv[4]); return true end,
 }
+
+-- Noctalia's require: relative to the requiring file
+local barDir = arg[1]:match("^(.*)/") or "."
+local loaded = {}
+local function makeRequire(dir)
+  return function(path)
+    local full = dir .. "/" .. path:gsub("^%./", "")
+    if not loaded[full] then
+      local chunk = assert(loadfile(full, "t", setmetatable({ require = makeRequire(full:match("^(.*)/")) },
+                                                           { __index = _G })))
+      loaded[full] = chunk()
+    end
+    return loaded[full]
+  end
+end
+require = makeRequire(barDir)
 
 -- Returns whether the expected glyph shows, the text label (if any) and whether unsaved edits are marked
 -- (the icon tinted, or the text when there is no icon).
@@ -78,6 +102,15 @@ config.icon = "tools"
 update()
 glyph = shown("tools")
 assert(glyph, "the chosen icon is drawn")
+
+-- disabling or uninstalling the plugin stops title bars following Noctalia; a reload or shutdown doesn't
+onExit(0, "reload")
+onExit(15, "shutdown")
+assert(#helperRuns == 0, "nothing on reload or shutdown")
+onExit(0, "disable")
+onExit(0, "uninstall")
+assert(#helperRuns == 2 and helperRuns[1] == "titlebar-cleanup" and helperRuns[2] == "titlebar-cleanup",
+       "titlebar-cleanup on disable and uninstall")
 config.icon = "not-a-glyph"
 update()
 glyph = shown()

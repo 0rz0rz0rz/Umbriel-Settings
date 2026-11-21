@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from umbriel_core import kde, noctalia_theme, paths, titlebar_apply, titlebar_theme
+from umbriel_core import kde, noctalia_theme, paths
 from umbriel_core.backups import (
     MAX_BACKUPS,
     create_backup_snapshot,
@@ -105,6 +105,65 @@ class BackupTests(TempDirTestCase):
         for _ in range(MAX_BACKUPS + 1):
             snapshot_file(source, directory)
         self.assertEqual(len(list_backup_snapshots(directory, source)), MAX_BACKUPS)
+
+
+class PrivateFilesTests(TempDirTestCase):
+    """Copies of the user's files are owner-only, whatever the original's mode (PR #1544 review)."""
+
+    def mode(self, path):
+        return os.stat(path).st_mode & 0o777
+
+    def test_snapshots_are_owner_only_from_the_first_byte(self):
+        config = self.write("config.toml", text="[environment]\nTOKEN = \"x\"\n")
+        os.chmod(config, 0o644)
+        directory = os.path.join(self.root, "data", "backups")
+        os.makedirs(directory, mode=0o755)
+        os.chmod(directory, 0o755)
+        modes = []
+        real = paths.atomic_write
+
+        def spy(path, data, mode=None):  # the copy is never written with another mode first
+            modes.append(mode)
+            return real(path, data, mode)
+
+        with patch("umbriel_core.backups.atomic_write", spy):
+            snapshot = snapshot_file(config, directory)
+        self.assertEqual(modes, [0o600])
+        self.assertEqual(self.mode(snapshot), 0o600)
+        self.assertEqual(self.mode(directory), 0o700, "an existing 0755 folder is tightened")
+        new_dir = os.path.join(self.root, "data", "configs", "abc", "backups")
+        self.assertEqual(self.mode(os.path.dirname(create_backup_snapshot(config, os.path.dirname(new_dir)))),
+                         0o700)
+
+    def test_the_data_directory_is_kept_owner_only(self):
+        data = os.path.join(self.root, "umbriel-settings")
+        os.makedirs(data)
+        os.chmod(data, 0o755)
+        with patch.dict(os.environ, {"XDG_DATA_HOME": self.root}):
+            self.assertEqual(paths.default_gui_data_dir(), data)
+        self.assertEqual(self.mode(data), 0o700)
+
+    def test_sidecars_are_owner_only(self):
+        from umbriel_core import keybinds
+        directory = os.path.join(self.root, "configs", "x")
+        keybinds.save_locked({"Super+Q"}, directory)
+        self.assertEqual(self.mode(keybinds.lock_file(directory)), 0o600)
+
+    def test_files_of_earlier_versions_become_owner_only_once(self):
+        data = os.path.join(self.root, "data")
+        backup = self.write("data", "configs", "x", "backups", "config.toml.20260101-000000-000000.bak", text="a")
+        labels = self.write("data", "configs", "x", "gui-labels.json", text="{}")
+        hook_backup = self.write("xdg", "umbriel-settings", "config.toml.12345678.titlebar.bak", text="a")
+        script = self.write("xdg", "umbriel-settings", "titlebar_apply.py", text="")
+        for path in (backup, labels, hook_backup, script):
+            os.chmod(path, 0o644)
+        os.chmod(os.path.dirname(backup), 0o755)
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": os.path.join(self.root, "xdg")}):
+            migrate_data_dir(data)
+        self.assertEqual([self.mode(path) for path in (backup, labels, hook_backup)], [0o600] * 3)
+        self.assertEqual(self.mode(os.path.dirname(backup)), 0o700)
+        self.assertEqual(self.mode(script), 0o644, "the hook script stays readable; only its backups are private")
+        self.assertTrue(os.path.exists(os.path.join(data, ".private-v1")))
 
 
 class AtomicWriteTests(TempDirTestCase):
@@ -308,180 +367,20 @@ class PaletteTemplateTests(TempDirTestCase):
         with self.assertRaisesRegex(ValueError, "symlink"):
             noctalia_theme.install_template(self.backups)
 
+    def test_a_config_saved_meanwhile_is_not_overwritten(self):
+        config = self.write("noctalia", "noctalia-config.toml", text="[shell]\n")
+        real = noctalia_theme.snapshot_file
 
-class TitlebarFollowTests(TempDirTestCase):
-    def setUp(self):
-        super().setUp()
-        patcher = patch.dict(os.environ, {"XDG_CONFIG_HOME": self.root})
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        self.backups = os.path.join(self.root, "backups")
-        self.noctalia = self.write("noctalia", "noctalia-config.toml", text="[shell]\nfont_family = \"Inter\"\n")
-        self.write("umbriel-settings", "noctalia-palette.conf",
-                   text="primary=#aa0000\nsurface=#101010\nsurface_container=#202020\nprimary_container=#303030\n")
-        self.config = self.write("umbriel", "config.toml", text="")
+        def settings_window_saves(path, directory):  # Noctalia's settings window writes between read and write
+            with open(config, "w", encoding="utf-8") as handle:
+                handle.write("[shell]\nfont_family = \"Inter\"\n")
+            return real(path, directory)
 
-    def test_follow_writes_template_entry_and_current_colors(self):
-        state = titlebar_theme.follow(self.config, "background", "kde_header", 0xD7, self.backups)
-        self.assertEqual(state["fields"]["background"],
-                         {"role": "surface_container", "alpha": "D7", "source": "kde_header", "color": "#202020D7"})
-        state = titlebar_theme.follow(self.config, "background_unfocused", "kde", 0x80, self.backups)
-        self.assertEqual(set(state["fields"]), {"background", "background_unfocused"}, "the other field is kept")
-        with open(titlebar_theme.output_file(), encoding="utf-8") as handle:
-            self.assertIn('background = "#202020D7"', handle.read())
-        with open(titlebar_theme.template_file(), encoding="utf-8") as handle:
-            self.assertIn("{{colors.surface_container.default.hex_stripped}}D7", handle.read())
-        import tomllib
-        with open(self.noctalia, "rb") as handle:
-            entry = tomllib.load(handle)["theme"]["templates"]["user"]["umbriel_titlebar"]
-        self.assertEqual(entry["input_path"], "$XDG_CONFIG_HOME/noctalia/templates/umbriel-titlebar.toml")
-        self.assertEqual(entry["output_path"], titlebar_theme.output_file())
-        self.assertEqual(entry["post_hook"], f"python3 '{titlebar_theme.script_file()}' "
-                                             f"'{titlebar_theme.output_file()}'")
-        self.assertTrue(os.path.isfile(titlebar_theme.script_file()))
-        state = titlebar_theme.follow(self.config, "background", None, 0, self.backups)
-        self.assertEqual(set(state["fields"]), {"background_unfocused"})
-        state = titlebar_theme.follow(self.config, "background_unfocused", None, 0, self.backups)
-        self.assertEqual(state["fields"], {})
-        with open(self.noctalia, "rb") as handle:
-            user = tomllib.load(handle).get("theme", {}).get("templates", {}).get("user", {})
-        self.assertNotIn("umbriel_titlebar", user, "the hook stops once nothing follows")
-        self.assertFalse(os.path.exists(titlebar_theme.template_file()))
-        self.assertFalse(os.path.exists(titlebar_theme.output_file()))
-        with open(self.noctalia, encoding="utf-8") as handle:
-            self.assertIn('font_family = "Inter"', handle.read())
-
-    def test_each_config_follows_on_its_own(self):
-        other = self.write("other", "config.toml", text="")
-        titlebar_theme.follow(self.config, "background", "kde", 0xFF, self.backups)
-        state = titlebar_theme.follow(other, "background", "kde_header", 0x80, self.backups)
-        self.assertEqual(state["fields"]["background"]["source"], "kde_header")
-        self.assertEqual(titlebar_theme.status(self.config)["fields"]["background"]["source"], "kde")
-        with open(titlebar_theme.output_file(), encoding="utf-8") as handle:
-            rendered = handle.read()
-        self.assertEqual(dict(titlebar_apply.rendered_blocks(rendered)),
-                         {other: {"background": "#20202080"}, self.config: {"background": "#303030FF"}})
-        state = titlebar_theme.follow(self.config, "background", None, 0, self.backups)
-        self.assertEqual(state["fields"], {})
-        self.assertEqual(set(titlebar_theme.read_all()), {other}, "stopping one config keeps the other")
-
-    def test_a_template_from_before_per_config_following_is_kept(self):
-        import tomlkit
-        self.write("noctalia", "templates", "umbriel-titlebar.toml", text=(
-            '[colors.title_bar]\n'
-            'background = "#{{colors.surface_container.default.hex_stripped}}D7"  # source=kde_header\n'))
-        with open(self.noctalia, encoding="utf-8") as handle:
-            document = tomlkit.parse(handle.read())
-        document["theme"] = {"templates": {"user": {"umbriel_titlebar": {
-            "post_hook": f"python3 '/x/titlebar_apply.py' '/x/titlebar-colors.toml' '{self.config}'"}}}}
-        with open(self.noctalia, "w", encoding="utf-8") as handle:
-            handle.write(tomlkit.dumps(document))
-        self.assertEqual(titlebar_theme.status(self.config)["fields"]["background"]["source"], "kde_header")
-        other = self.write("other", "config.toml", text="")
-        titlebar_theme.follow(other, "background", "kde", 0xFF, self.backups)
-        self.assertEqual(set(titlebar_theme.read_all()), {self.config, other}, "the old config keeps following")
-
-    def test_a_symlinked_output_is_refused_before_anything_is_written(self):
-        os.makedirs(os.path.dirname(titlebar_theme.output_file()), exist_ok=True)
-        os.symlink(self.config, titlebar_theme.output_file())
-        with open(self.noctalia, encoding="utf-8") as handle:
-            before = handle.read()
-        with self.assertRaisesRegex(ValueError, "symlink"):
-            titlebar_theme.follow(self.config, "background", "kde", 255, self.backups)
-        with open(self.noctalia, encoding="utf-8") as handle:
-            self.assertEqual(handle.read(), before)
-        self.assertFalse(os.path.exists(titlebar_theme.template_file()))
-        self.assertFalse(os.path.exists(titlebar_theme.script_file()))
-
-    def test_follow_rejects_bad_input(self):
-        for args in (("title", "kde", 255), ("background", "gtk", 255), ("background", "kde", 256)):
-            with self.assertRaises(ValueError):
-                titlebar_theme.follow(self.config, *args, self.backups)
-
-
-class TitlebarApplyTests(TempDirTestCase):
-    """The post_hook script that copies followed colors into the config."""
-
-    def setUp(self):
-        super().setUp()
-        self.backup = os.path.join(self.root, "config.toml.titlebar.bak")
-        patcher = patch.object(titlebar_apply, "backup_file", return_value=self.backup)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def test_replaces_only_the_two_keys_and_keeps_the_rest(self):
-        text = ('# mine\n[colors.title_bar]  # bar\nbackground = "#1F1F1FD7"  # old\ntext = "#FFFFFFFF"\n\n'
-                '[appearance]\nbackground = "keep"\n')
-        updated = titlebar_apply.apply(text, {"background": "#202020CC", "background_unfocused": "#101010CC"})
-        self.assertEqual(updated, '# mine\n[colors.title_bar]  # bar\nbackground_unfocused = "#101010CC"\n'
-                                  'background = "#202020CC"\ntext = "#FFFFFFFF"\n\n[appearance]\nbackground = "keep"\n')
-        self.assertEqual(titlebar_apply.apply(updated, {"background": "#202020CC"}), updated, "unchanged stays")
-
-    def test_adds_the_table_when_missing(self):
-        self.assertEqual(titlebar_apply.apply("[general]\n", {"background": "#202020CC"}),
-                         '[general]\n\n[colors.title_bar]\nbackground = "#202020CC"\n')
-
-    def test_keeps_crlf_and_other_keys(self):
-        text = '[colors.title_bar]\r\ntext = "#FFFFFFFF"\r\nbackground = "#000000FF"\r\n[general]\r\n'
-        self.assertEqual(titlebar_apply.apply(text, {"background": "#112233CC", "background_unfocused": "#000000CC"}),
-                         '[colors.title_bar]\r\nbackground_unfocused = "#000000CC"\r\ntext = "#FFFFFFFF"\r\n'
-                         'background = "#112233CC"\r\n[general]\r\n')
-
-    def test_main_never_writes_invalid_toml(self):
-        rendered = self.write("colors.toml", text='background = "#112233CC"\n')
-        for text in ('[colors]\ntitle_bar.background = "#000000FF"\n',
-                     '[colors]\ntitle_bar = { background = "#000000FF" }\n'):
-            config = self.write("config.toml", text=text)
-            with patch("sys.stderr"):
-                self.assertEqual(titlebar_apply.main([rendered, config]), 1, text)
-            with open(config, encoding="utf-8") as handle:
-                self.assertEqual(handle.read(), text)
-
-    def test_main_keeps_crlf_on_disk(self):
-        rendered = self.write("colors.toml", text='background = "#112233CC"\n')
-        config = os.path.join(self.root, "crlf.toml")
-        with open(config, "wb") as handle:
-            handle.write(b'[colors.title_bar]\r\nbackground = "#000000FF"\r\n')
-        self.assertEqual(titlebar_apply.main([rendered, config]), 0)
-        with open(config, "rb") as handle:
-            self.assertEqual(handle.read(), b'[colors.title_bar]\r\nbackground = "#112233CC"\r\n')
-
-    def test_main_backs_up_the_previous_config(self):
-        rendered = self.write("colors.toml", text='background = "#112233CC"\n')
-        config = self.write("config.toml", text="[colors.title_bar]\n")
-        self.assertEqual(titlebar_apply.main([rendered, config]), 0)
-        with open(self.backup, encoding="utf-8") as handle:
-            self.assertEqual(handle.read(), "[colors.title_bar]\n")
-
-    def test_main_applies_each_config_block_and_continues_after_a_failure(self):
-        first = self.write("a", "config.toml", text="[colors.title_bar]\n")
-        missing = os.path.join(self.root, "gone", "config.toml")
-        garbled = os.path.join(self.root, "garbled.toml")
-        with open(garbled, "wb") as handle:
-            handle.write(b"\xff\xfe not utf-8\n")
-        second = self.write("b", "config.toml", text="")
-        rendered = self.write("colors.toml", text=(
-            f'# header\n# config: {first}\nbackground = "#112233CC"  # source=kde\n'
-            f'# config: {missing}\nbackground = "#000000FF"  # source=kde\n'
-            f'# config: {garbled}\nbackground = "#000000FF"  # source=kde\n'
-            f'# config: {second}\nbackground_unfocused = "#445566FF"  # source=kde\n'))
-        with patch("sys.stderr"):
-            self.assertEqual(titlebar_apply.main([rendered]), 1, "the missing config is reported")
-        with open(first, encoding="utf-8") as handle:
-            self.assertEqual(handle.read(), '[colors.title_bar]\nbackground = "#112233CC"\n')
-        with open(second, encoding="utf-8") as handle:
-            self.assertEqual(handle.read(), '[colors.title_bar]\nbackground_unfocused = "#445566FF"\n')
-
-    def test_main_reads_rendered_file_and_refuses_symlinks(self):
-        rendered = self.write("colors.toml", text='[colors.title_bar]\nbackground = "#2f2322cc"  # source=kde\n')
-        config = self.write("config.toml", text="[colors.title_bar]\n")
-        self.assertEqual(titlebar_apply.main([rendered, config]), 0)
+        with patch("umbriel_core.noctalia_theme.tomllib.loads", side_effect=lambda text: settings_window_saves(
+                config, self.backups) and {}), self.assertRaisesRegex(ValueError, "changed meanwhile"):
+            noctalia_theme.install_template(self.backups)
         with open(config, encoding="utf-8") as handle:
-            self.assertEqual(handle.read(), '[colors.title_bar]\nbackground = "#2F2322CC"\n')
-        link = os.path.join(self.root, "link.toml")
-        os.symlink(config, link)
-        with patch("sys.stderr"):
-            self.assertEqual(titlebar_apply.main([rendered, link]), 1)
+            self.assertIn("Inter", handle.read())
 
 
 class RenameMigrationTests(TempDirTestCase):

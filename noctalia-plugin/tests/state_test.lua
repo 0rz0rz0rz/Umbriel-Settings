@@ -210,7 +210,14 @@ local pending = store.desktopChanges()
 assert(store.desktop.userdirs.revision == "saved-rev" and pending and not pending.userdirs and pending.apps,
        "only the failed part stays pending")
 assert(hasText("Desktop settings were not saved: Default applications changed externally."), screen())
-replies["desktop-save"] = nil
+-- like the helper: each part it wrote answers with its new revision
+replies["desktop-save"] = function(request)
+  local answer = {}
+  for _, part in ipairs({ "userdirs", "apps" }) do
+    if request[part] then answer[part] = { revision = part .. "-rev-2" } end
+  end
+  return true, json.encode(answer)
+end
 store.discardAll()
 goHome()
 store.setDesktop("userdirs", "MUSIC", "/tmp/music-test-2")
@@ -219,6 +226,46 @@ flushReads()
 clickText("Save")
 flushReads()
 assert(not store.canUndo(), "no undo step after a desktop-only save")
+
+-- the panel closes while folders are saved: the answer still arrives, clears the saving flag and says so
+goHome()
+store.setDesktop("userdirs", "MUSIC", "/tmp/music-test-3")
+entry.onKey("ctrl+s", true)
+flushReads()
+H.hold("desktop-save")
+clickText("Save")
+entry.onClose()
+H.release("desktop-save", true)
+assert(H.notifications[#H.notifications]:find("Desktop settings saved after the panel closed", 1, true),
+       tostring(H.notifications[#H.notifications]))
+assert(not store.desktopChanges(), "the store knows the folders are saved")
+entry.onOpen()
+flushReads()
+-- edits made while folders are saved stay pending
+store.setDesktop("userdirs", "MUSIC", "/tmp/music-test-4")
+goHome()
+entry.onKey("ctrl+s", true)
+flushReads()
+H.hold("desktop-save")
+clickText("Save")
+store.setDesktop("userdirs", "VIDEOS", "/tmp/videos-test")
+H.release("desktop-save", true)
+local pending = store.desktopChanges()
+assert(pending and pending.userdirs and pending.userdirs.changes.VIDEOS == "/tmp/videos-test"
+       and pending.userdirs.changes.MUSIC == nil, "only what was sent is saved")
+store.discardAll()
+
+-- Noctalia tears the panel down: the edits stay as a draft; disabling or uninstalling also stops title bars
+-- following Noctalia (helper titlebar-cleanup), a reload doesn't
+entry.onOpen()
+flushReads()
+store.setField("appearance.border_width", 9)
+files["/data/draft.json"] = nil
+entry.onExit(0, "reload")
+assert(files["/data/draft.json"] and not H.lastCall("titlebar-cleanup"), "a reload keeps the draft, nothing else")
+entry.onExit(0, "disable")
+assert(H.lastCall("titlebar-cleanup"), "disabling removes the title-bar hook")
+store.discardAll()
 
 H.checkBudget("state", 0.025)
 print("state ok")

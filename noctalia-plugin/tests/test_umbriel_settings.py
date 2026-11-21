@@ -180,6 +180,55 @@ class SaveTests(ConfigHelperTestCase):
         self.assertEqual(report["validation"]["diagnostics"][0]["field"], "general.mod_key")
         self.assertEqual(self.config.read_text(), CONFIG)
 
+    def try_request(self, state, value="Alt"):
+        return {"config": str(self.config), "trial": 15,
+                "changes": {"revision": state["revision"], "fields": {"general.mod_key": {"value": value}}}}
+
+    def test_a_try_arms_a_rollback_that_keep_ends(self):
+        token = self.config_dir() / "trial.json"
+        report = self.ok("save", self.try_request(self.read()))
+        armed = json.loads(token.read_text())
+        self.assertEqual((armed["id"], armed["backup"]), (report["trial"], report["backup"]))
+        self.assertEqual(armed["revision"], report["state"]["revision"]["config"])
+        self.assertEqual(token.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.fails("save", self.try_request(report["state"], "Ctrl"))["code"], "busy",
+                         "a second Try waits for the first")
+        self.assertEqual(self.ok("trial-end", {"config": str(self.config), "trial": "other"}),
+                         {"ended": False, "message": "This Try already ended."})
+        self.assertIn("trial", self.fails("trial-end", {"config": str(self.config)})["error"])
+        self.assertEqual(self.ok("trial-end", {"config": str(self.config), "trial": report["trial"]}), {"ended": True})
+        self.assertFalse(token.exists())
+        # a rejected try arms nothing
+        self.ok("save", self.try_request(report["state"], "Ctrl"), env={**self.env, "VALID": "no"})
+        self.assertFalse(token.exists())
+        self.assertEqual(self.fails("save", {**self.try_request(report["state"]), "trial": 0})["error"],
+                         "trial must be a number of seconds from 1 to 120.")
+
+    def test_go_back_claims_the_trial_and_finds_the_watchers_result(self):
+        token = self.config_dir() / "trial.json"
+        report = self.ok("save", self.try_request(self.read()))
+        restore = {"config": str(self.config), "snapshot": report["backup"], "revision": report["state"]["revision"],
+                   "validate": False, "trial": report["trial"]}
+        Path(report["backup"]).write_text("not = [toml")  # the restore fails: the watcher must still go back
+        self.assertIn("not valid TOML", self.fails("restore", restore)["error"])
+        self.assertTrue(token.exists())
+        Path(report["backup"]).write_text(CONFIG)
+        self.ok("restore", restore)
+        self.assertFalse(token.exists())
+        self.assertEqual(self.config.read_text(), CONFIG)
+        reply = self.fails("restore", {**restore, "revision": self.read()["revision"]})
+        self.assertEqual(reply["code"], "trial_over")
+        # the watcher went back first: the panel's countdown, with the tried revision, learns that, not "conflict"
+        report = self.ok("save", self.try_request(self.read()))
+        token.unlink()
+        (self.config_dir() / "trial.result.json").write_text(json.dumps(
+            {"id": report["trial"], "restored": True, "reason": "restored"}))
+        self.config.write_text(CONFIG)
+        reply = self.fails("restore", {"config": str(self.config), "snapshot": report["backup"], "validate": False,
+                                       "revision": report["state"]["revision"], "trial": report["trial"]})
+        self.assertEqual((reply["code"], reply["error"]),
+                         ("trial_over", "The previous display settings were already restored."))
+
     def test_entry_operations_labels_and_maps(self):
         state = self.read()
         report = self.save(state, entries=[
@@ -453,26 +502,62 @@ class EditorAndAboutTests(ConfigHelperTestCase):
 
 
 class TitlebarFollowTests(ConfigHelperTestCase):
-    def test_follow_converts_opacity_and_reports_state(self):
-        self.assertEqual(self.ok("titlebar", {"config": str(self.config)})["fields"], {})
-        noctalia = self.root / "xdg-config" / "noctalia" / "noctalia-config.toml"
-        noctalia.parent.mkdir(parents=True)
-        noctalia.write_text("")
-        state = self.ok("titlebar-follow", {"config": str(self.config), "field": "background",
-                                            "source": "kde_header", "opacity": 0.84})
-        self.assertEqual(state["fields"]["background"]["alpha"], "D6")
-        self.assertEqual(state["old_include"], "titlebar.toml")
-        self.assertIn("post_hook", noctalia.read_text())
-        self.assertIn("Opacity", self.fails("titlebar-follow", {"config": str(self.config), "field": "background",
-                                                                "source": "kde", "opacity": 2})["error"])
+    """Following Noctalia's palette starts and stops with the save that carries the intent, never before."""
+
+    def setUp(self):
+        super().setUp()
+        self.noctalia = self.root / "xdg-config" / "noctalia" / "noctalia-config.toml"
+        self.noctalia.parent.mkdir(parents=True)
+        self.noctalia.write_text("")
+        palette = self.root / "xdg-config" / "umbriel-settings" / "noctalia-palette.conf"
+        palette.parent.mkdir(parents=True)
+        palette.write_text("primary=#aa0000\nsurface=#101010\nsurface_container=#202020\nprimary_container=#303030\n")
+
+    def save_follow(self, state, follow, value="#202020D6"):
+        return self.ok("save", {"config": str(self.config), "changes": {"revision": state["revision"], "fields": {
+            "colors.title_bar.background": {"value": value, "follow": follow}}}})
+
+    def test_follow_starts_and_stops_with_the_save(self):
+        state = self.ok("titlebar", {"config": str(self.config)})
+        self.assertEqual(state["fields"], {})
+        self.assertEqual(state["sources"]["background"], {"kde": "#303030", "kde_header": "#202020"})
+        self.assertNotIn("post_hook", self.noctalia.read_text(), "reading writes nothing")
+        intent = {"source": "kde_header", "alpha": "D6"}
+        preview = self.ok("preview", {"config": str(self.config), "changes": {"revision": self.read()["revision"],
+                          "fields": {"colors.title_bar.background": {"value": "#202020D6", "follow": intent}}}})
+        self.assertIn("follows Noctalia (KDE header)", json.dumps(preview["summary"]))
+        self.assertNotIn("post_hook", self.noctalia.read_text(), "a preview installs nothing")
+        report = self.save_follow(self.read(), intent)
+        self.assertNotIn("warnings", report)
+        self.assertIn("post_hook", self.noctalia.read_text())
+        self.assertEqual(self.ok("titlebar", {"config": str(self.config)})["fields"]["background"]["alpha"], "D6")
         other = self.root / "other" / "config.toml"
         other.parent.mkdir()
         other.write_text("")
         self.assertEqual(self.ok("titlebar", {"config": str(other)})["fields"], {}, "following is per config")
-        self.assertIn("background", self.ok("titlebar", {"config": str(self.config)})["fields"])
-        self.assertIn("choose a title bar field", self.fails("titlebar-follow", {"config": str(self.config),
-                      "source": "kde"})["error"].lower())
+        self.save_follow(report["state"], False)
+        self.assertNotIn("umbriel_titlebar", self.noctalia.read_text())
+        self.assertFalse((self.root / "xdg-config" / "umbriel-settings" / "titlebar_apply.py").exists())
 
+    def test_bad_intents_and_a_missing_noctalia_are_reported(self):
+        state = self.read()
+        self.assertIn("follow needs", self.fails("save", {"config": str(self.config), "changes": {
+            "revision": state["revision"], "fields": {"colors.title_bar.background": {
+                "value": "#202020D6", "follow": {"source": "gtk", "alpha": "D6"}}}}})["error"])
+        self.assertIn("can't follow", self.fails("save", {"config": str(self.config), "changes": {
+            "revision": state["revision"], "fields": {"general.mod_key": {"value": "Alt", "follow": False}}}})["error"])
+        self.assertEqual(self.config.read_text(), CONFIG, "nothing is written for a bad intent")
+        self.noctalia.unlink()
+        report = self.save_follow(state, {"source": "kde", "alpha": "FF"}, "#303030FF")
+        self.assertTrue(report["saved"])
+        self.assertIn("could not follow Noctalia", " ".join(report["warnings"]))
+
+    def test_cleanup_removes_every_following_config(self):
+        self.save_follow(self.read(), {"source": "kde", "alpha": "FF"}, "#303030FF")
+        self.assertEqual(self.ok("titlebar-cleanup", {}), {"followed": True})
+        self.assertNotIn("umbriel_titlebar", self.noctalia.read_text())
+        self.assertEqual(self.ok("titlebar", {"config": str(self.config)})["fields"], {})
+        self.assertIn("colors.title_bar", self.config.read_text(), "the config keeps its last colors")
 
 
 class LauncherTests(HelperTestCase):

@@ -242,10 +242,10 @@ noctalia = {
       return true
     end
     local reply = replies[command] or function() return true, "{}" end
-    local ok, data = reply(request)
+    local ok, data, code = reply(request)  -- a failing reply may name its code, like the helper's HelperError
     if ok then files[responsePath] = data end
-    timed("runAsync " .. command, callback)({ exitCode = 0, stdout = ok and '{"ok":true}' or json.encode({ ok = false, error = data }),
-               stderr = "", timedOut = false })
+    timed("runAsync " .. command, callback)({ exitCode = 0, stdout = ok and '{"ok":true}'
+               or json.encode({ ok = false, error = data, code = code }), stderr = "", timedOut = false })
     return true
   end,
 }
@@ -271,7 +271,8 @@ entry.require = makeRequire(pluginDir)
 function H.start(name, app)
   entry.APP = app
   assert(loadfile(pluginDir .. "/" .. name, "t", entry))()
-  for _, global in ipairs({ "onOpen", "onClose", "onFrameTick", "onKey", "onDrop", "onExternalChange", "onConfigChanged" }) do
+  for _, global in ipairs({ "onOpen", "onClose", "onFrameTick", "onKey", "onDrop", "onExternalChange", "onConfigChanged",
+                          "onExit" }) do
     if type(rawget(entry, global)) == "function" then entry[global] = timed(global, rawget(entry, global)) end
   end
   return entry
@@ -382,6 +383,7 @@ H.json, H.fixtures, H.files, H.calls, H.replies, H.loaded, H.pluginDir = json, f
 H.flushReads, H.texts, H.hasText, H.find, H.clickText, H.lastCall, H.screen =
   flushReads, texts, hasText, find, clickText, lastCall, screen
 H.tree = function() return tree end
+H.notifications = notifications  -- bodies of noctalia.notify, in order
 H.walk = walk
 H.clickShortcut = clickShortcut
 -- The input whose key matches the Lua pattern, e.g. H.input("^search:").
