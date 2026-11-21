@@ -375,9 +375,14 @@ assert(#H.liveWaits == 0, "leaving the picker ends its poll")
 replies["focused-window"] = function()
   return true, json.encode({ window = { app_id = "kitty", title = "~", pattern = "^kitty$", title_pattern = "^~$" } })
 end
+local appIdBox = "^e:window_rule:" .. ruleIndex .. ":window_rule:match%.app_id:text:"
+local appIdKey = H.input(appIdBox).props.key
 clickText("Use the focused window")
 assert(store.entryItems("window_rule")[ruleIndex].values["match.app_id"] == "^kitty$" and
        hasText("The rule now matches “kitty”."), screen())
+-- inputs are uncontrolled: only a new key makes Noctalia show the new value
+assert(H.input(appIdBox).props.key ~= appIdKey and H.input(appIdBox).props.value == "^kitty$",
+       "the App ID box is replaced: " .. H.input(appIdBox).props.key)
 assert(lastCall("wait") == nil, "the panel asks right away (it takes no window focus)")
 replies.windows = function() return false, "Umbriel is not running" end
 clickText("Pick from open windows")

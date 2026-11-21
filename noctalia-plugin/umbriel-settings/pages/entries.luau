@@ -140,6 +140,7 @@ local function focusedWindowButton(ctx, eid, index)
         ctx.flash("That is this window: switch to the other one within " .. FOCUS_DELAY .. " seconds.", "warning")
       else
         store.entryOpsBatch(eid, { { op = "set", index = index - 1, field = "match.app_id", value = window.pattern } })
+        ctx.bump("e:" .. eid .. ":" .. index .. ":" .. eid .. ":match.app_id")  -- the input key fieldSpec gives
         ctx.flash("The rule now matches “" .. window.app_id .. "”.", "info")
       end
       ctx.render()
