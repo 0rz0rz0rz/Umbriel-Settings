@@ -34,13 +34,19 @@ def parse_rgb(value):
     return rgb if all(0 <= component <= 255 for component in rgb) else None
 
 
-def read_scheme(path):
-    """{(section, key): (r, g, b)} for every valid color in a KDE .colors file; {} when it can't be read."""
+def _read_ini(path):
+    """A case-keeping, non-interpolating parser over `path`; raises OSError, UnicodeError, configparser.Error."""
     parser = configparser.RawConfigParser(strict=False, interpolation=None)
     parser.optionxform = str
+    with open(path, encoding="utf-8") as handle:
+        parser.read_file(handle)
+    return parser
+
+
+def read_scheme(path):
+    """{(section, key): (r, g, b)} for every valid color in a KDE .colors file; {} when it can't be read."""
     try:
-        with open(path, encoding="utf-8") as handle:
-            parser.read_file(handle)
+        parser = _read_ini(path)
     except (OSError, UnicodeError, configparser.Error):
         return {}
     colors = {}
@@ -54,11 +60,8 @@ def read_scheme(path):
 
 def read_title_bar_rgb(path):
     """Return (title colors, header backgrounds, errors); colors are (r, g, b) tuples keyed by field path."""
-    parser = configparser.RawConfigParser(interpolation=None, strict=False)
-    parser.optionxform = str
     try:
-        with open(path, encoding="utf-8") as handle:
-            parser.read_file(handle)
+        parser = _read_ini(path)
     except configparser.Error as error:
         raise ValueError(f"{path} is not a readable color scheme: {error}") from error
 
@@ -98,11 +101,8 @@ def qt6ct_scheme_path(config_path=None, require_custom=True):
     config_path = config_path or qt6ct_config_path()
     if not os.path.isfile(config_path):
         raise ValueError("qt6ct configuration not found")
-    parser = configparser.RawConfigParser(interpolation=None, strict=False)
-    parser.optionxform = str
     try:
-        with open(config_path, encoding="utf-8") as handle:
-            parser.read_file(handle)
+        parser = _read_ini(config_path)
     except (OSError, UnicodeError, configparser.Error) as error:
         raise ValueError(f"qt6ct configuration is not readable: {error}") from error
     custom = parser.get("Appearance", "custom_palette", fallback="false").strip().lower() == "true"

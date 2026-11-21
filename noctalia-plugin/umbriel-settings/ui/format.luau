@@ -73,4 +73,28 @@ function M.value(field, value)
   return text
 end
 
+local function readablePattern(text)
+  text = tostring(text)
+  if string.sub(text, 1, 1) == "^" then text = string.sub(text, 2) end
+  if string.sub(text, -1) == "$" and string.sub(text, -2) ~= "\\$" then text = string.sub(text, 1, -2) end
+  return (string.gsub(text, "\\%.", "."))
+end
+
+-- A rule's match as a title: anchors and escapes dropped, an app id's last part, the kind in brackets.
+function M.readableMatch(key, value)
+  local patterns = type(value) == "table" and value or { value }
+  local names = {}
+  for _, pattern in ipairs(patterns) do
+    local text = readablePattern(pattern)
+    if key == "app_id" then
+      local last = string.match(text, "^[%w_-]+%.[%w_-]+%.[%w_.-]*%.([%w_-]+)$")
+        or string.match(text, "^[%w_-]+%.[%w_-]+%.([%w_-]+)$")
+      if last then text = last end
+    end
+    table.insert(names, text)
+  end
+  local kind = key == "app_id" and "app id" or key == "namespace" and "layer" or key
+  return table.concat(names, ", ") .. " (" .. kind .. ")"
+end
+
 return M

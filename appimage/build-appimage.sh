@@ -24,6 +24,7 @@ arch="$(uname -m)"
 # Stage a clean copy: recipe metadata, pinned requirements, and the package without caches.
 mkdir -p "$work/recipe" "$work/extra"
 cp "$here"/recipe/* "$work/recipe/"
+cp "$root/python/umbriel_settings/assets/icon.png" "$work/recipe/umbriel-settings.png"  # Icon= in the .desktop file
 cp "$root/python/requirements.txt" "$work/recipe/requirements.txt"
 cp -r "$root/python/umbriel_settings" "$work/extra/umbriel_settings"
 cp -r "$root/python/umbriel_core" "$work/extra/umbriel_core"

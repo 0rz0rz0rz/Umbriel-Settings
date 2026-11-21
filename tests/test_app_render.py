@@ -32,7 +32,7 @@ class AppRenderTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        root, config = isolated_home(self)
+        _, config = isolated_home(self)
 
         self.win = AppWindow({"initialConfig": str(config)})
         self.win.resize(1100, 760)
@@ -184,7 +184,8 @@ class AppRenderTests(unittest.TestCase):
                    " pointerId: 7, clientX: x, clientY: y}))")
         grip = "document.querySelector('[data-key=\"kbgrip-1\"]')"
         self.js(f"(() => {{ const p = {pointer}, g = {grip}, r = g.getBoundingClientRect();"
-                "p(g, 'pointerdown', r.x + 5, r.y + 5); p(g, 'pointerup', r.x + 5, r.y + 5); g.click(); return 'ok'; })()")
+                "p(g, 'pointerdown', r.x + 5, r.y + 5); p(g, 'pointerup', r.x + 5, r.y + 5);"
+                " g.click(); return 'ok'; })()")
         self.pause(300)
         self.assertEqual(self.js("String(!!document.querySelector('[data-key=\"kbFilter-box\"]'))"), "true",
                          "still on the list, not the shortcut's page")
@@ -257,7 +258,8 @@ class AppRenderTests(unittest.TestCase):
                 " return call(cb, ...args); }; return 'ok'; })()")
         # a render that replaces the source mid-drag loses its pointerup: the drag ends anyway
         stuck = self.js(f"(() => {{ const p = {pointer};"
-                        " const s = document.querySelector('[data-key=\"display-DP-1\"]'), r = s.getBoundingClientRect();"
+                        " const s = document.querySelector('[data-key=\"display-DP-1\"]'),"
+                        " r = s.getBoundingClientRect();"
                         " p(s, 'pointerdown', r.x + 5, r.y + 5); p(s, 'pointermove', r.x + 40, r.y + 40);"
                         " const started = !!document.querySelector('.drag-ghost'); s.remove();"
                         " p(document.body, 'pointerup', r.x + 40, r.y + 40);"
@@ -360,7 +362,8 @@ class AppRenderTests(unittest.TestCase):
         home = self.win.view.url()
         self.js("window.open('file:///etc/hostname'); location.href = 'https://example.com/'; true")
         self.pause(500)
-        self.js("document.body.appendChild(Object.assign(document.createElement('a'), {href: 'file:///etc/'})).click(); true")
+        self.js("document.body.appendChild(Object.assign(document.createElement('a'), {href: 'file:///etc/'}))"
+                ".click(); true")
         self.pause(500)
         self.assertEqual(self.win.view.url(), home)
         self.wait_for_text("Home", "Appearance")

@@ -73,7 +73,8 @@ def resolve(roots, environments, exact):
         locked[key] = (version, hashes, name)
         for text in requires:
             dependency = Requirement(text)
-            if dependency.marker is None or any(dependency.marker.evaluate({**env, "extra": ""}) for env in environments):
+            marker = dependency.marker
+            if marker is None or any(marker.evaluate({**env, "extra": ""}) for env in environments):
                 queue.append(dependency)
     return {key: locked[key] for key in sorted(locked)}
 
@@ -126,8 +127,9 @@ def main():
     host = [{**env, "python_version": v, "python_full_version": v + ".0"} for env in target for v in
             ("3.11", "3.12", "3.13", "3.14")]
     outputs = {
-        "requirements.lock": lock_text(resolve(roots, target, exact=True),
-                                       f"Wheels bundled into the AppImage (Python {PYTHON_VERSION}), from python/requirements.txt."),
+        "requirements.lock": lock_text(
+            resolve(roots, target, exact=True),
+            f"Wheels bundled into the AppImage (Python {PYTHON_VERSION}), from python/requirements.txt."),
         "build-tools.lock": lock_text(resolve([f"python-appimage=={PYTHON_APPIMAGE_VERSION}"], host, exact=False),
                                       "The build's own virtualenv (any Python 3.11+ on the build machine)."),
         "pins.sh": asset_pins(),

@@ -1,15 +1,13 @@
 """Read and update XDG default applications (mimeapps.list)."""
 
-import hashlib
 import mimetypes
 import os
 import re
 import shutil
 from pathlib import Path
 
-from .backups import snapshot_file
-from .paths import atomic_write, xdg_config_home, xdg_data_dirs, xdg_data_home
-from .xdg_dirs import read_document
+from .backups import replace_checked
+from .paths import xdg_config_home, xdg_data_dirs, xdg_data_home
 
 ROLES = {
     "Web browser": ["text/html", "application/xhtml+xml", "x-scheme-handler/http", "x-scheme-handler/https"],
@@ -281,16 +279,8 @@ def update_text(text, updates):
 def save(path, backup_dir, expected_revision, changes):
     """Write the changes and return the new revision; the UI re-reads the file afterwards."""
     updates = validate_changes(changes)
-    if path.is_symlink():
-        raise ValueError("Default applications file is a symlink; edit its target directly.")
-    text, revision = read_document(path)
-    if revision != expected_revision:
-        raise ValueError("Default applications changed externally. Reload before saving.")
-    updated = update_text(text, updates).encode("utf-8")
-    if revision != "missing":
-        snapshot_file(str(path), str(backup_dir))
-    atomic_write(path, updated)
-    return {"revision": hashlib.sha256(updated).hexdigest()}
+    return replace_checked(path, backup_dir, expected_revision, lambda text: update_text(text, updates),
+                           "Default applications")
 
 
 def extension_mime(extension):

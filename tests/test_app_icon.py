@@ -39,12 +39,20 @@ class AppIconTests(unittest.TestCase):
         with patch.object(appicon.sys, "platform", "linux"), patch.dict(
             os.environ, {"XDG_DATA_HOME": self.tempdir.name, **environ}
         ):
-            if "APPIMAGE" not in environ:
-                os.environ.pop("APPIMAGE", None)
+            for name in ("APPIMAGE", "APPDIR"):
+                if name not in environ:
+                    os.environ.pop(name, None)
             appicon.install_desktop_icon(icon)
-        with open(os.path.join(self.tempdir.name, "applications", "umbriel-settings.desktop"),
-                  encoding="utf-8") as desktop_file:
-            return desktop_file.read()
+        return self.entry()
+
+    def entry(self):
+        """The installed desktop entry's text, or None."""
+        try:
+            with open(os.path.join(self.tempdir.name, "applications", "umbriel-settings.desktop"),
+                      encoding="utf-8") as desktop_file:
+                return desktop_file.read()
+        except FileNotFoundError:
+            return None
 
     def test_icon_keeps_transparency_in_window_and_desktop_icon(self):
         self.write_png("blue")
@@ -78,6 +86,22 @@ class AppIconTests(unittest.TestCase):
     def test_appimage_desktop_entry_runs_the_appimage_with_quoting(self):
         entry = self.install(self.icon(), APPIMAGE='/opt/My "Apps"/100%.AppImage')
         self.assertIn('Exec="/opt/My \\"Apps\\"/100%%.AppImage"\n', entry)
+
+    def test_an_unpacked_appimage_or_a_missing_launcher_registers_no_entry(self):
+        # e.g. a build test that runs the extracted squashfs-root: the entry would point into a temp folder
+        self.assertIsNone(self.install(self.icon(), APPDIR=os.path.join(self.tempdir.name, "squashfs-root")))
+        with patch.object(appicon, "LAUNCHER_PATH", os.path.join(self.tempdir.name, "missing.py")):
+            self.assertIsNone(self.install(self.icon()))
+        self.assertIn(appicon.desktop_entry_quote(appicon.LAUNCHER_PATH), self.install(self.icon()))
+
+    def test_an_entry_the_user_keeps_is_never_rewritten(self):
+        applications = os.path.join(self.tempdir.name, "applications")
+        os.makedirs(applications)
+        kept = '[Desktop Entry]\nExec="/usr/bin/python3" "/src/umbriel-settings.py"\nX-Umbriel-Settings-Keep=true\n'
+        with open(os.path.join(applications, "umbriel-settings.desktop"), "w", encoding="utf-8") as handle:
+            handle.write(kept)
+        self.assertEqual(self.install(self.icon(), APPIMAGE="/opt/Umbriel-Settings.AppImage"), kept)
+        self.assertEqual(self.install(self.icon()), kept)
 
     def test_bundled_icon_is_a_transparent_png(self):
         image = QImage(os.path.join(os.path.dirname(appicon.__file__), "assets", "icon.png"))
@@ -154,14 +178,11 @@ class AppStartupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as data_home, patch.object(appicon.sys, "platform", "linux"), \
                 patch.dict(os.environ, {"XDG_DATA_HOME": data_home}):
             os.environ.pop("APPIMAGE", None)
+            os.environ.pop("APPDIR", None)
             appicon.install_desktop_icon(QIcon(pixmap))
             with patch.object(appicon, "write_text_file") as write:
                 appicon.install_desktop_icon(QIcon(pixmap))
             write.assert_not_called()
-
-    def test_legacy_flag_is_gone(self):
-        with self.assertRaises(SystemExit), patch("sys.stderr"):
-            app.parse_args(["--legacy-ui"])
 
 
 if __name__ == "__main__":

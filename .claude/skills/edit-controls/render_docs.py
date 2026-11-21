@@ -5,11 +5,10 @@ Run from the repo root:
     python .claude/skills/edit-controls/render_docs.py [--out DIR]
         [--page home|outputs]
 
-Without --out it writes docs/home-app.png (1280x860), docs/home-plugin.png and the plugin's own copy
-noctalia-plugin/umbriel-settings/screenshot.png (both 1028x808: the 980x760 panel plus a 24 px margin);
-with --page outputs docs/outputs-plugin.png and noctalia-plugin/umbriel-settings/screenshot-outputs.png. The
-Outputs page shows three made-up displays: a wrapper `umbriel` answers `outputs --json` and passes every other
-command to the real one.
+Without --out it writes docs/home-app.png (1280x860) and noctalia-plugin/umbriel-settings/screenshot.png
+(1028x808: the 980x760 panel plus a 24 px margin), which both READMEs show; with --page outputs
+noctalia-plugin/umbriel-settings/screenshot-outputs.png. The Outputs page shows three made-up displays: a
+wrapper `umbriel` answers `outputs --json` and passes every other command to the real one.
 Both use a temporary copy of Umbriel's sample config (/usr/share/umbriel/config.toml), shown as
 ~/.config/umbriel/config.toml, and temporary data dirs, so no personal paths or settings appear; the theme
 follows the user's Noctalia/qt6ct colors. The panel runs panel.luau (with onOpen) in the app's web view.
@@ -41,22 +40,18 @@ parser.add_argument("--settle", type=int, default=4000, help="ms to wait before 
 args = parser.parse_args()
 
 if not args.layout:
-    folder = args.out or os.path.join(REPO, "docs")
+    docs = args.out or os.path.join(REPO, "docs")
+    plugin = args.out or os.path.join(REPO, "noctalia-plugin", "umbriel-settings")  # self-contained for the store
     if args.page == "outputs":
-        targets, copy = [("panel", os.path.join(folder, "outputs-plugin.png"))], "screenshot-outputs.png"
+        targets = [("panel", os.path.join(plugin, "screenshot-outputs.png"))]
     else:
-        targets = [("app", os.path.join(folder, "home-app.png")), ("panel", os.path.join(folder, "home-plugin.png"))]
-        copy = "screenshot.png"
+        targets = [("app", os.path.join(docs, "home-app.png")), ("panel", os.path.join(plugin, "screenshot.png"))]
     failed = False
     for layout, path in targets:
         # one process per layout: the panel patches LuaHost.start, and QtWebEngine runs once per process
         result = subprocess.run([sys.executable, __file__, "--layout", layout, "--file", path, "--page", args.page,
                                  "--settle", str(args.settle)])
         failed = failed or result.returncode != 0
-    if not args.out and not failed:
-        plugin_copy = os.path.join(REPO, "noctalia-plugin", "umbriel-settings", copy)
-        shutil.copy(targets[-1][1], plugin_copy)
-        print(plugin_copy)
     sys.exit(1 if failed else 0)
 
 tmp, config = temp_home(SAMPLE, "umbriel-docs-")
@@ -111,7 +106,8 @@ JS = """
 ((from, to, margin) => {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let n; (n = walker.nextNode());) if (n.nodeValue.includes(from)) n.nodeValue = n.nodeValue.split(from).join(to);
-  for (const el of document.querySelectorAll("input")) if (el.value.includes(from)) el.value = el.value.split(from).join(to);
+  for (const el of document.querySelectorAll("input"))
+    if (el.value.includes(from)) el.value = el.value.split(from).join(to);
   if (margin) { document.body.style.padding = "24px"; document.body.style.boxSizing = "border-box"; }
 })""" + "(" + json.dumps([config, SHOWN_PATH, args.layout == "panel" and not args.no_margin])[1:-1] + ");"
 

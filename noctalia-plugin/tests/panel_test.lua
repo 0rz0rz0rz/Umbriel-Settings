@@ -165,7 +165,7 @@ local function order()
   return table.concat(store.keybinds.groups, ",") .. " / " .. table.concat(keys, ",")
 end
 local function newGroup(name)
-  find("input", function(n) return tostring(n.props.key):match("^grp%-new%-") end).props.onSubmit(name)
+  H.input("^grpNew:").props.onSubmit(name)
 end
 local launcher, closer = store.keybinds.rows[1].key, store.keybinds.rows[2].key
 entry.onKey("alt+Left", true)
@@ -361,7 +361,7 @@ H.liveChange("windows")
 assert(hasText("kitty") and not hasText("firefox · 2 windows"), "a change refreshes the list: " .. screen())
 replies.windows = windowsReply
 H.liveChange("windows")
-H.input("^live%-filter:").props.onChange("gajim")
+H.input("^liveFilter:").props.onChange("gajim")
 assert(not hasText("firefox · 2 windows"), "the filter hides other windows: " .. screen())
 local appSteps = #store.history
 clickText("App and title")
@@ -527,7 +527,7 @@ assert(byKey("folder-effects") and byKey("file-config.toml"), screen())
 byKey("folder-effects").props.onClick()
 flushReads()
 assert(listings[#listings].path == "/usr/share/umbriel/effects")
-H.input("^files%-search%-").props.onChange("pul")
+H.input("^fileQuery:").props.onChange("pul")
 assert(not byKey("file-glow.toml") and byKey("file-pulse.toml"), "the filter narrows the folder")
 H.input("^files%-path%-").props.onSubmit("/nope")
 flushReads()
@@ -622,16 +622,13 @@ assert(afterFrames >= 20, "remaining icons resolved on later frames: " .. afterF
 flushReads()
 assert(iconCalls == afterFrames, "icons are cached")
 -- slow lookups stop once the render's icon time budget is spent (always at least one per render)
-local fakeNow, nowMs = 0, noctalia.nowMs
-noctalia.nowMs = function() return fakeNow end
-noctalia.appIconPath = function() iconCalls = iconCalls + 1; fakeNow = fakeNow + 10; return nil end
+noctalia.appIconPath = function() iconCalls = iconCalls + 1; H.clock = H.clock + 10; return nil end
 for i = 1, 10 do table.insert(store.desktop.apps.apps, { id = "slow" .. i .. ".desktop", name = "Fake app slow " .. i }) end
 iconCalls = 0
-find("input", function(n) return n.props.key == "app-search" end).props.onChange("slow")
+H.input("^appQuery:").props.onChange("slow")
 assert(iconCalls == 1, "slow icon lookups in one callback: " .. iconCalls)
-noctalia.nowMs = nowMs
 noctalia.appIconPath = appIconPath
-find("input", function(n) return n.props.key == "app-search" end).props.onChange("")
+H.input("^appQuery:").props.onChange("")
 find("input", function(n) return n.props.key == "app-id-role-Web browser" end).props.onChange("firefox.desktop")
 clickText("Use")
 assert(store.desktop.apps.roles["Web browser"] == "firefox.desktop")

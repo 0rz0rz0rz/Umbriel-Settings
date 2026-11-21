@@ -6,6 +6,7 @@ Sources, first available wins:
 3. Nothing: the host falls back to the Qt palette.
 """
 
+import math
 import os
 import re
 import tomllib
@@ -179,7 +180,7 @@ def shell_style():
     family = shell.get("font_family") if isinstance(shell.get("font_family"), str) else None
     scale = shell.get("corner_radius_scale")
     # Noctalia clamps corner roundness to [0, 2] (Style::setCornerRadiusScale).
-    valid = isinstance(scale, (int, float)) and not isinstance(scale, bool) and scale == scale
+    valid = isinstance(scale, (int, float)) and not isinstance(scale, bool) and not math.isnan(scale)
     scale = min(max(float(scale), 0.0), 2.0) if valid else 1.0
     return {"font_family": family, "radius_scale": scale}
 

@@ -62,13 +62,11 @@ local function editor(ctx, eid)
       table.insert(rows, ui.row({ key = key, gap = 8, align = "center", paddingH = 12, paddingV = 8, radius = kit.RADIUS.md,
                                   fill = "surface_container" }, {
         ui.column({ gap = 2, flexGrow = 1 }, {
-          ui.label({ text = row[1], fontSize = 13, fontWeight = "bold" }),
+          ui.label({ text = row[1], fontSize = kit.FONT.body, fontWeight = "bold" }),
           kit.muted(row[2], { maxLines = 2 }),
         }),
-        ui.button({ glyph = "pencil", variant = "ghost", controlSize = "sm", tooltip = "Edit",
-                    onClick = function() view.mapEdit = { editor = eid, from = row[1] }; ctx.render() end }),
-        ui.button({ glyph = "trash", variant = "ghost", controlSize = "sm", tooltip = "Remove",
-                    onClick = function() store.mapRemove(eid, row[1]); ctx.render() end }),
+        kit.iconButton("pencil", "Edit", function() view.mapEdit = { editor = eid, from = row[1] }; ctx.render() end),
+        kit.iconButton("trash", "Remove", function() store.mapRemove(eid, row[1]); ctx.render() end),
       }))
     end
   end
@@ -105,7 +103,7 @@ function M.render(ctx, route)
   local store = ctx.store
   local page = store.meta.pages[route.page]
   local header = { kit.header(ctx, route.page, page.help) }
-  if not store.state then return { header = header, content = { kit.empty("Loading config…", "loader") } } end
+  if not store.state then return { header = header, content = { kit.loading("Loading config…") } } end
   local content = {}
   if route.page == "Animation curves" then
     table.insert(content, kit.muted("Name a curve here, then pick it in an animation's Curve setting. "

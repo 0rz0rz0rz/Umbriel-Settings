@@ -65,7 +65,7 @@ function M.create(layout, options)
 
   local function body(current)
     if not store.meta then
-      local content = { ctx.loadError and kit.notice(ctx.loadError, "error") or kit.empty("Loading…", "loader") }
+      local content = { ctx.loadError and kit.notice(ctx.loadError, "error") or kit.loading() }
       if ctx.loadError and not loading.meta then
         table.insert(content, ui.row({ key = "retry-row" }, {
           ui.button({ key = "retry", text = "Try again", glyph = "refresh", variant = "primary", onClick = function()
@@ -149,11 +149,10 @@ function M.create(layout, options)
     if store.meta and store.state and current.name ~= "review" then
       local dirty = pending > 0
       -- as tall as a two-line card (kit.navRow: border 1 + padding 6, two lines, 6 + 1 = 51 px in the app)
-      saveBar = ui.row({ key = "savebar", gap = 8, align = "center", paddingH = 12, height = 51, radius = kit.RADIUS.md,
-                         border = kit.CARD_BORDER, borderWidth = kit.CARD_BORDER_WIDTH,
-                         fill = dirty and "primary_container" or "surface_container" }, {
-        ui.glyph({ name = dirty and "pencil" or "check", size = 16, color = dirty and "primary" or kit.MUTED }),
-        ui.label({ text = dirty and kit.plural(pending, "unsaved change") or "No unsaved changes", fontSize = 13,
+      saveBar = kit.rowCard({ key = "savebar", gap = 8, align = "center", paddingH = 12, height = 51,
+                              radius = kit.RADIUS.md, fill = dirty and "primary_container" or nil }, {
+        ui.glyph({ name = dirty and "pencil" or "check", size = kit.GLYPH.body, color = dirty and "primary" or kit.MUTED }),
+        ui.label({ text = dirty and kit.plural(pending, "unsaved change") or "No unsaved changes", fontSize = kit.FONT.body,
                    color = not dirty and kit.MUTED or nil, flexGrow = 1 }),
         ui.button({ text = "Undo", glyph = "arrow-back-up", variant = "ghost", controlSize = "sm", tooltip = "Ctrl+Z",
                     enabled = store.canUndo(), onClick = function() ctx.undo() end }),
@@ -406,9 +405,9 @@ function M.create(layout, options)
     end)
   end
 
-  -- ---------------------------------------------------------------- entry points
-  -- The connected outputs (`umbriel outputs --json`): {loading, error, outputs}, asked once per open (and again
-  -- after ctx.forgetLiveOutputs()); outputs stay empty until Umbriel answers or when it can't.
+  -- ---------------------------------------------------------------- live outputs
+  -- The connected outputs (`umbriel outputs --json`): {loading, error, outputs, names}, asked once per open (and
+  -- again after ctx.forgetLiveOutputs()); outputs stay empty until Umbriel answers or when it can't.
   local liveOutputs = nil
   function ctx.connectedOutputs()
     if liveOutputs == nil then
@@ -458,6 +457,7 @@ function M.create(layout, options)
     livePoll = nil  -- a closed panel dropped its answer: poll again
   end
 
+  -- ---------------------------------------------------------------- entry points
   local handlers = {}
   local open = false
 

@@ -6,16 +6,17 @@ local format = require("../ui/format.luau")
 
 local M = {}
 
+local DIFF_LINES = 80  -- lines of one section's diff shown: long diffs stay readable and cheap to render
+
 local function diffBlock(text)
-  -- Long diffs stay readable and cheap to render.
   local lines, count = {}, 0
   for line in string.gmatch(text, "[^\n]*\n?") do
     if line == "" then break end
     count = count + 1
-    if count <= 80 then table.insert(lines, line) end
+    if count <= DIFF_LINES then table.insert(lines, line) end
   end
   local body = table.concat(lines)
-  if count > 80 then body = body .. "\n… " .. (count - 80) .. " more lines\n" end
+  if count > DIFF_LINES then body = body .. "\n… " .. (count - DIFF_LINES) .. " more lines\n" end
   return "```diff\n" .. body .. "```"
 end
 
@@ -326,7 +327,7 @@ local function backupsPage(ctx, route)
   local header = { kit.header(ctx, "Backups", "A copy is taken before every save and restore; the newest 10 are kept") }
   local content = {}
   if state.error then table.insert(content, kit.notice(state.error, "error", nil, "bk-error")) end
-  if state.loading then table.insert(content, kit.empty("Loading…", "loader")) end
+  if state.loading then table.insert(content, kit.loading()) end
   local marked = 0
   for _ in pairs(state.marked) do marked = marked + 1 end
   local list = state.list or {}
@@ -363,15 +364,14 @@ local function backupsPage(ctx, route)
   end
   for index, item in ipairs(list) do
     local key = "bk-" .. index
-    table.insert(content, ui.row({ key = key, gap = 8, align = "center", paddingH = 11, paddingV = 7, radius = kit.RADIUS.md,
-                                   fill = "surface_container", border = kit.CARD_BORDER,
-                                   borderWidth = kit.CARD_BORDER_WIDTH }, {
+    table.insert(content, kit.rowCard({ key = key, gap = 8, align = "center", paddingH = 11, paddingV = 7,
+                                        radius = kit.RADIUS.md }, {
       ui.toggle({ checked = state.marked[item.path] == true, onChange = function(value)
         state.marked[item.path] = value == "true" or nil
         ctx.render()
       end }),
       ui.column({ gap = 2, flexGrow = 1 }, {
-        ui.label({ text = item.time, fontSize = 13, fontWeight = "bold" }),
+        ui.label({ text = item.time, fontSize = kit.FONT.body, fontWeight = "bold" }),
         kit.muted(kit.fileSize(item.size)),
       }),
       ui.button({ text = "Compare", controlSize = "sm", variant = "ghost", onClick = function()

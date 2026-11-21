@@ -4,9 +4,12 @@ Used for the Umbriel config (per-config directory) and for the desktop files and
 """
 
 import datetime
+import hashlib
 import os
 import shutil
 import stat
+
+from .paths import atomic_write, read_document
 
 MAX_BACKUPS = 10
 STAMP = "%Y%m%d-%H%M%S-%f"
@@ -30,6 +33,21 @@ def snapshot_file(path, directory, protect=None):
     shutil.copy2(path, snapshot)
     prune_backup_snapshots(directory, path, protect=protect)
     return snapshot
+
+
+def replace_checked(path, backup_dir, expected_revision, update, label):
+    """Rewrite the user file `path` (a Path) with `update(text)` unless it changed since `expected_revision`:
+    refuse symlinks, back the old file up into `backup_dir`, write atomically; return {"revision"}."""
+    if path.is_symlink():
+        raise ValueError(f"{label} file is a symlink; edit its target directly.")
+    text, revision = read_document(path)
+    if revision != expected_revision:
+        raise ValueError(f"{label} changed externally. Reload before saving.")
+    updated = update(text).encode("utf-8")
+    if revision != "missing":
+        snapshot_file(str(path), str(backup_dir))
+    atomic_write(path, updated)
+    return {"revision": hashlib.sha256(updated).hexdigest()}
 
 
 def prune_backup_snapshots(directory, config_path, keep=MAX_BACKUPS, protect=None):

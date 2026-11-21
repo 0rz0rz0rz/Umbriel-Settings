@@ -10,14 +10,19 @@ from .fields import ENTRY_EDITORS, TABS, schema_prefix
 from .launch import child_env
 
 
-def run_umbriel(args, timeout):
-    """Run `umbriel <args>` (no input, output captured). Raises FileNotFoundError when umbriel is not on PATH
-    and subprocess.TimeoutExpired."""
+def umbriel_executable():
+    """The `umbriel` CLI's path; FileNotFoundError when it is not on PATH."""
     executable = shutil.which("umbriel")
     if not executable:
         raise FileNotFoundError("Umbriel CLI was not found on PATH.")
-    return subprocess.run([executable, *args], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                          timeout=timeout, check=False, env=child_env())
+    return executable
+
+
+def run_umbriel(args, timeout, errors=None):
+    """Run `umbriel <args>` (no input, output captured as UTF-8 text; `errors` as in `open`). Raises
+    FileNotFoundError when umbriel is not on PATH and subprocess.TimeoutExpired."""
+    return subprocess.run([umbriel_executable(), *args], stdin=subprocess.DEVNULL, capture_output=True,
+                          encoding="utf-8", errors=errors, timeout=timeout, check=False, env=child_env())
 
 
 def run_umbriel_json(args, timeout):

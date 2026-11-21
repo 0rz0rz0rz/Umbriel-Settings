@@ -2,7 +2,8 @@
 """Run the checks that cover the current changes and print one line per check.
 
   python tools/check.py              # pick checks from `git status` (changed + untracked files)
-  python tools/check.py core plugin  # run named checks: core, plugin (luac, luau, validator), host, schema, lint (ruff, shellcheck), all
+  python tools/check.py core plugin  # run named checks: core, plugin (tests, luac, luau, noctalia lint, validator),
+                                     #   host, schema, lint (ruff, shellcheck), all
   python tools/check.py test_core_values test_panel  # run single test files (tests/, noctalia-plugin/tests/) by name
   python tools/check.py test_core_values -k from_ui  # only the tests of those files whose names match
   python tools/check.py -v ...       # also print the full output of passing checks
@@ -117,14 +118,18 @@ def checks_for_paths(paths):
         elif path.startswith("python/umbriel_settings/") or Path(path).stem in HOST_TESTS \
                 or path in ("python/umbriel-settings.py", "python/requirements.txt", "tests/host_support.py"):
             wanted.add("host")
+            if path == "python/requirements.txt":  # test_core checks the AppImage lock against it
+                wanted.add("core")
         elif path.startswith("tests/") and path.endswith(".py"):
             stem = Path(path).stem
             if stem in CORE_TESTS:
                 wanted.add("core")
             elif stem.startswith("test_") and (ROOT / path).exists():  # deleted tests show up in git status
                 files.add(stem)
-        elif path in ("tools/sync_plugin_core.py", "appimage/requirements.lock"):
+        elif path in ("tools/sync_plugin_core.py", "tools/update_appimage_pins.py", "appimage/requirements.lock"):
             wanted.add("core")
+        elif path == "tools/validate_plugin.py":
+            wanted.add("plugin")
     return [name for name in ORDER if name in wanted], sorted(files)
 
 

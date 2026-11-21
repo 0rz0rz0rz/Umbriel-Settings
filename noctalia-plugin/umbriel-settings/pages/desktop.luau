@@ -16,10 +16,12 @@ local ROLE_GLYPHS = { ["Web browser"] = "world", ["Email client"] = "mail", ["Fi
                       ["Text editor"] = "file-text", ["Image viewer"] = "photo", ["PDF viewer"] = "file-type-pdf",
                       ["Audio player"] = "music", ["Video player"] = "movie" }
 
+local MIME_ROWS = 50  -- other file types listed at most (each row is a card with two buttons)
+
 local function loading(ctx, title)
   ctx.loadDesktop()
   local content = { ctx.desktopError and kit.notice(ctx.desktopError, "error", nil, "desktop-error")
-                    or kit.empty("Loading…", "loader") }
+                    or kit.loading() }
   return { header = { kit.header(ctx, title) }, content = content }
 end
 
@@ -100,7 +102,7 @@ local function foldersPage(ctx)
     if value ~= (dirs.original[key] or "") then table.insert(badges, kit.badge("unsaved", "primary", "fb-" .. key)) end
     local rows = {
       ui.row({ gap = 6, align = "center" }, {
-        ui.label({ text = label, fontSize = 13, fontWeight = "bold", flexGrow = 1 }),
+        ui.label({ text = label, fontSize = kit.FONT.body, fontWeight = "bold", flexGrow = 1 }),
         ui.row({ gap = 4 }, badges),
       }),
       ui.row({ gap = 6, align = "center" }, {
@@ -151,7 +153,6 @@ local function appsPage(ctx)
   icons.finish(ctx)
   table.insert(content, kit.section("Other file types"))
   table.insert(content, kit.filterBox(ctx, "mimeFilter", { placeholder = "Filter file types or apps" }))
-  local addKey = "mime-add-" .. ctx.gen("mimeAdd")
   local function addMime(mime)
     mime = noctalia.string.trim(mime or "")
     for _, managed in ipairs(apps.roleMimes or {}) do
@@ -164,19 +165,14 @@ local function appsPage(ctx)
     ctx.bump("mimeAdd")
     ctx.go({ name = "appPicker", kind = "mime", target = mime })
   end
-  table.insert(content, ui.row({ key = "mime-add", gap = 6, align = "center" }, {
-    ui.input({ key = addKey, value = "", flexGrow = 1, controlSize = "sm",
-               placeholder = "Add a MIME type (text/markdown) or extension (.md)",
-               onChange = function(text) view.mimeDraft = text end }),
-    ui.button({ text = "Add", glyph = "plus", controlSize = "sm", variant = "outline", onClick = function()
-      local text = noctalia.string.trim(view.mimeDraft or "")
+  table.insert(content, kit.nameForm(ctx, "mimeAdd", "Add a MIME type (text/markdown) or extension (.md)", "Add",
+    function(text)
       if text == "" then return end
       if string.find(text, "/", 1, true) then addMime(text); return end
       ctx.helper.call("extension", { extension = text }, function(err, data)
         if err then ctx.flash(err.error, "warning") else addMime(data.mime) end
       end)
-    end }),
-  }))
+    end))
   local filter = kit.filterText(ctx, "mimeFilter")
   local names = {}
   for mime in pairs(apps.mimes) do table.insert(names, mime) end
@@ -194,14 +190,12 @@ local function appsPage(ctx)
     local value = apps.mimes[mime] or ""
     local name = value ~= "" and (appNames[value] or value) or nil
     local exts = extensions[mime] or ""
-    local haystack = filter ~= "" and string.lower(table.concat({ mime, exts, value, name or "" }, " "))
-    if shown < 50 and (filter == "" or string.find(haystack, filter, 1, true)) then
+    if shown < MIME_ROWS and (filter == "" or kit.contains(table.concat({ mime, exts, value, name or "" }, " "), filter)) then
       shown = shown + 1
-      table.insert(content, ui.row({ key = "mime-" .. mime, gap = 6, align = "center", paddingH = 12, paddingV = 6,
-                                     radius = kit.RADIUS.md, fill = "surface_container", border = kit.CARD_BORDER,
-                                     borderWidth = kit.CARD_BORDER_WIDTH }, {
+      table.insert(content, kit.rowCard({ key = "mime-" .. mime, gap = 6, align = "center", paddingH = 12, paddingV = 6,
+                                          radius = kit.RADIUS.md }, {
         ui.column({ gap = 2, flexGrow = 1 }, {
-          ui.label({ text = exts ~= "" and (mime .. "  ·  " .. exts) or mime, fontSize = 13 }),
+          ui.label({ text = exts ~= "" and (mime .. "  ·  " .. exts) or mime, fontSize = kit.FONT.body }),
           kit.muted(name and (name == value and value or (name .. "  ·  " .. value)) or "Removed when you save"),
         }),
         ui.button({ text = "Change", controlSize = "sm", variant = "outline",
@@ -214,7 +208,9 @@ local function appsPage(ctx)
       }))
     end
   end
-  if shown == 50 then table.insert(content, listStart, kit.muted("Showing 50 file types; filter to find others.")) end
+  if shown == MIME_ROWS then
+    table.insert(content, listStart, kit.muted("Showing " .. MIME_ROWS .. " file types; filter to find others."))
+  end
   return { header = header, content = content }
 end
 
@@ -228,9 +224,8 @@ local function pickerPage(ctx, route)
   local apps = store.desktop.apps
   local current = route.kind == "role" and apps.roles[route.target] or apps.mimes[route.target]
   if command then current = nil end
-  local search = ui.input({ key = "app-search", value = view.appQuery or "", focus = true, flexGrow = 1,
-                            placeholder = "Search installed apps",
-                            onChange = function(text) view.appQuery = text; ctx.render() end })
+  local search = kit.filterBox(ctx, "appQuery", { focus = true, flexGrow = command and 1 or nil,
+                                                 placeholder = "Search installed apps" })
   if command then  -- any other program: next to the search, not below the list
     search = ui.row({ key = "app-search-row", gap = 6, align = "center" }, { search,
       ui.button({ key = "app-file", text = "Browse files…", glyph = "folder-open", controlSize = "sm",
@@ -256,12 +251,12 @@ local function pickerPage(ctx, route)
     view.appQuery, view.appManual = "", nil
     ctx.back()
   end
-  local query = string.lower(noctalia.string.trim(view.appQuery or ""))
+  local query = kit.filterText(ctx, "appQuery")
   local content = {}
   local shown = 0
   local icons = iconLookup()
   for _, app in ipairs(apps.apps) do
-    if shown < 40 and (query == "" or string.find(string.lower(app.name .. " " .. app.id), query, 1, true)) then
+    if shown < kit.LIST_CAP and (query == "" or kit.contains(app.name .. " " .. app.id, query)) then
       shown = shown + 1
       local icon = icons.icon(app.id)
       table.insert(content, kit.navRow({ key = "app-" .. app.id, image = icon or nil, glyph = "apps",
@@ -270,7 +265,7 @@ local function pickerPage(ctx, route)
     end
   end
   icons.finish(ctx)
-  if shown == 40 then table.insert(content, kit.muted("Type to find more apps.")) end
+  if shown == kit.LIST_CAP then table.insert(content, kit.muted("Type to find more apps.")) end
   if shown == 0 then table.insert(content, kit.empty("No installed app matches.", "apps")) end
   if command then return { header = header, content = content } end
   table.insert(content, kit.section("Or enter a desktop file ID"))

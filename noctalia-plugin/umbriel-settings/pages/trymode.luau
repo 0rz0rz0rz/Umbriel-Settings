@@ -10,15 +10,8 @@ local M = {}
 local SECONDS = 15
 local PRIMARY_FIELD = "general.xwayland_primary_output"
 
-local function deepCopy(value)
-  if type(value) ~= "table" then return value end
-  local copy = {}
-  for k, v in pairs(value) do copy[k] = deepCopy(v) end
-  return copy
-end
-
 -- Whether every pending config edit is a display edit (so trying them saves nothing else).
-function M.available(store)
+local function available(store)
   if not store.state or store.keybindsDirty or #store.mapOps > 0 then return false end
   for _, op in ipairs(store.entryOps) do
     if op.editor ~= "output" then return false end
@@ -33,7 +26,7 @@ end
 local function reapply(store, edits)
   store.group(function()
     for _, op in ipairs(edits.ops) do
-      local copy = deepCopy(op)
+      local copy = store.deepCopy(op)
       copy.editor = nil
       store.entryOp(op.editor, copy)
     end
@@ -83,10 +76,10 @@ local function tick(ctx, attempt)
   end, { always = true })
 end
 
-function M.start(ctx)
+local function start(ctx)
   local store, view = ctx.store, ctx.view
   local attempt = { phase = "saving", path = store.state.path, generation = ctx.helper.generation,
-                    edits = { ops = deepCopy(store.entryOps), fields = deepCopy(store.fieldChanges) } }
+                    edits = { ops = store.deepCopy(store.entryOps), fields = store.deepCopy(store.fieldChanges) } }
   view.tryState = attempt
   ctx.saving = true
   local mark = store.saveMark()
@@ -120,9 +113,9 @@ end
 function M.button(ctx)
   local store = ctx.store
   return ui.button({ key = "display-try", text = "Try", glyph = "player-play", variant = "outline",
-                     enabled = ctx.view.tryState == nil and not ctx.saving and M.available(store),
+                     enabled = ctx.view.tryState == nil and not ctx.saving and available(store),
                      tooltip = "Save the display changes now and keep them only if you confirm within "
-                       .. SECONDS .. " seconds", onClick = function() M.start(ctx) end })
+                       .. SECONDS .. " seconds", onClick = function() start(ctx) end })
 end
 
 -- The confirm card while a try runs (nil otherwise).
@@ -135,7 +128,7 @@ function M.card(ctx)
   end
   return ui.row({ key = "display-try-card", gap = 8, align = "center", padding = 10, radius = kit.RADIUS.md,
                   fill = "primary/0.12" }, {
-    ui.glyph({ name = "device-desktop-question", size = 18, color = "primary" }),
+    ui.glyph({ name = "device-desktop-question", size = kit.GLYPH.large, color = "primary" }),
     kit.label("Keep these display settings? Going back in " .. kit.plural(attempt.left, "second") .. ".",
               { flexGrow = 1, maxLines = 2 }),
     ui.button({ key = "display-try-keep", text = "Keep", glyph = "check", variant = "primary", onClick = function()

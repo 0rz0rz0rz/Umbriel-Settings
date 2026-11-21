@@ -90,6 +90,7 @@ def check(text):
 
 
 def write(path, text):
+    # Its own copy of paths.atomic_write: this script is stdlib-only and runs from ~/.config/umbriel-settings/.
     mode = os.stat(path).st_mode & 0o7777 if os.path.exists(path) else 0o644
     handle, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".")
     try:

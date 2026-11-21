@@ -9,13 +9,13 @@ paths:
 
 | File | Covers |
 | --- | --- |
-| `test_core.py` | import rules (no Qt; desktop modules without tomlkit), entry names, keybind apply, layout rebuild (lossless, stable), paths, locked keybinds, schema coverage rules + speed bound, KDE lookup |
+| `test_core.py` | import rules (no Qt; desktop modules without tomlkit), `test_versions_agree` (app/plugin version, targets, READMEs), `test_appimage_lock_matches_the_requirements`, entry names, keybind apply, layout rebuild (lossless, stable), paths, locked keybinds, schema coverage rules + speed bound, KDE lookup |
 | `test_core_values.py` | `from_ui`/`to_ui`/`apply_value`, help coverage, keybind checks |
 | `test_core_files.py` | backups/snapshots (old rolling `.bak` adopted by `legacy.migrate_data_dir`), atomic writes, write lock, cursor themes, KDE colors, Noctalia templates, title-bar follow/apply, `child_env` |
 | `test_core_live.py` | `live` (open windows/layers, exact patterns, keyboard layout hint) with `run_umbriel_json` patched, `xkb` parser/catalog, `included_names`, Run-now blocking and `msg_argv`, meta `names_from`/`picker`/`file`/`actions.blocked` |
 | `test_core_session.py` | `ConfigSession.save` without the CLI: odd `[keybinds]` headers, dotted/inline keybinds, non-table shapes, text that lost a setting is refused, lock file shape |
 | `test_host_runtime.py` | callback ids per render, Lua sandbox; lupa runs `app.luau` with the real core in `host_support.isolated_home(self)` (temp config, XDG dirs, fake `umbriel`; also used by `test_app_render.py`); `find`/`click`/`host.invoke` + `settle()` (`host_support.ManualScheduler`); `new_app(dir)` = restart; fake a crash via `api._helpers[path]` |
-| `test_host_bridge.py` | `Bridge`, `QtScheduler` (incl. failing work), `runAsync` lanes and helper-only, single instance (temp socket path), glyph names (also `kit.iconButton("<glyph>"`) |
+| `test_host_bridge.py` | `Bridge`, `QtScheduler` (incl. failing work), `runAsync` lanes and helper-only, single instance (temp socket path), glyph names (also `kit.iconButton("<glyph>"`), `fuzzy_score` |
 | `test_app_render.py` | real `AppWindow`: DOM text/clicks, no JS/Lua errors, ARIA names, the display arrangement filling the window (fake `umbriel outputs --json` in `host_support`) |
 | `test_app_icon.py` | icon (patch `appicon.APP_ICON_PATH`), desktop entry, `app.main` with Qt and `instance.claim` patched (never reach a real app's socket) |
 

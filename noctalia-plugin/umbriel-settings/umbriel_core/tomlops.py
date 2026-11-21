@@ -1,5 +1,6 @@
 """Comment-preserving TOML value helpers built on tomlkit."""
 
+import math
 import re
 
 import tomlkit
@@ -54,7 +55,7 @@ def same_data(a, b):
         return a.keys() == b.keys() and all(same_data(a[k], b[k]) for k in a)
     if isinstance(a, list) and isinstance(b, list):
         return len(a) == len(b) and all(map(same_data, a, b))
-    if isinstance(a, float) and isinstance(b, float) and a != a and b != b:
+    if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
         return True
     return isinstance(a, bool) == isinstance(b, bool) and a == b
 

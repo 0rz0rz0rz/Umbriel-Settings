@@ -1,5 +1,6 @@
 """Standalone window: the shared Luau UI (app.luau) rendered as HTML in a QWebEngineView."""
 
+import contextlib
 import json
 import os
 import signal
@@ -81,10 +82,8 @@ def load_window_state(data_dir):
 
 
 def save_window_state(data_dir, state):
-    try:
+    with contextlib.suppress(OSError):
         atomic_write(os.path.join(data_dir, "window.json"), json.dumps(state))
-    except OSError:
-        pass
 
 
 def quit_on_signals(app, window):

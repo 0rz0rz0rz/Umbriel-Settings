@@ -1,26 +1,14 @@
 import unittest
 
-from support import HelperTestCase
+from support import DesktopTestCase
 
 
-class DefaultAppsPluginTests(HelperTestCase):
+class DefaultAppsPluginTests(DesktopTestCase):
+    FILE, PART = "mimeapps.list", "apps"
+
     def setUp(self):
         super().setUp()
-        self.path = self.root / "xdg-config" / "mimeapps.list"
-        self.backup = self.root / "data" / "umbriel-settings" / "backups"
         self.env["XDG_DATA_DIRS"] = str(self.root / "system")
-
-    def call(self, command, request, success=True):
-        return self.expect(command, request, success)
-
-    def helper(self, *args, success=True):
-        if args[0] == "extension":
-            return self.call("extension", {"extension": args[1]}, success)
-        return self.call("desktop", {}, success)["apps"]
-
-    def save(self, revision, changes, success=True):
-        result = self.call("desktop-save", {"apps": {"revision": revision, "changes": changes}}, success)
-        return result["apps"] if success else result
 
     def test_role_and_mime_changes_preserve_fallbacks_and_unrelated_sections(self):
         self.path.parent.mkdir()
@@ -30,7 +18,7 @@ class DefaultAppsPluginTests(HelperTestCase):
             "[Added Associations]\ntext/html=other.desktop;\n"
         )
         self.path.write_text(original)
-        loaded = self.helper("read")
+        loaded = self.read()
         self.assertEqual(loaded["roles"]["Web browser"], "<multiple>")
         self.assertEqual(loaded["mimes"]["application/json"], "json.desktop")
         saved = self.save(loaded["revision"], [
@@ -45,22 +33,23 @@ class DefaultAppsPluginTests(HelperTestCase):
         self.assertIn("[Added Associations]\ntext/html=other.desktop;", text)
         backups = sorted(self.backup.glob("mimeapps.list.*.bak"))
         self.assertEqual([path.read_text() for path in backups], [original])
-        self.assertEqual(saved, {"revision": self.helper("read")["revision"]}, "a save only returns the new revision")
+        self.assertEqual(saved, {"revision": self.read()["revision"]}, "a save only returns the new revision")
 
     def test_file_types_list_their_extensions(self):
         self.path.parent.mkdir()
-        self.path.write_text("[Default Applications]\napplication/json=viewer.desktop;\nx-scheme-handler/x=a.desktop;\n")
-        extensions = self.helper("read")["extensions"]
+        self.path.write_text("[Default Applications]\napplication/json=viewer.desktop;\n"
+                             "x-scheme-handler/x=a.desktop;\n")
+        extensions = self.read()["extensions"]
         self.assertIn(".json", extensions["application/json"].split())
         self.assertEqual(extensions["x-scheme-handler/x"], "")
 
     def test_external_changes_and_invalid_updates_are_rejected(self):
-        loaded = self.helper("read")
+        loaded = self.read()
         self.path.parent.mkdir()
         self.path.write_text("# external\n")
         changes = [{"kind": "role", "key": "Web browser", "value": "test.desktop"}]
         self.assertIn("changed externally", self.save(loaded["revision"], changes, success=False))
-        loaded = self.helper("read")
+        loaded = self.read()
         for change in (
             {"kind": "mime", "key": "text/html", "value": "test.desktop"},
             {"kind": "mime", "key": "bad", "value": "test.desktop"},
@@ -74,10 +63,10 @@ class DefaultAppsPluginTests(HelperTestCase):
         appdir.mkdir(parents=True)
         (appdir / "example.desktop").write_text("[Desktop Entry]\nType=Application\nName=Example\n")
         (appdir / "hidden.desktop").write_text("[Desktop Entry]\nName=Hidden\nHidden=true\n")
-        loaded = self.helper("read")
+        loaded = self.read()
         self.assertEqual(loaded["apps"], [{"id": "example.desktop", "name": "Example"}])
-        self.assertEqual(self.helper("extension", ".pdf")["mime"], "application/pdf")
-        self.helper("extension", "bad/extension", success=False)
+        self.assertEqual(self.ok("extension", {"extension": ".pdf"})["mime"], "application/pdf")
+        self.fails("extension", {"extension": "bad/extension"})
 
     def test_app_command_is_the_exec_line_of_the_installed_app(self):
         appdir = self.root / "data" / "applications"
@@ -85,8 +74,8 @@ class DefaultAppsPluginTests(HelperTestCase):
         (appdir / "term.desktop").write_text("[Desktop Entry]\nName=Term\nExec=term --login %F\n")
         (appdir / "kde" / "sub.desktop").write_text("[Desktop Entry]\nName=Sub\nExec=sub\n")
         (appdir / "noexec.desktop").write_text("[Desktop Entry]\nName=None\n")
-        self.assertEqual(self.call("app-command", {"id": "term.desktop"})["command"], "term --login")
-        self.assertEqual(self.call("app-command", {"id": "kde-sub.desktop"})["command"], "sub")
+        self.assertEqual(self.ok("app-command", {"id": "term.desktop"})["command"], "term --login")
+        self.assertEqual(self.ok("app-command", {"id": "kde-sub.desktop"})["command"], "sub")
         for app_id in ("noexec.desktop", "missing.desktop", "../term.desktop", "term"):
             self.assertEqual(self.fails("app-command", {"id": app_id})["code"], "no_command", app_id)
 
@@ -112,7 +101,7 @@ class DefaultAppsPluginTests(HelperTestCase):
             path.write_text(text)
         (appdir / "latin1.desktop").write_bytes(b"[Desktop Entry]\nName=Caf\xe9\n")
         self.env.update(LC_ALL="", LC_MESSAGES="", LANG="C", XDG_CURRENT_DESKTOP="")
-        self.assertEqual(self.helper("read")["apps"], [
+        self.assertEqual(self.read()["apps"], [
             {"id": "good.desktop", "name": "Good"},
             {"id": "noname.desktop", "name": "noname"},
             {"id": "kde-sub.desktop", "name": "Spaced"},
@@ -126,7 +115,7 @@ class DefaultAppsPluginTests(HelperTestCase):
         self.path.parent.mkdir(parents=True)
         self.path.write_text("[Default Applications]\nx-scheme-handler/mailto=userapp-Mail-ABC.desktop\n"
                              "text/x-example=gone.desktop\n")
-        apps = self.helper("read")
+        apps = self.read()
         self.assertNotIn("userapp-Mail-ABC.desktop", [app["id"] for app in apps["apps"]])
         self.assertEqual(apps["names"], {"userapp-Mail-ABC.desktop": "Mail"})
 
@@ -137,16 +126,16 @@ class DefaultAppsPluginTests(HelperTestCase):
         (appdir / "kde.desktop").write_text("[Desktop Entry]\nName=KDE only\nOnlyShowIn=KDE;\n")
         (appdir / "notgnome.desktop").write_text("[Desktop Entry]\nName=Not GNOME\nNotShowIn=GNOME;\n")
         self.env.update(LC_ALL="", LC_MESSAGES="", LANG="de_AT.UTF-8", XDG_CURRENT_DESKTOP="Umbriel:GNOME")
-        self.assertEqual(self.helper("read")["apps"], [{"id": "files.desktop", "name": "Dateien"}])
+        self.assertEqual(self.read()["apps"], [{"id": "files.desktop", "name": "Dateien"}])
         self.env.update(LANG="C.UTF-8", XDG_CURRENT_DESKTOP="KDE")
-        self.assertEqual([app["name"] for app in self.helper("read")["apps"]], ["Files", "KDE only", "Not GNOME"])
+        self.assertEqual([app["name"] for app in self.read()["apps"]], ["Files", "KDE only", "Not GNOME"])
 
     def test_symlink_is_not_replaced(self):
         self.path.parent.mkdir()
         target = self.root / "target"
         target.write_text("[Default Applications]\n")
         self.path.symlink_to(target)
-        loaded = self.helper("read")
+        loaded = self.read()
         changes = [{"kind": "role", "key": "File manager", "value": "files.desktop"}]
         self.assertIn("symlink", self.save(loaded["revision"], changes, success=False))
         self.assertTrue(self.path.is_symlink())

@@ -3,6 +3,7 @@
 local M = {}
 
 local LIMIT = 40
+M.LIMIT = LIMIT  -- results shown at most
 
 local function words(query)
   local result = {}

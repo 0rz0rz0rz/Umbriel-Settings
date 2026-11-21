@@ -2,32 +2,18 @@
 -- One settings row per field: label, default, Override badge + Reset, a compact control, undo and help.
 local kit = require("./kit.luau")
 local format = require("./format.luau")
-local displays = require("../lib/displays.luau")
-local files = require("../pages/files.luau")
+local ctrl = require("./controls.luau")
 
 local M = {}
 
 -- Key of a setting's row (and prefix of its controls' keys); routes reveal it.
 function M.rowKey(fid) return "f:" .. fid end
 
-local EDITOR_WIDTH = 320
-local ACTIONS_WIDTH = 64  -- two small icon buttons: undo, help
-local NO_COLOR = "#000000FF"  -- what color controls show for an unset color
-
 local function indexOf(list, value)
   for index, item in ipairs(list or {}) do
     if item == value then return index end
   end
   return nil
-end
-
-local function parseNumber(text, integer)
-  local number = format.parseNumber(text)
-  if number == nil then return nil end
-  if integer then
-    if number ~= math.floor(number) then return nil end
-  end
-  return number
 end
 
 local function inRange(field, number)
@@ -42,48 +28,6 @@ local function unsetLabel(field)
 end
 
 local function hasDefault(field) return field.default ~= nil end
-
-
--- Sliders commit on onDragEnd, not on every onChange.
--- props: key, min, max, step, value, ...; preview(number) runs on every change; commit(number) once at the end.
--- Noctalia also calls onChange when a render moves the slider (Slider::setValue reports every new value), and it
--- calls the previous render's handler. Without a gesture, a value at the one rendered last is that echo: taking it
--- for a drag would rebuild the number box next to it while someone types there.
-local function slider(ctx, props, preview, commit)
-  local view, key = ctx.view, props.key
-  view.sliding = view.sliding or {}
-  view.sliderShown = view.sliderShown or {}
-  view.sliderShown[key] = props.value
-  props.key = key .. ":" .. ctx.gen(key)
-  props.onChange = function(text)
-    local number = tonumber(text)
-    if number == nil then return end
-    local gesture = view.sliding[key]
-    local rendered = view.sliderShown[key]
-    if not gesture and rendered ~= nil and math.abs(number - rendered) <= (props.step or 0) / 2 + 1e-9 then return end
-    if not gesture then
-      gesture = {}
-      view.sliding[key] = gesture
-    end
-    gesture.value = number
-    if preview then preview(number) end
-    ctx.renderSoon()
-  end
-  props.onDragEnd = function(text)
-    local gesture = view.sliding[key]
-    view.sliding[key] = nil
-    if not gesture then return end
-    commit(tonumber(text) or gesture.value)  -- the app passes the final value along
-    ctx.render()
-  end
-  return ui.slider(props)
-end
-
--- The value a slider gesture is previewing, if one is running.
-local function sliding(ctx, key)
-  local gesture = ctx.view.sliding and ctx.view.sliding[key]
-  return gesture and gesture.value
-end
 
 -- A switch for a number's special value (-1 = automatic, 0 = never, ...): on writes that value; off goes back
 -- to the last other value, else the default or the initial value.
@@ -130,7 +74,7 @@ local function numberControl(ctx, spec, effective)
     local shown = effective
     if shown == nil or isSpecial then shown = view.lastNumber[key] or field.initial or low end
     if special and shown == special.value then shown = low end
-    table.insert(controls, slider(ctx, {
+    table.insert(controls, ctrl.slider(ctx, {
       key = key .. ":slider", min = low, max = field.max, step = step, value = shown, flexGrow = 1,
       controlSize = "sm", opacity = isSpecial and 0.4 or nil,
     }, function() ctx.bump(key) end, function(number)
@@ -139,7 +83,7 @@ local function numberControl(ctx, spec, effective)
     end))
   end
   -- While a slider gesture runs, the box shows the value it would set.
-  local preview = sliding(ctx, key .. ":slider")
+  local preview = ctrl.sliding(ctx, key .. ":slider")
   if preview ~= nil then preview = integer and math.floor(preview + 0.5) or preview end
   local boxValue = preview ~= nil and preview or effective
   if isSpecial and preview == nil then boxValue = nil end  -- the switch says it; the box stays empty
@@ -149,7 +93,7 @@ local function numberControl(ctx, spec, effective)
     placeholder = (effective == nil and field.initial ~= nil) and ("e.g. " .. format.value(field, field.initial))
       or (field.min ~= nil and field.max ~= nil) and (format.number(field.min) .. " – " .. format.number(field.max)) or "number",
     onChange = function(text)
-      local number = parseNumber(text, integer)
+      local number = ctrl.parseNumber(text, integer)
       if number ~= nil and inRange(field, number) ~= nil then
         view.invalid[key] = nil
         spec.onSet(number)
@@ -166,13 +110,13 @@ local function numberControl(ctx, spec, effective)
       ctx.render()
     end,
   }))
-  if field.unit then table.insert(controls, kit.muted(field.unit, { fontSize = 11 })) end
+  if field.unit then table.insert(controls, kit.muted(field.unit, { fontSize = kit.FONT.caption })) end
   return controls
 end
 
 local function colorControl(ctx, spec, effective)
   local key, view = spec.key, ctx.view
-  local value = type(effective) == "string" and effective or NO_COLOR
+  local value = type(effective) == "string" and effective or ctrl.NO_COLOR
   local controls = {
     ui.box({ width = 34, height = 22, radius = kit.RADIUS.sm, fill = value, border = "outline_variant", borderWidth = 1,
              onClick = function()
@@ -296,215 +240,6 @@ local function textControl(ctx, spec, effective, placeholder)
   }) }
 end
 
-local function tableControl(ctx, spec, effective)
-  local field, key = spec.field, spec.key
-  local defaults = type(field.default) == "table" and field.default
-    or type(field.initial) == "table" and field.initial or {}
-  -- Unset tables show the starting values as hints; typing one part fills the others from them.
-  local current = (spec.set and type(effective) == "table") and effective or nil
-  local controls = {}
-  for _, sub in ipairs(field.keys or {}) do
-    local numeric = type(defaults[sub]) == "number"
-    table.insert(controls, ui.column({ key = key .. ":" .. sub, gap = 2, flexGrow = 1 }, {
-      kit.muted(sub, { fontSize = 10 }),
-      ui.input({
-        key = key .. ":" .. sub .. ":" .. ctx.gen(key), controlSize = "sm",
-        value = (current and current[sub] ~= nil) and format.number(current[sub]) or "",
-        placeholder = defaults[sub] ~= nil and format.number(defaults[sub]) or "",
-        onChange = function(text)
-          local next = {}
-          for _, other in ipairs(field.keys) do
-            if current and current[other] ~= nil then next[other] = current[other] else next[other] = defaults[other] end
-          end
-          local trimmed = noctalia.string.trim(text)
-          if trimmed == "" then
-            -- an emptied box is not an error: unset stays unset, a set value falls back to the hint
-            ctx.view.invalid[key] = nil
-            if not current then ctx.render(); return end
-            next[sub] = defaults[sub]
-          elseif numeric then
-            local number = format.parseNumber(trimmed)
-            if number == nil then ctx.view.invalid[key] = sub .. ": enter a number"; ctx.render(); return end
-            next[sub] = number
-          else
-            next[sub] = text
-          end
-          ctx.view.invalid[key] = nil
-          spec.onSet(next)
-          ctx.render()
-        end,
-      }),
-    }))
-  end
-  return controls
-end
-
--- Lists get one row per item below the label.
--- Mode of a connected output (meta `picker = "mode"`): Resolution and Refresh rate from the modes Umbriel
--- reports. nil (a text box instead) when the entry's output isn't connected or reports no modes.
-local function modeControl(ctx, spec)
-  local entry = spec.entry
-  if not entry or entry.editor ~= "output" then return nil end
-  local item = ctx.store.entryItems("output")[entry.index]
-  local display = item and displays.forEntry(displays.list(ctx.connectedOutputs().outputs, {}), item.name)
-  if not display then return nil end
-  local resolutions = displays.modes(display.live)
-  if #resolutions == 0 then return nil end
-  local key, value = spec.key, spec.set and spec.value or nil
-  local w, h, rate = displays.parseMode(value)
-  local resOptions = { "Preferred" }
-  local chosen = nil
-  for i, res in ipairs(resolutions) do
-    table.insert(resOptions, res.label)
-    if w and res.width == w and res.height == h then chosen = i end
-  end
-  local resIndex = 0
-  if chosen then
-    resIndex = chosen
-  elseif value ~= nil then
-    table.insert(resOptions, tostring(value) .. " (not reported)")
-    resIndex = #resOptions - 1
-  end
-  local function write(res, text)
-    spec.onSet(res.width .. "x" .. res.height .. (text and ("@" .. text) or ""))
-    ctx.render()
-  end
-  local resSelect = ui.select({ key = key .. ":resolution", options = resOptions, selectedIndex = resIndex,
-    flexGrow = 1, controlSize = "sm", onChange = function(text)
-      local i = tonumber(text) or 0
-      if i == 0 then
-        if spec.onUnset then spec.onUnset(); ctx.render() end
-      elseif resolutions[i] then
-        write(resolutions[i], resolutions[i].rates[1].text)
-      end
-    end })
-  local res = chosen and resolutions[chosen] or nil
-  local rateOptions, rateIndex, offset = {}, 0, 0
-  if res then
-    if rate == nil then table.insert(rateOptions, "Highest"); offset = 1 end
-    local found = nil
-    for i, r in ipairs(res.rates) do
-      table.insert(rateOptions, r.text .. " Hz" .. (r.preferred and " (preferred)" or ""))
-      if rate and math.abs(r.mhz / 1000 - rate) < 0.0005 then found = i end
-    end
-    if found then rateIndex = found - 1 + offset
-    elseif rate then
-      table.insert(rateOptions, string.format("%g Hz (not reported)", rate))
-      rateIndex = #rateOptions - 1
-    end
-  else  -- unset: Umbriel uses the preferred mode
-    local _, _, preferredRate = displays.parseMode(displays.preferredText(display.live))
-    rateOptions = { preferredRate and string.format("%g Hz", preferredRate) or "Refresh rate" }
-  end
-  local rateSelect = ui.select({ key = key .. ":rate", options = rateOptions, selectedIndex = rateIndex,
-    enabled = res ~= nil, flexGrow = 1, controlSize = "sm", onChange = function(text)
-      local i = (tonumber(text) or 0) + 1 - offset
-      if not res then return end
-      if i == 0 then write(res, nil)
-      elseif res.rates[i] then write(res, res.rates[i].text) end
-    end })
-  return { resSelect, rateSelect }
-end
-
--- Browse… for path fields (meta `picker = "file"`): `onChosen(value)` gets the chosen file; a `command` field
--- (autostart) first lists the installed apps, like the default apps.
-local function browseButton(ctx, spec, onChosen)
-  local field, view = spec.field, ctx.view
-  local options = field.file or {}
-  return ui.button({ key = spec.key .. ":browse", text = "Browse…", glyph = "folder-open", controlSize = "sm",
-    variant = "outline", tooltip = options.command and "Choose an app" or options.title,
-    onClick = function()
-      if options.command then
-        view.pick, view.appQuery = { options = options, onChosen = onChosen }, ""
-        ctx.go({ name = "appPicker", kind = "command", target = field.label })
-      else
-        files.open(ctx, options, onChosen)
-      end
-    end })
-end
-
-local function copyList(items)
-  local copy = {}
-  for i, old in ipairs(items) do copy[i] = old end
-  return copy
-end
-
-local function listRows(ctx, spec, effective)
-  local key = spec.key
-  local items = type(effective) == "table" and effective or {}
-  local rows = {}
-  local function swap(a, b)
-    local next = copyList(items)
-    next[a], next[b] = next[b], next[a]
-    spec.onSet(next); ctx.bump(key); ctx.render()
-  end
-  for index, item in ipairs(items) do
-    table.insert(rows, ui.row({ key = key .. ":item:" .. index, gap = 6, align = "center" }, {
-      ui.input({ key = key .. ":item:" .. index .. ":" .. ctx.gen(key), value = tostring(item), flexGrow = 1,
-                 controlSize = "sm",
-                 onChange = function(text)
-                   local next = copyList(items)
-                   next[index] = text
-                   spec.onSet(next)
-                   ctx.render()
-                 end }),
-      kit.iconButton("arrow-up", "Move up", function() swap(index, index - 1) end, index > 1),
-      kit.iconButton("arrow-down", "Move down", function() swap(index, index + 1) end, index < #items),
-      kit.iconButton("trash", "Remove", function()
-        local next = copyList(items)
-        table.remove(next, index)
-        spec.onSet(next); ctx.bump(key); ctx.render()
-      end),
-    }))
-  end
-  local function append(value)
-    local next = copyList(items)
-    table.insert(next, value)
-    spec.onSet(next); ctx.bump(key)
-  end
-  local addRow = {
-    ui.button({ text = "Add", glyph = "plus", controlSize = "sm", variant = "outline",
-                onClick = function() append(""); ctx.render() end }),
-  }
-  if spec.field.picker == "file" then table.insert(addRow, browseButton(ctx, spec, append)) end
-  table.insert(rows, ui.row({ key = key .. ":add", gap = 6 }, addRow))
-  return rows
-end
-
--- Opacity 0-1 for a #RRGGBB(AA) color, written back as its alpha byte (0.84 = D7).
-local function opacityRow(ctx, spec, effective)
-  local key, view = spec.key, ctx.view
-  local follow = spec.follow
-  local color = type(effective) == "string" and effective or spec.field.initial
-  if follow then color = "#000000" .. follow.alpha end
-  local rgb, alphaHex = string.match(type(color) == "string" and color or NO_COLOR, "^(#%x%x%x%x%x%x)(%x?%x?)$")
-  if not rgb then return nil end
-  alphaHex = string.upper(alphaHex ~= "" and alphaHex or "FF")
-  local alpha = tonumber(alphaHex, 16) / 255
-  return ui.row({ key = key .. ":opacity", gap = 12, align = "center" }, {
-    ui.column({ flexGrow = 1 }, { kit.muted("Opacity") }),
-    ui.row({ width = EDITOR_WIDTH, gap = 6, align = "center", opacity = (spec.set or follow) and 1 or 0.75 }, {
-      slider(ctx, { key = key .. ":opacity-slider", min = 0, max = 1, step = 0.01, value = alpha,
-                    flexGrow = 1, controlSize = "sm", tooltip = "Opacity (alpha of the color)" }, nil,
-        function(number)
-          number = math.max(0, math.min(1, number))
-          if follow then
-            spec.onFollow(follow.source, number)
-          else
-            spec.onSet(rgb .. format.alphaByte(number))
-          end
-          ctx.bump(key)
-        end),
-      ui.label({ text = (function()
-        local shown = sliding(ctx, key .. ":opacity-slider")
-        if shown == nil then return string.format("%.2f · %s", alpha, alphaHex) end
-        return string.format("%.2f · ", shown) .. format.alphaByte(shown)
-      end)(), fontSize = 12 }),
-    }),
-    ui.row({ width = ACTIONS_WIDTH }, {}),
-  })
-end
-
 -- spec: key, field, value, set, changed, onSet(v), onUnset() or nil, onRevert() or nil, diagnostic, kdeColors
 function M.row(ctx, spec)
   local field, view, key = spec.field, ctx.view, spec.key
@@ -526,25 +261,25 @@ function M.row(ctx, spec)
   elseif kind == "choice" or kind == "combo" then
     controls = choiceControl(ctx, spec, effective)
     if field.picker == "file" then  -- e.g. an ICC profile next to "none"/"edid": the path becomes the custom value
-      table.insert(controls, browseButton(ctx, spec, function(path)
+      table.insert(controls, ctrl.browseButton(ctx, spec, function(path)
         ctx.view.custom[spec.key] = true
         spec.onSet(path)
         ctx.bump(spec.key)  -- the custom text box shows the chosen path
       end))
     end
   elseif kind == "table" then
-    controls = tableControl(ctx, spec, effective)
+    controls = ctrl.tableControl(ctx, spec, effective)
   elseif kind == "list" or kind == "command_list" then
-    below = listRows(ctx, spec, spec.set and spec.value or nil)
+    below = ctrl.listRows(ctx, spec, spec.set and spec.value or nil)
   else
     local hint = field.default ~= nil and field.default or field.initial
     local placeholder = field.placeholder or (hint ~= nil and format.value(field, hint) or "")
     if placeholder == "empty" or placeholder == "not set" then placeholder = "" end
     if kind == "raw" then placeholder = "TOML value" .. (placeholder ~= "" and (", e.g. " .. placeholder) or "") end
-    controls = field.picker == "mode" and modeControl(ctx, spec)
+    controls = field.picker == "mode" and ctrl.modeControl(ctx, spec)
       or textControl(ctx, spec, spec.set and spec.value or nil, placeholder)
     if field.picker == "file" then
-      table.insert(controls, browseButton(ctx, spec, function(path)
+      table.insert(controls, ctrl.browseButton(ctx, spec, function(path)
         spec.onSet(path)
         ctx.bump(spec.key)  -- the text box shows the chosen path
       end))
@@ -557,9 +292,9 @@ function M.row(ctx, spec)
     end
   end
 
-  local labelRow = { ui.label({ text = field.label, fontSize = 13, maxLines = 2 }) }
+  local labelRow = { ui.label({ text = field.label, fontSize = kit.FONT.body, maxLines = 2 }) }
   if field.restart then
-    table.insert(labelRow, ui.glyph({ name = "refresh-alert", size = 14, color = "tertiary",
+    table.insert(labelRow, ui.glyph({ name = "refresh-alert", size = kit.GLYPH.small, color = "tertiary",
                                       tooltip = "Takes effect after restarting Umbriel" }))
   end
   -- One quiet line: a hint, then "Default 2"; an overridden key gets the Override badge instead of a color.
@@ -616,21 +351,21 @@ function M.row(ctx, spec)
   end
   -- Keyed: the badges and Reset before them come and go with edits, and an unkeyed row that moves is rebuilt,
   -- which would replace the input being typed in.
-  table.insert(main, ui.row({ key = key .. ":controls", width = EDITOR_WIDTH, gap = 6, align = "center",
+  table.insert(main, ui.row({ key = key .. ":controls", width = ctrl.EDITOR_WIDTH, gap = 6, align = "center",
                               opacity = spec.set and 1 or 0.75 }, controls))
-  table.insert(main, ui.row({ key = key .. ":actions", width = ACTIONS_WIDTH, gap = 0, justify = "end",
+  table.insert(main, ui.row({ key = key .. ":actions", width = ctrl.ACTIONS_WIDTH, gap = 0, justify = "end",
                               align = "center" }, actions))
   local children = { ui.row({ key = key .. ":main", gap = 12, align = "center" }, main) }
   if below then
     table.insert(children, ui.column({ key = key .. ":list", gap = 4, paddingH = 8 }, below))
   end
   if kind == "color" and field.opacity then
-    local row = opacityRow(ctx, spec, effective)
+    local row = ctrl.opacityRow(ctx, spec, effective)
     if row then table.insert(children, row) end
   end
   if view.openColor == key and kind == "color" then
     table.insert(children, ui.row({ key = key .. ":picker", justify = "end" }, {
-      ui.colorPicker({ key = key .. ":cp", value = type(effective) == "string" and effective or NO_COLOR,
+      ui.colorPicker({ key = key .. ":cp", value = type(effective) == "string" and effective or ctrl.NO_COLOR,
                        alpha = true, inputs = "hex", width = 300, swatches = ctx.swatches(),
                        onChangeEnd = function(color) spec.onSet(string.upper(color)); ctx.bump(key); ctx.render() end }),
     }))
@@ -638,7 +373,7 @@ function M.row(ctx, spec)
   if view.help[key] then
     table.insert(children, ui.column({ key = key .. ":helptext", gap = 2, padding = 8, radius = kit.RADIUS.md,
                                        fill = "surface_container_high" }, {
-      ui.label({ text = field.help or "", fontSize = 12, maxLines = 12 }),
+      ui.label({ text = field.help or "", fontSize = kit.FONT.small, maxLines = 12 }),
       ui.row({ key = key .. ":keyrow", gap = 4, align = "center" }, {
         kit.muted("Config key: " .. field.path, { fontSize = kit.FONT.caption, flexGrow = 1 }),
         kit.iconButton("copy", "Copy config key", function()

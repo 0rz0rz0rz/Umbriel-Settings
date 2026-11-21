@@ -46,7 +46,7 @@ Noctalia's 25 ms per-callback CPU budget, and use only the API the app host impl
 (`python/umbriel_settings/host/api.py`).
 
 ```sh
-python tools/check.py plugin host   # plugin tests, Lua/Luau parse, plugin lint, then the app host tests
+python tools/check.py plugin host   # plugin tests, Lua/Luau parse, plugin lint, community validator, app host tests
 ```
 
 `test_panel.py` drives `panel.luau`, `app.luau` and `bar.luau` under plain `lua` with a mocked Noctalia API

@@ -10,7 +10,7 @@ local WIDTH = 270
 -- The tooltip names the item when a narrow window shows the sidebar as icons only (style.css).
 local function navItem(key, glyph, title, active, badge, onClick)
   local children = {
-    ui.glyph({ name = glyph or "settings", size = 18, color = active and "primary" or kit.MUTED }),
+    ui.glyph({ name = glyph or "settings", size = kit.GLYPH.large, color = active and "primary" or kit.MUTED }),
     ui.label({ text = title, fontSize = kit.FONT.body, fontWeight = active and "bold" or nil, flexGrow = 1, maxLines = 1 }),
   }
   if badge then table.insert(children, badge) end
@@ -35,7 +35,8 @@ function M.render(ctx)
   end
   local active = tool and "" or (root.name == "home" and "Home" or root.page or "")
   local items = {
-    ui.label({ key = "app-title", text = "Umbriel Settings", fontSize = kit.FONT.large, fontWeight = "bold" }),
+    ui.label({ key = "app-title", text = "Umbriel Settings", fontSize = kit.FONT.large, fontWeight = "bold",
+              color = "primary" }),
     kit.searchBox(ctx, { controlSize = "sm", placeholder = "Search  (Ctrl+F)",
                          onChange = function(text)
                            view.query = text
@@ -48,10 +49,10 @@ function M.render(ctx)
     end),
   }
   if store.meta then
-    for _, section in ipairs(store.meta.nav) do
-      table.insert(items, ui.row({ key = "navsec-" .. section.title, paddingH = 10, paddingV = 2 }, {
-        kit.section(section.title),
-      }))
+    for i, section in ipairs(store.meta.nav) do
+      -- the navsec- column is hidden in the narrow icon-only sidebar (style.css)
+      table.insert(items, ui.column({ key = "navsec-" .. section.title, gap = 2, paddingH = 10, paddingV = 2 },
+                                    kit.groupHeading(section.title, "navh-" .. section.title, i == 1)))
       for _, name in ipairs(section.pages) do
         local page = store.meta.pages[name]
         if page then

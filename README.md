@@ -7,7 +7,7 @@ same core and interface code, so they look and behave alike; the app adds a side
 
 | Standalone app | Noctalia plugin |
 | --- | --- |
-| ![Home page of the standalone app](docs/home-app.png) | ![Home page of the Noctalia plugin panel](docs/home-plugin.png) |
+| ![Home page of the standalone app](docs/home-app.png) | ![Home page of the Noctalia plugin panel](noctalia-plugin/umbriel-settings/screenshot.png) |
 
 ## Features
 
@@ -38,7 +38,7 @@ same core and interface code, so they look and behave alike; the app adds a side
   asks whether to keep them: without an answer within 15 seconds (say, a display that shows nothing) the
   previous file comes back and the changes are unsaved again. The page follows Umbriel as monitors come and go.
 
-  ![The Outputs page in the plugin panel: three displays drawn to scale, the default one starred](docs/outputs-plugin.png)
+  ![The Outputs page in the plugin panel: three displays drawn to scale, the default one starred](noctalia-plugin/umbriel-settings/screenshot-outputs.png)
 - **Pick from open windows** (window, workspace and security rules) and **Pick from open layers** (layer
   rules) fill a rule's match with an exact pattern such as `^org\.gajim\.Gajim$`, optionally with the
   window's title; the list updates as windows open and close. **Use the focused window** takes the app id of
@@ -170,7 +170,7 @@ config given on the command line, unless the current one has unsaved changes.
 ```
 
 **AppImage build**: `appimage/build-appimage.sh` writes `dist/Umbriel-Settings-<version>-<arch>.AppImage`
-(needs network, `python3` with `venv`, `curl`, `readelf` from binutils, and FUSE or `APPIMAGE_EXTRACT_AND_RUN=1`). Every
+(needs network, `python3` with `venv`, `curl`, `sha256sum`, `readelf` from binutils, and FUSE or `APPIMAGE_EXTRACT_AND_RUN=1`). Every
 download is checked against the SHA-256 checksums in `appimage/` (`*.lock`, `pins.sh`) before use; after changing
 `python/requirements.txt`, regenerate them with `python tools/update_appimage_pins.py`. The desktop entry points
 at the AppImage, so keep it at a stable path.
@@ -258,12 +258,8 @@ noctalia msg plugins enable 0rz0rz0rz/umbriel-settings
 The plugin runs from the checkout, so `git pull` updates it (then `noctalia msg config-reload`).
 
 Add the **Umbriel Settings** widget from Noctalia's Settings → Bar, or toggle the panel from a terminal or
-keybind (the plugin adds no shortcut of its own; pick a free combo):
-
-```toml
-[keybinds]
-"Mod+Shift+S" = "spawn noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main"
-```
+keybind: see [Usage](noctalia-plugin/umbriel-settings/README.md#usage) in the plugin's README (the plugin adds no
+shortcut of its own).
 
 ## Files
 
@@ -276,6 +272,11 @@ keybind (the plugin adds no shortcut of its own; pick a free combo):
 | `$XDG_CONFIG_HOME/umbriel-settings/` | `noctalia-palette.conf` (from Noctalia), `titlebar-colors.toml`, `titlebar_apply.py`, `*.titlebar.bak` (config before the script's last change) |
 | `$XDG_CONFIG_HOME/noctalia/templates/` | `umbriel-settings-palette.conf`, `umbriel-titlebar.toml` (entries in `noctalia-config.toml`) |
 | `$XDG_DATA_HOME/applications/umbriel-settings.desktop`, `…/icons/hicolor/128x128/apps/umbriel-settings.png` | Desktop entry and icon |
+
+The app writes the desktop entry for the install it was started from (the checkout's script or the AppImage
+file), which is what the plugin's **Standalone app** button opens. With a checkout and an AppImage on one
+system, the last one started wins. To keep one, add `X-Umbriel-Settings-Keep=true` to the entry: the app then
+never rewrites it.
 
 Custom icon: replace `python/umbriel_settings/assets/icon.png` with your own PNG (transparency is kept), or delete it
 and add `icon.jpg`/`icon.jpeg`. The first of `icon.png`, `icon.jpg`, `icon.jpeg` that exists is used; the built-in
@@ -308,11 +309,12 @@ appimage/  tools/  tests/  noctalia-plugin/tests/
 
 ```sh
 python tools/check.py            # checks for your changed files, one line each
-python tools/check.py all        # core, plugin (CPU budget, Lua/Luau parse), app host (web render), schema, ruff, shellcheck
+python tools/check.py all        # core, plugin (CPU budget, Lua/Luau parse, plugin lint, community validator),
+                                 # app host (web render), schema, ruff, shellcheck
 python tools/sync_plugin_core.py # after editing python/umbriel_core (the plugin bundles a copy)
 ```
 
-CI runs the same checks on Python 3.11, 3.12 and 3.13, except the two that need Umbriel or Noctalia installed
+CI runs the same checks (ruff and shellcheck once, the rest on Python 3.11, 3.12 and 3.13), except the two that need Umbriel or Noctalia installed
 (schema coverage and the plugin lint; `check.py` reports those as skipped). Dependency ranges and lint
 settings: `pyproject.toml`; AppImage pins: `python/requirements.txt` (checksums: `appimage/requirements.lock`). Icons: [Tabler Icons](https://tabler.io/icons)
 (MIT, license in `host/web/fonts/`).

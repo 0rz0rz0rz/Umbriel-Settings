@@ -74,7 +74,7 @@ end
 
 local function rateText(mhz) return string.format("%g", mhz / 1000) end
 
-function M.modeText(mode)
+local function modeText(mode)
   return string.format("%dx%d@%s", mode.width, mode.height, rateText(mode.refresh_mhz))
 end
 
@@ -116,7 +116,7 @@ function M.logicalSize(display)
 end
 
 -- Where the display is: the entry's position, else where Umbriel put it (nil when neither is known).
-function M.position(display)
+local function position(display)
   local pos = display.values.position
   if type(pos) == "table" and tonumber(pos.x) and tonumber(pos.y) then return { x = pos.x, y = pos.y } end
   pos = display.live.position
@@ -129,7 +129,7 @@ function M.rects(displays)
   local rects, unknown, right = {}, {}, 0
   for _, display in ipairs(displays) do
     if M.enabled(display) then
-      local size, pos = M.logicalSize(display), M.position(display)
+      local size, pos = M.logicalSize(display), position(display)
       local rect = { id = display.id, w = size.w, h = size.h }
       if pos then
         rect.x, rect.y = pos.x, pos.y
@@ -188,7 +188,7 @@ end
 function M.preferredText(live)
   for _, mode in ipairs(live.modes or {}) do
     if mode.preferred == true and type(mode.width) == "number" and type(mode.refresh_mhz) == "number" then
-      return M.modeText(mode)
+      return modeText(mode)
     end
   end
   return nil

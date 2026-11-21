@@ -25,8 +25,11 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP"]
-ignore = ["E501"]  # field and help tables hold long literal strings
+select = ["E", "F", "W", "I", "B", "UP", "SIM118", "RUF059", "PIE810", "RET504"]
+
+[tool.ruff.lint.per-file-ignores]
+# the field, help and action tables hold long literal strings
+"python/umbriel_core/{fields,help,actions}.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["umbriel_core", "umbriel_settings"]

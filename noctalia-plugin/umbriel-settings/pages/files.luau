@@ -5,8 +5,6 @@ local kit = require("../ui/kit.luau")
 
 local M = {}
 
-local ROWS = 40
-
 -- The helper turns the chosen path into the value (relative to the config, `$HOME`, a command).
 local function request(ctx, options, chosen)
   return { filter = options.filter, start = options.start, relative = options.relative,
@@ -43,7 +41,7 @@ local function load(ctx, path)
                      files = data.files or {}, truncated = data.truncated }
       if not previous or previous.path ~= data.path then
         view.fileQuery = ""
-        ctx.bump("files-search")
+        ctx.bump("fileQuery")
       end
     end
     view.filesTyped = nil
@@ -81,11 +79,9 @@ function M.render(ctx)
   local header = {
     kit.header(ctx, pick.options.title or (folderMode and "Choose a folder" or "Choose a file"), state.path),
     ui.row({ key = "files-bar", gap = 6, align = "center" }, {
-      ui.button({ key = "files-up", glyph = "arrow-up", variant = "ghost", controlSize = "sm",
-                  tooltip = "Parent folder", enabled = state.parent ~= nil and not busy,
-                  onClick = function() load(ctx, state.parent) end }),
-      ui.button({ key = "files-home", glyph = "home", variant = "ghost", controlSize = "sm", tooltip = "Home folder",
-                  enabled = not busy, onClick = function() load(ctx, "~") end }),
+      kit.iconButton("arrow-up", "Parent folder", function() load(ctx, state.parent) end,
+                     state.parent ~= nil and not busy, "files-up"),
+      kit.iconButton("home", "Home folder", function() load(ctx, "~") end, not busy, "files-home"),
       ui.input({ key = "files-path-" .. ctx.gen("files-path"), value = state.path or "", flexGrow = 1,
                  controlSize = "sm", placeholder = "Folder path",
                  onChange = function(text) view.filesTyped = text end,
@@ -94,9 +90,7 @@ function M.render(ctx)
                   tooltip = "Open this folder", enabled = not busy,
                   onClick = function() load(ctx, noctalia.string.trim(view.filesTyped or state.path or "")) end }),
     }),
-    ui.input({ key = "files-search-" .. ctx.gen("files-search"), value = view.fileQuery or "", focus = true,
-               placeholder = folderMode and "Filter folders" or "Filter this folder",
-               onChange = function(text) view.fileQuery = text; ctx.render() end }),
+    kit.filterBox(ctx, "fileQuery", { focus = true, placeholder = folderMode and "Filter folders" or "Filter this folder" }),
   }
   local content = {}
   if state.error then table.insert(content, kit.notice(state.error, "error", nil, "files-error")) end
@@ -107,14 +101,14 @@ function M.render(ctx)
     }))
   end
   if state.loading then
-    table.insert(content, kit.empty("Loading…", "loader"))
+    table.insert(content, kit.loading())
     return { header = header, content = content }
   end
-  local query = string.lower(noctalia.string.trim(view.fileQuery or ""))
+  local query = kit.filterText(ctx, "fileQuery")
   local shown, more = 0, false
   local function add(name, isFolder)
-    if query ~= "" and not string.find(string.lower(name), query, 1, true) then return end
-    if shown >= ROWS then more = true; return end
+    if query ~= "" and not kit.contains(name, query) then return end
+    if shown >= kit.LIST_CAP then more = true; return end
     shown = shown + 1
     local path = join(state.path, name)
     table.insert(content, kit.navRow({ key = (isFolder and "folder-" or "file-") .. name,

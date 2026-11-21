@@ -8,7 +8,7 @@
 -- display, `bands` splits rectangles into nested rows/columns for drawing (no absolute positioning in the UI).
 local M = {}
 
-M.SIDES = { "above", "below", "left", "right" }
+local SIDES = { "above", "below", "left", "right" }
 local TOLERANCE = 2  -- logical sizes are rounded; edges this close still touch
 
 local function round(v) return math.floor(v + 0.5) end
@@ -72,7 +72,7 @@ local function attach(tree, id, parent, side, at, anchor)
 end
 
 -- The arrangement tree behind `rects` (list order = display numbers). The root is the largest display.
-function M.infer(rects)
+local function infer(rects)
   if #rects == 0 then return nil end
   local byId, root = {}, rects[1]
   for _, r in ipairs(rects) do
@@ -90,7 +90,7 @@ function M.infer(rects)
     local found = false
     -- breadth first: the earliest placed display takes everything that touches it, side by side
     for _, p in ipairs(order) do
-      for _, side in ipairs(M.SIDES) do
+      for _, side in ipairs(SIDES) do
         local group = {}
         for _, u in ipairs(unplaced()) do
           if touches(u, p, side) then table.insert(group, u); placed[u.id] = true end
@@ -186,7 +186,7 @@ end
 
 -- Positions {id → {x, y}} for `tree` with sizes {id → {w, h}}: groups flush against their parent's edge and
 -- centered on its center line, pushed outward past displays they would overlap, top-left at 0,0.
-function M.layout(tree, sizes)
+local function layout(tree, sizes)
   local rects = {}
   local placedList = {}
   local root = sizes[tree.root]
@@ -197,7 +197,7 @@ function M.layout(tree, sizes)
     local pid = queue[head]
     head = head + 1
     local p = rects[pid]
-    for _, side in ipairs(M.SIDES) do
+    for _, side in ipairs(SIDES) do
       local lists = { center = {}, start = {}, ["end"] = {} }
       for _, id in ipairs(tree.kids[pid] and tree.kids[pid][side] or {}) do
         table.insert(lists[tree.anchor[id] or "center"], id)
@@ -240,7 +240,7 @@ function M.layout(tree, sizes)
 end
 
 -- Sizes {id → {w, h}} of `rects`.
-function M.sizes(rects)
+local function sizesOf(rects)
   local sizes = {}
   for _, r in ipairs(rects) do sizes[r.id] = { w = r.w, h = r.h } end
   return sizes
@@ -256,10 +256,10 @@ function M.move(rects, id, target, where)
   if not side then return nil end
   local rest = {}
   for _, r in ipairs(rects) do if r.id ~= id then table.insert(rest, copyRect(r)) end end
-  local sizes = M.sizes(rects)
+  local sizes = sizesOf(rects)
   if #rest == 0 or id == target or not sizes[target] then return nil end
   -- the tree of the others: laid out again, it has no hole where the display was
-  local tree = M.infer(rest)
+  local tree = infer(rest)
   local parent, groupSide = tree.parent[target], tree.side[target]
   if anchor == "start" or anchor == "end" then
     attach(tree, id, target, side, nil, anchor)
@@ -272,13 +272,13 @@ function M.move(rects, id, target, where)
   else
     attach(tree, id, target, side)
   end
-  return M.layout(tree, sizes)
+  return layout(tree, sizes)
 end
 
 -- Positions with the current tree laid out again (recentered, flush, top-left at 0,0).
 function M.tidy(rects)
   if #rects == 0 then return {} end
-  return M.layout(M.infer(rects), M.sizes(rects))
+  return layout(infer(rects), sizesOf(rects))
 end
 
 -- Nested drawing bands for non-overlapping `rects`: {rect = r} for one display, or

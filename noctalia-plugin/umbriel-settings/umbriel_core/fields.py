@@ -30,14 +30,13 @@ ACCEL = ["flat", "adaptive"]
 
 def layout_fields(p, opt=False):
     """Fields shared by [layout] and per-workspace layout overrides (mode, gap, presets, maximize behavior)."""
-    out = [
+    return [
         F("Mode", f"{p}.mode", "choice", "scrolling", LAYOUTS, opt),
         F("Gap", f"{p}.gap", "int", 8, (0, 500), opt),
         F("Extent presets (TOML array)", f"{p}.extent_presets", "raw", [0.333, 0.5, 0.667], None, opt),
         F("New window exits fullscreen (TOML)", f"{p}.new_exits_fullscreen", "raw", [], None, opt),
         F("Client maximize button", f"{p}.client_maximize", "choice", "column", ["column", "edges"], opt),
     ]
-    return out
 
 
 def struts(p, opt=False):
@@ -298,7 +297,7 @@ TABS["Input"] = [
 
 TABS["Layout"] = [
     ("Shared", layout_fields("layout", True) + struts("layout", True)),
-    ("Scrolling", scrolling("layout.scrolling".rsplit(".", 1)[0], True)),
+    ("Scrolling", scrolling("layout", True)),
     ("Dwindle", dwindle("layout", True)),
     ("Master", master("layout", True)),
     ("Stacking", [

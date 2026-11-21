@@ -1,7 +1,7 @@
 -- Mocked Noctalia API shared by panel_test.lua and app_test.lua (plain Lua, fixtures from the real helper).
 -- H.start(entryFile, appOptions) loads an entry script; the returned table exposes the helpers.
 local pluginDir, fixtureDir = arg[1], arg[2]
-local H = { env = {}, clock = 1000, liveWaits = {}, held = {} }  -- clock: what noctalia.nowMs() returns; tests advance it
+local H = { env = {}, clock = 1000, liveWaits = {}, held = {} }  -- clock: what noctalia.nowMs() returns (tests advance it)
 H.settings = {}  -- shell config by dotted path: what noctalia.getSetting(path) returns
 
 -- ------------------------------------------------------------------ JSON

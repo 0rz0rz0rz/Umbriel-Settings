@@ -128,6 +128,34 @@ def banner_line(label, newline):
     return "# " + "-" * max(3, BANNER_WIDTH - 3 - len(label)) + " " + label + newline
 
 
+def _scan_line(line, depth, string):
+    """Carry the bracket depth and the open string (None or its quote: '"', "'", '\"\"\"', "'''") across one line
+    of a TOML value; a comment ends the line, and single-line strings never continue onto the next line."""
+    j = 0
+    while j < len(line):
+        ch = line[j]
+        if string is None:
+            if line.startswith('"""', j) or line.startswith("'''", j):
+                string, j = line[j:j + 3], j + 2
+            elif ch in "\"'":
+                string = ch
+            elif ch == "#":
+                break
+            elif ch in "[{":
+                depth += 1
+            elif ch in "]}":
+                depth -= 1
+        elif string in ('"', '"""'):
+            if ch == "\\":
+                j += 1
+            elif line.startswith(string, j):
+                string, j = None, j + len(string) - 1
+        elif line.startswith(string, j):
+            string, j = None, j + len(string) - 1
+        j += 1
+    return depth, None if string in ('"', "'") else string
+
+
 def split_statements(text):
     """Split TOML text into blank/comment/header/kv statements; a kv spans every line of a multi-line value."""
     lines = text.splitlines(keepends=True)
@@ -141,34 +169,11 @@ def split_statements(text):
         elif stripped.startswith("["):
             out.append(("header", lines[i]))
         else:
-            chunk, depth, string = [], 0, None   # string: None or the open quote ('"', "'", '\"\"\"', "'''")
+            chunk, depth, string = [], 0, None
             while i < len(lines):
                 line = lines[i]
                 chunk.append(line)
-                j = 0
-                while j < len(line):
-                    ch = line[j]
-                    if string is None:
-                        if line.startswith('"""', j) or line.startswith("'''", j):
-                            string, j = line[j:j + 3], j + 2
-                        elif ch in "\"'":
-                            string = ch
-                        elif ch == "#":
-                            break
-                        elif ch in "[{":
-                            depth += 1
-                        elif ch in "]}":
-                            depth -= 1
-                    elif string == '"' or string == '"""':
-                        if ch == "\\":
-                            j += 1
-                        elif line.startswith(string, j):
-                            string, j = None, j + len(string) - 1
-                    elif line.startswith(string, j):
-                        string, j = None, j + len(string) - 1
-                    j += 1
-                if string in ('"', "'"):
-                    string = None                # single-line strings never continue onto the next line
+                depth, string = _scan_line(line, depth, string)
                 i += 1
                 if depth <= 0 and string is None:
                     break
@@ -206,7 +211,8 @@ def tidy_lines(items):
 
 
 def pull_banner_blocks(pending):
-    """Split a comment run into (banner blocks that introduce the NEXT section, the rest that belongs to the next key)."""
+    """Split a comment run into (banner blocks that introduce the NEXT section, the rest that belongs to the
+    next key)."""
     carried, rest, i = [], [], 0
     while i < len(pending):
         kind, text = pending[i]

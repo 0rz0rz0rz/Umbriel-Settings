@@ -185,7 +185,7 @@ def reorder_table(table, order):
     entries = {key.key: (key, value) for key, value in body if key is not None}
     positions = [index for index, (key, _) in enumerate(body) if key is not None]
     ordered_keys = [key for key in order if key in entries]
-    ordered_keys.extend(key for key in container.keys() if key not in ordered_keys)
+    ordered_keys.extend(key for key in container if key not in ordered_keys)
     if not positions or ordered_keys == [key.key for key, _ in body if key is not None]:
         return
     values = {key: dict.__getitem__(container, key) for key in ordered_keys}

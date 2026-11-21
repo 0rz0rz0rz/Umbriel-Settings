@@ -101,10 +101,8 @@ def atomic_write(path, data, mode=None):
         os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
         raise
 
 
@@ -152,6 +150,33 @@ def remove_stale_temp_files(directory, target_name, max_age=600.0):
                 os.unlink(full)
         except OSError:
             pass
+
+
+def decode_utf8(data, path):
+    """`data` (bytes read from `path`) as text; ValueError naming the file and byte when it is not UTF-8."""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path} is not UTF-8 text ({error.reason} at byte {error.start}).") from None
+
+
+def read_document(path):
+    """(text, SHA-256 revision) of a UTF-8 file, or ("", "missing") when it does not exist."""
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read()
+    except FileNotFoundError:
+        return "", "missing"
+    return decode_utf8(data, path), hashlib.sha256(data).hexdigest()
+
+
+def file_revision(path):
+    """SHA-256 of a file's bytes, or 'missing'."""
+    try:
+        with open(path, "rb") as handle:
+            return hashlib.sha256(handle.read()).hexdigest()
+    except FileNotFoundError:
+        return "missing"
 
 
 def write_text_file(path, text):

@@ -105,8 +105,6 @@ class HelperTestCase(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
-    call = reply  # desktop tests replace `call` with their own shorthand
-
     def ok(self, command, request=None, env=None):
         reply = self.reply(command, request, env)
         self.assertTrue(reply["ok"], reply)
@@ -120,6 +118,25 @@ class HelperTestCase(unittest.TestCase):
     def expect(self, command, request, success=True, env=None):
         """The result when `success`, else the error message."""
         return self.ok(command, request, env) if success else self.fails(command, request, env)["error"]
+
+
+class DesktopTestCase(HelperTestCase):
+    """HelperTestCase for one desktop file: FILE under XDG_CONFIG_HOME at `self.path`, its PART of the helper's
+    `desktop`/`desktop-save` replies, backups in `self.backup`."""
+
+    FILE = PART = None
+
+    def setUp(self):
+        super().setUp()
+        self.path = self.root / "xdg-config" / self.FILE
+        self.backup = self.root / "data" / "umbriel-settings" / "backups"
+
+    def read(self, success=True):
+        return self.expect("desktop", {}, success)[self.PART]
+
+    def save(self, revision, changes, success=True):
+        result = self.expect("desktop-save", {self.PART: {"revision": revision, "changes": changes}}, success)
+        return result[self.PART] if success else result
 
 
 class ConfigTestCase(HelperTestCase):

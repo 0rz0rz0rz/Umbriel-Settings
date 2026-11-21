@@ -93,7 +93,7 @@ def should_apply(app, settings):
     if os.environ.get("QT_QPA_PLATFORMTHEME", "") not in ("qt6ct", "qt5ct"):
         return False
     current = app.style().name().lower()
-    if current.startswith("qt6ct") or current.startswith("qt5ct"):
+    if current.startswith(("qt6ct", "qt5ct")):
         return False
     wanted = settings.value("Appearance/style", "", str)
     return bool(wanted) and current != wanted.lower()
@@ -110,7 +110,7 @@ def apply_qt6ct_theme(app, config_path=None, first_run=True):
     files = [config_path]
 
     style_name = settings.value("Appearance/style", "", str)
-    available = {name.lower(): name for name in QStyleFactory.keys()}
+    available = {name.lower(): name for name in QStyleFactory.keys()}  # noqa: SIM118 (a Qt function)
     style_name = available.get(style_name.lower()) or available.get("fusion")
     if style_name and app.style().name().lower() != style_name.lower():
         app.setStyle(style_name)

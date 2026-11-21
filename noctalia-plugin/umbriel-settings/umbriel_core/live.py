@@ -4,12 +4,11 @@ import json
 import os
 import re
 import select
-import shutil
 import subprocess
 import time
 
 from .launch import child_env
-from .schema import run_umbriel_json
+from .schema import run_umbriel_json, umbriel_executable
 
 # `umbriel subscribe` events a page can wait for.
 WATCHABLE_EVENTS = ("outputs", "windows", "layers", "keyboard_layout")
@@ -88,10 +87,7 @@ def wait_change(events, timeout):
     """Wait until what one of `events` (WATCHABLE_EVENTS) reports changes, through `umbriel subscribe`: the
     event's name, or None after `timeout` seconds. Umbriel first sends each event's current state; that is
     the baseline. Raises FileNotFoundError (no umbriel) or RuntimeError (the stream ended early)."""
-    executable = shutil.which("umbriel")
-    if not executable:
-        raise FileNotFoundError("Umbriel CLI was not found on PATH.")
-    process = subprocess.Popen([executable, "subscribe", ",".join(events)], stdin=subprocess.DEVNULL,
+    process = subprocess.Popen([umbriel_executable(), "subscribe", ",".join(events)], stdin=subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=child_env())
     deadline = time.monotonic() + timeout
     baseline, pending = {}, b""

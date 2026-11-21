@@ -239,12 +239,12 @@ def cmd_desktop(request):
     result = {"roles": mimeapps.ROLES}
     # each file on its own: an unreadable user-dirs.dirs must not hide the default apps, and the other way round
     try:
-        result["userdirs"] = xdg_dirs.snapshot(*xdg_dirs.read_document(xdg_dirs.config_path()))
+        result["userdirs"] = xdg_dirs.snapshot(*paths.read_document(xdg_dirs.config_path()))
     except (OSError, ValueError) as error:
         result["userdirs"] = {"values": {}, "revision": "unreadable", "error": str(error)}
     apps = mimeapps.installed_apps()
     try:
-        result["apps"] = mimeapps.snapshot(*mimeapps.read_document(mimeapps.config_path()), apps)
+        result["apps"] = mimeapps.snapshot(*paths.read_document(mimeapps.config_path()), apps)
     except (OSError, ValueError) as error:
         result["apps"] = {**mimeapps.snapshot("", "unreadable", apps), "error": str(error)}
     listed = {app["id"] for app in apps}
@@ -522,7 +522,6 @@ def saved_editor():
 
 def editor_argv(command):
     """Split an editor command (the file is appended); None for the default app."""
-    import shlex
     try:
         argv = shlex.split(command)
     except ValueError as error:

@@ -104,7 +104,7 @@ class LabelFileTests(SessionTestCase):
             handle.write('{"window_rule": {"a": "b"}, "output": ["Rule label"]}')
         state = session.read()
         self.assertEqual(state["editors"]["output"][0]["label"], "")
-        report, saved = self.save(text, fields={"general.xwayland_primary_output": {"value": "DP-1"}})
+        _, saved = self.save(text, fields={"general.xwayland_primary_output": {"value": "DP-1"}})
         self.assertIn('xwayland_primary_output = "DP-1"', saved)
 
 

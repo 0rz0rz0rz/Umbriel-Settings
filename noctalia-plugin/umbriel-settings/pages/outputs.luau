@@ -20,13 +20,13 @@ local PRIMARY_FIELD = "general.xwayland_primary_output"
 local round = displays.round
 
 -- The connected displays matched to the config's output entries (empty while Umbriel hasn't answered).
-function M.connected(ctx)
+local function connected(ctx)
   return displays.list(ctx.connectedOutputs().outputs, ctx.store.entryItems("output"))
 end
 
 -- "Display 2" for an output entry named `name` while that output is connected, else nil.
 function M.label(ctx, name)
-  local display = displays.forEntry(M.connected(ctx), name)
+  local display = displays.forEntry(connected(ctx), name)
   return display and ("Display " .. display.number) or nil
 end
 
@@ -65,7 +65,7 @@ local function apply(ctx, list, positions)
 end
 
 local function place(ctx, id, target, side)
-  local list = M.connected(ctx)
+  local list = connected(ctx)
   local rects = displays.rects(list)
   local known = {}
   for _, rect in ipairs(rects) do known[rect.id] = true end
@@ -330,7 +330,7 @@ end
 function M.content(ctx)
   local live = ctx.connectedOutputs()
   if not live.error then ctx.watchLive({ "outputs" }, function() ctx.refreshLiveOutputs(); ctx.render() end) end
-  local list = M.connected(ctx)
+  local list = connected(ctx)
   local shown = arranged(list)
   if live.loading or live.error or #shown == 0 then
     local rows = {}
@@ -375,7 +375,7 @@ function M.content(ctx)
   local rows = {
     ui.row({ key = "display-tools", gap = 8, align = "center" }, {
       kit.muted("Drag a display by its number onto an edge or corner of another to place it there; click it to edit it.",
-                { fontSize = 13, flexGrow = 1, maxLines = 2 }),
+                { fontSize = kit.FONT.body, flexGrow = 1, maxLines = 2 }),
       trymode.button(ctx),
       ui.button({ key = "display-tidy", text = "Tidy up", glyph = "layout-align-center", variant = "outline",
                   enabled = untidy, tooltip = "Center the displays on each other again, starting at 0, 0",

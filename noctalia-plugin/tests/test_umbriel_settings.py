@@ -10,13 +10,12 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-import support
-from support import CONFIG, HELPER, ConfigTestCase
+from support import CONFIG, HELPER, ConfigTestCase, HelperTestCase
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-class HelperTestCase(ConfigTestCase):
+class ConfigHelperTestCase(ConfigTestCase):
     def read(self):
         return self.ok("read", {"config": str(self.config)})
 
@@ -29,7 +28,7 @@ class HelperTestCase(ConfigTestCase):
         return self.root / "data" / "umbriel-settings" / "configs" / identity
 
 
-class MetaAndReadTests(HelperTestCase):
+class MetaAndReadTests(ConfigHelperTestCase):
     def test_meta_files_split_search_text(self):
         out = self.root / "meta"
         response = self.root / "response.json"
@@ -86,7 +85,7 @@ class MetaAndReadTests(HelperTestCase):
 
 
 
-class SaveTests(HelperTestCase):
+class SaveTests(ConfigHelperTestCase):
     def test_field_edit_keeps_comments_and_backs_up(self):
         state = self.read()
         report = self.save(state, fields={"general.mod_key": {"value": "Alt"},
@@ -262,7 +261,7 @@ class SaveTests(HelperTestCase):
         self.assertEqual(report["state"]["keybinds"]["groups"], ["Windows", "Apps"])
 
 
-class ConfigPathTests(HelperTestCase):
+class ConfigPathTests(ConfigHelperTestCase):
     def test_uses_the_path_remembered_by_the_app(self):
         saved = self.root / "data" / "umbriel-settings" / "gui-config-path"
         saved.parent.mkdir(parents=True)
@@ -280,7 +279,7 @@ class ConfigPathTests(HelperTestCase):
 
 @unittest.skipUnless(shutil.which("umbriel") and os.path.isfile("/usr/share/umbriel/config.toml"),
                      "needs the installed umbriel CLI and its stock config")
-class RealUmbrielTests(support.HelperTestCase):  # no fake: the installed `umbriel` validates
+class RealUmbrielTests(HelperTestCase):  # no fake: the installed `umbriel` validates
     def test_stock_config_round_trip_validates(self):
         config = self.root / "config.toml"
         shutil.copy("/usr/share/umbriel/config.toml", config)
@@ -299,7 +298,7 @@ class RealUmbrielTests(support.HelperTestCase):  # no fake: the installed `umbri
         self.assertIn('"Mod+Shift+F12" = "spawn true"', text)
 
 
-class BackupAndDesktopTests(HelperTestCase):
+class BackupAndDesktopTests(ConfigHelperTestCase):
     def test_backups_list_restore_and_delete(self):
         state = self.read()
         report = self.save(state, fields={"general.mod_key": {"value": "Alt"}})
@@ -332,20 +331,6 @@ class BackupAndDesktopTests(HelperTestCase):
         kept = [item["path"] for item in restored["backups"]["backups"]]
         self.assertEqual(len(kept), 10)
         self.assertIn(oldest, kept, "the restored backup is never pruned")
-
-    def test_desktop_read_and_save(self):
-        xdg = self.root / "xdg-config"
-        xdg.mkdir()
-        (xdg / "user-dirs.dirs").write_text('# keep\nXDG_DESKTOP_DIR="$HOME/Desktop"\n')
-        state = self.ok("desktop")
-        self.assertEqual(state["userdirs"]["values"], {"DESKTOP": "$HOME/Desktop"})
-        result = self.ok("desktop-save", {"userdirs": {
-            "revision": state["userdirs"]["revision"], "changes": {"DESKTOP": "$HOME/Schreibtisch"}}})
-        reread = self.ok("desktop")["userdirs"]
-        self.assertEqual(reread["values"]["DESKTOP"], "$HOME/Schreibtisch")
-        self.assertEqual(result["userdirs"], {"revision": reread["revision"]})
-        self.assertIn("# keep", (xdg / "user-dirs.dirs").read_text())
-        self.assertEqual(self.ok("extension", {"extension": "pdf"})["mime"], "application/pdf")
 
     def test_desktop_save_keeps_the_part_that_was_written(self):
         xdg = self.root / "xdg-config"
@@ -417,7 +402,7 @@ class BackupAndDesktopTests(HelperTestCase):
         opener.chmod(0o755)
         env = {**self.env, "UMBRIEL_SETTINGS_APPIMAGE_ENV": "1", "PYTHONNOUSERSITE": "1",
                "UMBRIEL_SETTINGS_HOST_PYTHONPATH": "/host/lib"}
-        reply = self.call("open-config", {"config": str(self.config)}, env)
+        reply = self.reply("open-config", {"config": str(self.config)}, env)
         self.assertTrue(reply["ok"], reply)
         deadline = time.monotonic() + 5
         while not record.exists() and time.monotonic() < deadline:
@@ -427,7 +412,7 @@ class BackupAndDesktopTests(HelperTestCase):
         self.assertFalse([line for line in lines if line.startswith(("PYTHONNOUSERSITE=", "UMBRIEL_SETTINGS_"))])
 
 
-class EditorAndAboutTests(HelperTestCase):
+class EditorAndAboutTests(ConfigHelperTestCase):
     def wait_for(self, path):
         deadline = time.monotonic() + 5
         while not path.exists() and time.monotonic() < deadline:
@@ -440,7 +425,8 @@ class EditorAndAboutTests(HelperTestCase):
         editor.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{record}.tmp" && mv "{record}.tmp" "{record}"\n')
         editor.chmod(0o755)
         self.assertEqual(self.ok("about")["editor"], "")
-        self.assertEqual(self.ok("set-editor", {"editor": " my-editor --new-window "}), {"editor": "my-editor --new-window"})
+        self.assertEqual(self.ok("set-editor", {"editor": " my-editor --new-window "}),
+                         {"editor": "my-editor --new-window"})
         self.assertEqual(self.ok("about")["editor"], "my-editor --new-window")
         self.ok("open-config", {"config": str(self.config)})
         self.assertEqual(self.wait_for(record).splitlines(), ["--new-window", str(self.config)])
@@ -466,7 +452,7 @@ class EditorAndAboutTests(HelperTestCase):
         self.assertEqual(len(list(backups.glob("noctalia-config.toml.*.bak"))), 1)
 
 
-class TitlebarFollowTests(HelperTestCase):
+class TitlebarFollowTests(ConfigHelperTestCase):
     def test_follow_converts_opacity_and_reports_state(self):
         self.assertEqual(self.ok("titlebar", {"config": str(self.config)})["fields"], {})
         noctalia = self.root / "xdg-config" / "noctalia" / "noctalia-config.toml"
@@ -488,11 +474,65 @@ class TitlebarFollowTests(HelperTestCase):
                       "source": "kde"})["error"].lower())
 
 
-if __name__ == "__main__":
-    unittest.main()
+
+class LauncherTests(HelperTestCase):
+    """`launch-app`: the standalone app started through its desktop entry."""
+
+    def test_standalone_launcher_checks_entry_and_reports_errors(self):
+        data = self.root / "data with spaces"
+        desktop = data / "applications" / "umbriel-settings.desktop"
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        log = self.root / "launch-args"
+        env = {
+            **self.env, "XDG_DATA_HOME": str(data), "PATH": str(bin_dir),
+            "LAUNCH_LOG": str(log),
+        }
+
+        def launch(**extra_env):
+            return self.reply("launch-app", env={**env, **extra_env})
+
+        reply = launch()
+        self.assertIn("desktop entry not found", reply["error"])
+        desktop.parent.mkdir(parents=True)
+        desktop.write_text("[Desktop Entry]\n")
+        self.assertIn("gio is not installed", launch()["error"])
+        gio = bin_dir / "gio"
+        gio.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$LAUNCH_LOG"\nexit "${LAUNCH_EXIT:-0}"\n')
+        gio.chmod(0o755)
+        self.assertEqual(launch(), {"ok": True, "result": {}})
+        self.assertEqual(log.read_text().splitlines(), ["launch", str(desktop)])
+        self.assertIn("exit code 9", launch(LAUNCH_EXIT="9")["error"])
+
+    @unittest.skipUnless(shutil.which("gio"), "gio is required for the launcher integration test")
+    def test_standalone_launcher_detaches_app_output(self):
+        data = self.root / "data"
+        desktop = data / "applications" / "umbriel-settings.desktop"
+        desktop.parent.mkdir(parents=True)
+        marker = self.root / "app-ran"
+        app = self.root / "fake-app"
+        app.write_text('#!/bin/sh\nsleep 0.3\nprintf "app output\\n" >&2\nprintf ready > "$LAUNCH_LOG"\n')
+        app.chmod(0o755)
+        desktop.write_text(f"[Desktop Entry]\nType=Application\nName=Test\nExec={app}\n")
+        runtime = self.root / "runtime"
+        runtime.mkdir(mode=0o700)
+        env = {
+            **self.env, "HOME": str(self.root), "XDG_DATA_HOME": str(data),
+            "XDG_RUNTIME_DIR": str(runtime), "DBUS_SESSION_BUS_ADDRESS": "unix:path=/nonexistent",
+            "DISPLAY": "", "WAYLAND_DISPLAY": "", "LAUNCH_LOG": str(marker),
+        }
+        result = subprocess.run(
+            [sys.executable, "-B", str(HELPER), "launch-app"],
+            env=env, text=True, capture_output=True, timeout=5, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        deadline = time.monotonic() + 3
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertEqual(marker.read_text(), "ready")
 
 
-class LiveTests(HelperTestCase):
+class LiveTests(ConfigHelperTestCase):
     def test_windows_and_layers_from_the_running_umbriel(self):
         windows = self.ok("windows")["windows"]
         self.assertEqual([(w["app_id"], w["count"], w["pattern"]) for w in windows],
@@ -539,7 +579,7 @@ class LiveTests(HelperTestCase):
         self.assertEqual(failed["error"], "unknown action: nonsense")
 
 
-class FileBrowserTests(HelperTestCase):
+class FileBrowserTests(ConfigHelperTestCase):
     """`list-dir` (the UI's file browser) and `pick-file` / `pick-folder`, which map the path it chose."""
 
     def pick(self, request, chosen):
@@ -600,3 +640,7 @@ class FileBrowserTests(HelperTestCase):
                          str(self.config.parent))
         self.assertIsNone(self.ok("list-dir", {"path": "/"})["parent"])
         self.assertEqual(self.fails("list-dir", {"path": str(folder / "notes.txt")})["code"], "not_folder")
+
+
+if __name__ == "__main__":
+    unittest.main()

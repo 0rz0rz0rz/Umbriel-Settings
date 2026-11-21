@@ -65,12 +65,11 @@ local function pageCard(ctx, name)
   local badges = {}
   if changed > 0 then table.insert(badges, kit.badge(changed .. " unsaved", "primary", "b-" .. name)) end
   local summary = countLabel(page.kind, customized)
-  return ui.row({ key = "card-" .. name, gap = 12, align = "center", paddingH = 12, paddingV = 7, radius = kit.RADIUS.lg,
-                  flexGrow = 1, fill = "surface_container", border = kit.CARD_BORDER,
-                  borderWidth = kit.CARD_BORDER_WIDTH, tooltip = page.help, onClick = function() ctx.openPage(name) end }, {
-    ui.glyph({ name = page.glyph or "settings", size = 20, color = "primary" }),
+  return kit.rowCard({ key = "card-" .. name, gap = 12, align = "center", paddingH = 12, paddingV = 7, flexGrow = 1,
+                       tooltip = page.help, onClick = function() ctx.openPage(name) end }, {
+    ui.glyph({ name = page.glyph or "settings", size = kit.GLYPH.row, color = "primary" }),
     ui.column({ gap = 2, flexGrow = 1 }, {
-      ui.label({ text = name, fontSize = 14, fontWeight = "bold", maxLines = 1 }),
+      ui.label({ text = name, fontSize = kit.FONT.item, fontWeight = "bold", maxLines = 1 }),
       kit.muted(summary or page.help or "", { maxLines = 1 }),
     }),
     ui.row({ gap = 4 }, badges),
@@ -118,12 +117,12 @@ local function results(ctx, query)
         onClick = function() ctx.go({ name = "keybind", index = hit.index }) end }))
     end
   end
-  if cut then table.insert(rows, kit.muted("Showing the best 40 matches. Type more to narrow the search.")) end
+  if cut then table.insert(rows, kit.muted("Showing the best " .. search.LIMIT .. " matches. Type more to narrow the search.")) end
   return rows
 end
 
 -- Every page setting that differs from Umbriel's default, page by page; rows open the setting.
-local CUSTOMIZED_LIMIT = 40
+local CUSTOMIZED_LIMIT = kit.LIST_CAP
 -- Rows for settings that differ from Umbriel's defaults, in sidebar order: (rows, shown, total).
 -- `sections` adds a page heading before each page's first row; else the subtitle names the page.
 local function customizedRows(ctx, limit, sections)
@@ -163,7 +162,7 @@ end
 function M.renderCustomized(ctx)
   local store = ctx.store
   local header = { kit.header(ctx, "Customized settings", "Settings that differ from Umbriel's defaults") }
-  if not store.state then return { header = header, content = { kit.empty("Loading config…", "loader") } } end
+  if not store.state then return { header = header, content = { kit.loading("Loading config…") } } end
   local content, shown, total = customizedRows(ctx, CUSTOMIZED_LIMIT, true)
   if total == 0 then
     table.insert(content, kit.empty("Every setting uses Umbriel's default.", "adjustments-check"))
@@ -195,8 +194,7 @@ local function pathRow(ctx, path)
                onSubmit = function(text) view.pathDraft = text; ctx.switchConfig() end }),
     ui.button({ text = "Open", controlSize = "sm", tooltip = "Load this config file", enabled = not ctx.loading.config,
                 onClick = function() ctx.switchConfig() end }),
-    ui.button({ glyph = "refresh", variant = "ghost", controlSize = "sm", tooltip = "Reload from disk",
-                enabled = not ctx.loading.config, onClick = function() ctx.reload() end }),
+    kit.iconButton("refresh", "Reload from disk", function() ctx.reload() end, not ctx.loading.config),
   })
 end
 
@@ -230,8 +228,8 @@ end
 local DASHBOARD_ROWS, DASHBOARD_BACKUPS = 8, 3
 
 local function card(key, title, glyph, actions, children)
-  local head = { ui.glyph({ name = glyph, size = 18, color = "primary" }),
-                 ui.label({ text = title, fontSize = 14, fontWeight = "bold", flexGrow = 1 }) }
+  local head = { ui.glyph({ name = glyph, size = kit.GLYPH.large, color = "primary" }),
+                 ui.label({ text = title, fontSize = kit.FONT.item, fontWeight = "bold", flexGrow = 1 }) }
   for _, action in ipairs(actions or {}) do table.insert(head, action) end
   local body = { ui.row({ key = key .. "-head", gap = 8, align = "center" }, head) }
   for _, child in ipairs(children) do table.insert(body, child) end
@@ -257,7 +255,7 @@ local function recentBackups(ctx, path)
   for index, item in ipairs(cache.list or {}) do
     if index > DASHBOARD_BACKUPS then break end
     table.insert(rows, ui.row({ key = "home-bk-" .. index, gap = 8, align = "center", paddingH = 4 }, {
-      ui.glyph({ name = "history", size = 16, color = kit.MUTED }),
+      ui.glyph({ name = "history", size = kit.GLYPH.body, color = kit.MUTED }),
       kit.label(item.time, { flexGrow = 1 }),
       kit.muted(kit.fileSize(item.size)),
     }))
@@ -317,13 +315,13 @@ function M.render(ctx)
     return { header = header, content = content }
   end
   if not store.state then
-    if not ctx.configError then table.insert(content, kit.empty("Loading config…", "loader")) end
+    if not ctx.configError then table.insert(content, kit.loading("Loading config…")) end
   elseif ctx.isApp then
     dashboard(ctx, content)
     return { header = header, content = content }
   else
-    for _, section in ipairs(store.meta.nav) do
-      table.insert(content, kit.section(section.title))
+    for i, section in ipairs(store.meta.nav) do
+      for _, node in ipairs(kit.groupHeading(section.title, nil, i == 1)) do table.insert(content, node) end
       local row = {}
       for _, name in ipairs(section.pages) do
         if store.meta.pages[name] then

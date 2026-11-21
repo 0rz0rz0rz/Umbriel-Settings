@@ -5,7 +5,7 @@ local kit = require("../ui/kit.luau")
 
 local M = {}
 
-local RESULTS = 40
+local RESULTS = kit.LIST_CAP
 
 local function split(text)
   local list = {}
@@ -102,7 +102,7 @@ local function layoutRows(ctx, data, keyboard, layouts, variants)
     table.insert(rows, kit.card({ key = "xkb-layout-" .. i .. "-" .. name }, {
       ui.row({ gap = 6, align = "center" }, {
         ui.column({ gap = 2, flexGrow = 1 }, {
-          ui.label({ text = (data.layoutDesc[name] or name), fontSize = 14, fontWeight = "bold" }),
+          ui.label({ text = (data.layoutDesc[name] or name), fontSize = kit.FONT.item, fontWeight = "bold" }),
           kit.muted(i == 1 and (name .. " · first layout") or name),
         }),
         ui.select({ key = "xkb-variant-" .. i .. "-" .. name, options = labels, selectedIndex = selected, width = 260,
@@ -135,7 +135,7 @@ local function addLayoutRows(ctx, data, keyboard, layouts, variants)
   local chosen, shown = {}, 0
   for _, name in ipairs(layouts) do chosen[name] = true end
   for _, layout in ipairs(data.layouts) do
-    if not chosen[layout.name] and string.find(string.lower(layout.name .. " " .. layout.desc), q, 1, true) then
+    if not chosen[layout.name] and kit.contains(layout.name .. " " .. layout.desc, q) then
       shown = shown + 1
       if shown > RESULTS then break end
       table.insert(rows, kit.optionRow("xkb-add-" .. layout.name, layout.desc .. " (" .. layout.name .. ")",
@@ -178,7 +178,7 @@ local function optionRows(ctx, data, keyboard, options)
   local shown = 0
   for _, group in ipairs(data.options) do
     for _, item in ipairs(group.items) do
-      if not on[item.name] and string.find(string.lower(item.name .. " " .. group.desc .. " " .. item.desc), q, 1, true) then
+      if not on[item.name] and kit.contains(item.name .. " " .. group.desc .. " " .. item.desc, q) then
         shown = shown + 1
         if shown <= RESULTS then
           table.insert(rows, kit.optionRow("xkb-opt-" .. item.name, group.desc .. ": " .. item.desc,
@@ -200,8 +200,7 @@ function M.render(ctx, route)
   local view = ctx.view
   local keyboard = target(ctx, route)
   if not keyboard then
-    return { header = { kit.header(ctx, "Keyboard layouts") },
-             content = { kit.empty("This entry no longer exists.", "trash") } }
+    return kit.gone(ctx, "Keyboard layouts")
   end
   local header = { kit.header(ctx, "Keyboard layouts", keyboard.title .. " · layouts, variants and XKB options") }
   if view.xkbData == nil and not view.xkbLoading then

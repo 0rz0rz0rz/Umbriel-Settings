@@ -95,7 +95,8 @@ class XkbTests(unittest.TestCase):
         self.assertEqual([g["name"] for g in data["options"]], ["grp", "caps", "Compose key", "compat"])
         self.assertEqual(data["options"][2]["desc"], "Position of Compose key")
         self.assertEqual([i["name"] for i in data["options"][3]["items"]], ["misc:typo"])
-        self.assertEqual(data["options"][1]["items"], [{"name": "caps:escape", "desc": "Make Caps Lock an additional Esc"}])
+        self.assertEqual(data["options"][1]["items"],
+                         [{"name": "caps:escape", "desc": "Make Caps Lock an additional Esc"}])
 
     def test_catalog_reads_xkb_config_root_and_survives_a_missing_file(self):
         with tempfile.TemporaryDirectory() as root:
@@ -149,7 +150,8 @@ class RunActionTests(unittest.TestCase):
 
     def test_msg_argv_keeps_the_spawn_command_as_one_word(self):
         self.assertEqual(actions.msg_argv("spawn kitty --title 'a b'"), ["msg", "spawn", "kitty --title 'a b'"])
-        self.assertEqual(actions.msg_argv("workspace-focus --name 'my ws'"), ["msg", "workspace-focus", "--name", "my ws"])
+        self.assertEqual(actions.msg_argv("workspace-focus --name 'my ws'"),
+                         ["msg", "workspace-focus", "--name", "my ws"])
         self.assertEqual(actions.msg_argv("spawn\tkitty --hold"), ["msg", "spawn", "kitty --hold"])
         self.assertEqual(actions.msg_argv("spawn"), ["msg", "spawn", ""])
 

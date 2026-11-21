@@ -96,7 +96,7 @@ search("")
 assert(click("Window rules"), "Window rules card")
 click("budget-entry-150")
 assert(click("Pick from open windows"), "picker button\nScreen: " .. H.screen())
-H.input("^live%-filter:").props.onChange("app1")
+H.input("^liveFilter:").props.onChange("app1")
 -- six connected displays with many modes next to the 50 output entries: drop, Move, a detail page's dropdowns
 local outputs = {}
 for i = 0, 5 do
@@ -139,7 +139,7 @@ if layout == "panel" then
   browse.props.onClick()
   flushReads()
   assert(H.byKey("file-program-1"), "file rows\nScreen: " .. H.screen())
-  H.input("^files%-search%-").props.onChange("program-19")
+  H.input("^fileQuery:").props.onChange("program-19")
   flushReads()
 end
 H.checkBudget("budget " .. layout, 0.025)

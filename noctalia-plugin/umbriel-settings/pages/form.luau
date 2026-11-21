@@ -66,7 +66,7 @@ function M.groups(ctx, pageKey, groups, spec, counts)
     end
     if not onlyCustomized or customized > 0 or changed > 0 then
       if group.restart then
-        table.insert(badges, 1, ui.glyph({ key = "gr-" .. group.title, name = "refresh-alert", size = 14,
+        table.insert(badges, 1, ui.glyph({ key = "gr-" .. group.title, name = "refresh-alert", size = kit.GLYPH.small,
                                            color = "tertiary", tooltip = "Takes effect after restarting Umbriel" }))
       end
       table.insert(content, kit.navRow({
@@ -136,7 +136,7 @@ function M.render(ctx, route)
     route.opened = true
   end
   local header = { kit.header(ctx, route.page, page.help, { onlyCustomizedToggle(ctx) }) }
-  if not store.state then return { header = header, content = { kit.empty("Loading config…", "loader") } } end
+  if not store.state then return { header = header, content = { kit.loading("Loading config…") } } end
   local filterKey = "page-filter-" .. route.page
   local filter = kit.filterText(ctx, filterKey)
   local content = { kit.filterBox(ctx, filterKey, { placeholder = "Filter settings on this page" }) }

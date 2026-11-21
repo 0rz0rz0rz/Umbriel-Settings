@@ -1,11 +1,11 @@
 """Read a config into plain JSON for a UI and apply a recorded change set with the app's save rules."""
 
+import contextlib
 import difflib
 import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import tempfile
 import tomllib
@@ -16,7 +16,6 @@ from . import entry_ops, keybinds, values
 from .backups import create_backup_snapshot
 from .fields import TABS
 from .included import included_names
-from .launch import child_env
 from .layout import (
     BANNER_RE,
     add_entry_name_comments,
@@ -27,12 +26,14 @@ from .layout import (
 )
 from .paths import (
     config_gui_data_dir,
+    decode_utf8,
+    file_revision,
     labels_file,
     load_all_entry_labels,
     remove_stale_temp_files,
     write_text_file,
 )
-from .schema import field_schema_option
+from .schema import field_schema_option, run_umbriel
 from .tomlops import MISSING, getp, py, same_data, totext
 
 
@@ -48,15 +49,6 @@ def page_field_index():
 
 PAGE_FIELDS = page_field_index()
 FIELD_PATH_RE = re.compile(r"\b[a-z_][a-z0-9_]*(?:\.[a-z0-9_*]+)+\b")
-
-
-def file_revision(path):
-    """SHA-256 of a file's bytes, or 'missing'."""
-    try:
-        with open(path, "rb") as f:
-            return hashlib.sha256(f.read()).hexdigest()
-    except FileNotFoundError:
-        return "missing"
 
 
 def entry_labels(config_dir):
@@ -108,10 +100,7 @@ class ConfigSession:
             raise ValueError(
                 f"{self.path} does not exist. Copy /usr/share/umbriel/config.toml there first."
             ) from error
-        try:
-            text = data.decode("utf-8")
-        except UnicodeDecodeError as error:
-            raise ValueError(f"{self.path} is not UTF-8 text ({error.reason} at byte {error.start}).") from None
+        text = decode_utf8(data, self.path)
         try:
             doc = tomlkit.parse(text)
         except tomlkit.exceptions.TOMLKitError as error:
@@ -164,7 +153,7 @@ class ConfigSession:
         locked = keybinds.load_locked(self.config_dir)
         bindings = keybinds.read_bindings(doc)
         table = getp(doc, ("keybinds",))
-        other = [str(k) for k in table.keys() if k not in bindings] if table is not MISSING and hasattr(table, "keys") else []
+        other = [str(k) for k in table if k not in bindings] if table is not MISSING and hasattr(table, "keys") else []
         return {
             "path": self.path,
             "revision": revision,
@@ -195,53 +184,8 @@ class ConfigSession:
             raise ValueError("The config or its GUI data changed since it was loaded. Reload before saving.")
         summary = []
         labels_all = entry_labels(self.config_dir)
-        labels_changed = False
-
-        for fid, change in (changes.get("fields") or {}).items():
-            if fid not in PAGE_FIELDS or not isinstance(change, dict):
-                raise ValueError(f"Unknown setting: {fid}")
-            page, group, field = PAGE_FIELDS[fid]
-            option = field_schema_option(self.options, fid)
-            default = values.field_default(field, option)
-            if change.get("unset"):
-                if not field.opt:
-                    raise ValueError(f"{field.label} cannot be unset.")
-                new = None
-            else:
-                new = values.from_ui(field, change.get("value"), option)
-            old = getp(doc, field.path)
-            values.apply_value(doc, field, new, default)
-            summary.append({
-                "page": page, "group": group, "label": field.label, "id": fid,
-                "old": describe(old), "new": describe(getp(doc, field.path)),
-            })
-
-        for op in changes.get("entries") or []:
-            if not isinstance(op, dict) or op.get("editor") not in entry_ops.ENTRY_EDITORS:
-                raise ValueError("Invalid entry operation.")
-            eid = op["editor"]
-            page, _, path, mode, _, _ = entry_ops.ENTRY_EDITORS[eid]
-            before = labels_all.get(path) or ([] if mode == "aot" else {})
-            labels = list(before) if isinstance(before, list) else dict(before)
-            if op.get("op") in ("set", "unset"):
-                field = entry_ops.editor_fields(eid).get(op.get("field"))
-                if field is None:
-                    raise ValueError(f"{page}: unknown setting {op.get('field')}")
-                schema_path = entry_ops.schema_prefix(eid) + "." + ".".join(field.path)
-                option = field_schema_option(self.options, schema_path)
-                new = None if op["op"] == "unset" else values.from_ui(field, op.get("value"), option)
-                if new is None and not field.opt:
-                    raise ValueError(f"{field.label} cannot be unset.")
-                table = entry_ops.entry_at(doc, eid, op.get("index"))
-                values.apply_value(table, field, new, values.field_default(field, option))
-                summary.append({"page": page, "label": f"Entry {op['index'] + 1}: {field.label}",
-                                "new": describe(getp(table, field.path))})
-            else:
-                entry_ops.apply_entry_op(doc, eid, labels, op)
-                summary.append({"page": page, "label": describe_entry_op(op)})
-            if before != labels and (mode != "aot" or any(before + labels)):
-                labels_all[path] = labels
-                labels_changed = True
+        self._apply_fields(doc, changes.get("fields") or {}, summary)
+        labels_changed = self._apply_entries(doc, changes.get("entries") or [], labels_all, summary)
 
         for op in changes.get("maps") or []:
             if not isinstance(op, dict) or op.get("editor") not in entry_ops.MAP_EDITORS:
@@ -291,6 +235,57 @@ class ConfigSession:
             raise ValueError("The edited config would not contain the same settings. Nothing was written.")
         return text, new_text, (labels_all if labels_changed else None), locks, summary
 
+    def _apply_fields(self, doc, fields, summary):
+        for fid, change in fields.items():
+            if fid not in PAGE_FIELDS or not isinstance(change, dict):
+                raise ValueError(f"Unknown setting: {fid}")
+            page, group, field = PAGE_FIELDS[fid]
+            option = field_schema_option(self.options, fid)
+            default = values.field_default(field, option)
+            if change.get("unset"):
+                if not field.opt:
+                    raise ValueError(f"{field.label} cannot be unset.")
+                new = None
+            else:
+                new = values.from_ui(field, change.get("value"), option)
+            old = getp(doc, field.path)
+            values.apply_value(doc, field, new, default)
+            summary.append({
+                "page": page, "group": group, "label": field.label, "id": fid,
+                "old": describe(old), "new": describe(getp(doc, field.path)),
+            })
+
+    def _apply_entries(self, doc, ops, labels_all, summary):
+        """Apply entry operations; update `labels_all` in place and return whether any label changed."""
+        changed = False
+        for op in ops:
+            if not isinstance(op, dict) or op.get("editor") not in entry_ops.ENTRY_EDITORS:
+                raise ValueError("Invalid entry operation.")
+            eid = op["editor"]
+            page, _, path, mode, _, _ = entry_ops.ENTRY_EDITORS[eid]
+            before = labels_all.get(path) or ([] if mode == "aot" else {})
+            labels = list(before) if isinstance(before, list) else dict(before)
+            if op.get("op") in ("set", "unset"):
+                field = entry_ops.editor_fields(eid).get(op.get("field"))
+                if field is None:
+                    raise ValueError(f"{page}: unknown setting {op.get('field')}")
+                schema_path = entry_ops.schema_prefix(eid) + "." + ".".join(field.path)
+                option = field_schema_option(self.options, schema_path)
+                new = None if op["op"] == "unset" else values.from_ui(field, op.get("value"), option)
+                if new is None and not field.opt:
+                    raise ValueError(f"{field.label} cannot be unset.")
+                table = entry_ops.entry_at(doc, eid, op.get("index"))
+                values.apply_value(table, field, new, values.field_default(field, option))
+                summary.append({"page": page, "label": f"Entry {op['index'] + 1}: {field.label}",
+                                "new": describe(getp(table, field.path))})
+            else:
+                entry_ops.apply_entry_op(doc, eid, labels, op)
+                summary.append({"page": page, "label": describe_entry_op(op)})
+            if before != labels and (mode != "aot" or any(before + labels)):
+                labels_all[path] = labels
+                changed = True
+        return changed
+
     def _apply_keybinds(self, doc, binds, summary):
         if not isinstance(binds, dict) or not isinstance(binds.get("rows"), list):
             raise ValueError("Invalid keybind changes.")
@@ -298,11 +293,12 @@ class ConfigSession:
         table = getp(doc, ("keybinds",))
         if table is not MISSING and not hasattr(table, "keys"):
             raise ValueError("keybinds is not a table in the config; fix it in the file first.")
-        unparsed = {str(k) for k in table.keys() if k not in original} if table is not MISSING else set()
+        unparsed = {str(k) for k in table if k not in original} if table is not MISSING else set()
         disk_locks = keybinds.load_locked(self.config_dir)
         rows, assignments = {}, {}
         for row in binds["rows"]:
-            if not isinstance(row, dict) or not isinstance(row.get("key"), str) or not isinstance(row.get("action"), str):
+            if not isinstance(row, dict) or not isinstance(row.get("key"), str) \
+                    or not isinstance(row.get("action"), str):
                 raise ValueError("Invalid keybind.")
             key, action = row["key"].strip(), row["action"].strip()
             opts = row.get("opts") or {}
@@ -353,22 +349,18 @@ class ConfigSession:
             fromfile="current", tofile="new", n=2,
         ))
         sections = group_diff_by_section(diff, new) if diff else {}
-        report = {
+        return {
             "changed": old != new,
             "summary": summary,
             "sections": [{"title": title, "diff": "".join(lines)} for title, lines in sections.items()],
             "validation": self.validate(new) if validate and (old != new or check) else {"ran": False},
         }
-        return report
 
     def validate(self, text):
         """Run `umbriel config validate` on a temporary copy next to the config (so includes resolve).
 
         A read-only config directory falls back to the GUI data directory; relative includes may then not
         resolve, which is still better than not validating at all."""
-        executable = shutil.which("umbriel")
-        if not executable:
-            return {"ran": False, "reason": "The umbriel command was not found; the config was not validated."}
         name = None
         try:
             for directory in (os.path.dirname(self.path), self.config_dir):
@@ -385,20 +377,16 @@ class ConfigSession:
                     if directory == self.config_dir:
                         raise
             try:
-                result = subprocess.run(
-                    [executable, "config", "validate", "-c", name, "--json"],
-                    stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                    timeout=30, check=False, env=child_env(),
-                )
+                result = run_umbriel(["config", "validate", "-c", name, "--json"], 30, errors="replace")
+            except FileNotFoundError:
+                return {"ran": False, "reason": "The umbriel command was not found; the config was not validated."}
             except subprocess.TimeoutExpired:
                 return {"ran": True, "valid": False,
                         "diagnostics": [{"severity": "error", "message": "Umbriel validation timed out."}]}
         finally:
             if name is not None:
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(name)
-                except OSError:
-                    pass
         try:
             report = json.loads(result.stdout)
         except json.JSONDecodeError:
@@ -421,7 +409,8 @@ class ConfigSession:
             })
         valid = report["valid"] and result.returncode == 0
         if not valid and not diagnostics:
-            diagnostics.append({"severity": "error", "message": result.stderr.strip() or "Umbriel rejected the config."})
+            diagnostics.append({"severity": "error",
+                                "message": result.stderr.strip() or "Umbriel rejected the config."})
         return {"ran": True, "valid": valid, "diagnostics": diagnostics}
 
     def save(self, changes, validate=True, backup=None):

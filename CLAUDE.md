@@ -24,7 +24,7 @@ python/umbriel_settings/             PySide6 host: lupa runs the Luau, QWebEngin
 | App host | `app-host.md` | `edit-controls`, `split-module` |
 | Tests | `tests.md`, `noctalia-plugin-tests.md` | `add-test` |
 
-Also: `add-setting-field`, `sync-umbriel-schema`, `verify-changes`, `build-appimage`. Use the matching skill first.
+Also: `sync-umbriel-schema`, `verify-changes`, `update-screenshots`, `build-appimage`. Use the matching skill first.
 
 ## Commands
 
@@ -37,11 +37,11 @@ python tools/sync_plugin_core.py     # after editing python/umbriel_core (--chec
 python python/umbriel-settings.py [config.toml]   # --config --no-validate --no-rebuild --check-schema --version
 ```
 
-Checks: `core` = sync + `tests/test_core*.py`; `plugin` = `noctalia-plugin/tests` (incl. 25 ms CPU budget) + `luac -p` + `luau-compile --null` + `noctalia plugins lint` + community validator (`tools/validate_plugin.py`: `$NOCTALIA_VALIDATOR` or Noctalia's local official source; CI pins it, with `langdetect`); `host` = other `tests/` (lupa, bridge, web render, icon); `schema` = `--check-schema` (0 unsupported, 0 stale); `lint` = ruff + shellcheck. CI runs `core plugin host lint` on 3.11/3.12/3.13.
+Checks: `core` = sync + `tests/test_core*.py`; `plugin` = `noctalia-plugin/tests` (incl. 25 ms CPU budget) + `luac -p` + `luau-compile --null` + `noctalia plugins lint` + community validator (`tools/validate_plugin.py`: `$NOCTALIA_VALIDATOR` or Noctalia's local official source; CI pins it, with `langdetect`); `host` = other `tests/` (lupa, bridge, web render, icon); `schema` = `--check-schema` (0 unsupported, 0 stale); `lint` = ruff + shellcheck. CI runs `lint` once and `core plugin host` on 3.11/3.12/3.13.
 
 ## Verify (smallest set)
 
-Run checks only after edits, only for what changed (`check.py` without arguments picks them); never `all` unasked; docs, rules and skills need none. Luau UI/helper → `plugin host`; core → `core plugin host`; fields/actions → `+schema`; visual → `render_app.py` PNGs (`edit-controls`). Never launch the app, build the AppImage, or touch the live Noctalia session or real config to verify.
+Run checks only after edits, only for what changed (`check.py` without arguments picks them); never `all` unasked; docs, rules and skills need none. Luau UI/helper → `plugin host`; core → `core plugin host`; fields/actions → `+schema`; visual → `render_app.py` PNGs (`edit-controls`). Launching the app to test is allowed (from the checkout; prefer a temp config and `XDG_DATA_HOME`; close it afterwards); never build the AppImage, touch the live Noctalia session, or save to the real config to verify.
 
 ## Tokens
 

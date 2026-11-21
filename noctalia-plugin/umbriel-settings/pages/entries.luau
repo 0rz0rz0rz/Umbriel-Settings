@@ -21,17 +21,6 @@ local function fieldSpec(ctx, eid, index, fid)
   }
 end
 
-local function nameForm(ctx, key, placeholder, buttonText, onAccept)
-  local view = ctx.view
-  return ui.row({ key = key, gap = 6, align = "center" }, {
-    ui.input({ key = key .. ":" .. ctx.gen(key), value = "", flexGrow = 1, controlSize = "sm",
-               placeholder = placeholder, onChange = function(text) view[key] = text end,
-               onSubmit = function(text) view[key] = text; onAccept(noctalia.string.trim(text)) end }),
-    ui.button({ text = buttonText, glyph = "plus", controlSize = "sm", variant = "outline",
-                onClick = function() onAccept(noctalia.string.trim(view[key] or "")) end }),
-  })
-end
-
 local function nameTaken(store, eid, name)
   for _, item in ipairs(store.entryItems(eid)) do
     if item.name == name then return true end
@@ -41,11 +30,11 @@ end
 
 -- The filter matches the title, the entry name and any text or number value (e.g. an app id pattern).
 local function matches(title, item, filter)
-  if string.find(string.lower(title), filter, 1, true) then return true end
-  if item.name and string.find(string.lower(item.name), filter, 1, true) then return true end
+  if kit.contains(title, filter) then return true end
+  if item.name and kit.contains(item.name, filter) then return true end
   for _, value in pairs(item.values) do
     local kind = type(value)
-    if (kind == "string" or kind == "number") and string.find(string.lower(tostring(value)), filter, 1, true) then
+    if (kind == "string" or kind == "number") and kit.contains(tostring(value), filter) then
       return true
     end
   end
@@ -90,7 +79,7 @@ local function editorList(ctx, eid, filter, multiple)
     }))
   else
     local placeholder = eid == "output" and "Connector or monitor name, e.g. DP-1" or "Name"
-    table.insert(rows, nameForm(ctx, "new-" .. eid, placeholder, "Add", function(name)
+    table.insert(rows, kit.nameForm(ctx, "new-" .. eid, placeholder, "Add", function(name)
       if name == "" then ctx.flash("Enter a name first.", "warning"); return end
       if nameTaken(store, eid, name) then ctx.flash("“" .. name .. "” already exists.", "warning"); return end
       store.entryOp(eid, { op = "add", name = name })
@@ -106,7 +95,7 @@ local function listPage(ctx, route)
   local page = store.meta.pages[route.page]
   local header = { kit.header(ctx, route.page, page.help) }
   local content = {}
-  if not store.state then return { header = header, content = { kit.empty("Loading config…", "loader") } } end
+  if not store.state then return { header = header, content = { kit.loading("Loading config…") } } end
   if route.page == "Outputs" then
     local content, fill = outputs.content(ctx)
     return { header = header, content = content, fill = fill }
@@ -179,7 +168,7 @@ local function entryPage(ctx, route)
   local items = store.entryItems(eid)
   local item = items[index]
   if not item then
-    return { header = { kit.header(ctx, editor.page) }, content = { kit.empty("This entry no longer exists.", "trash") } }
+    return kit.gone(ctx, editor.page)
   end
   local title = store.entryTitle(eid, index, item)
   local nav = {
@@ -231,7 +220,7 @@ local function entryPage(ctx, route)
                   glyph = live == "windows" and "app-window" or "stack-2", controlSize = "sm", variant = "outline",
                   onClick = function()
                     ctx.view.live, ctx.view.liveFilter = nil, nil
-                    ctx.bump("live-filter")
+                    ctx.bump("liveFilter")
                     ctx.go({ name = "pick-live", editor = eid, index = index, kind = live })
                   end }),
     }
@@ -239,7 +228,7 @@ local function entryPage(ctx, route)
     table.insert(content, ui.row({ key = "entry-live", gap = 6, align = "center" }, liveButtons))
   end
   if editor.mode == "map" and eid ~= "output" then  -- a copy of an effect preset or pool; outputs are hardware
-    table.insert(content, nameForm(ctx, "dup-" .. eid, "Name for a copy", "Duplicate", function(name)
+    table.insert(content, kit.nameForm(ctx, "dup-" .. eid, "Name for a copy", "Duplicate", function(name)
       if name == "" or nameTaken(store, eid, name) then ctx.flash("Choose a new, unused name.", "warning"); return end
       store.entryOp(eid, { op = "duplicate", index = index - 1, name = name })
       ctx.replace({ name = "entry", editor = eid, index = #store.entryItems(eid) })
@@ -258,7 +247,7 @@ local function entryPage(ctx, route)
   return { header = header, content = content }
 end
 
-local LIVE_ROWS = 40
+local LIVE_ROWS = kit.LIST_CAP
 
 -- Pick a rule's match from what the running Umbriel shows: open windows (app id, title) or layer surfaces.
 local function pickLivePage(ctx, route)
@@ -268,7 +257,7 @@ local function pickLivePage(ctx, route)
   local rule = store.entryItems(eid)[index]
   local title = windows and "Open windows" or "Open layers"
   if not rule then
-    return { header = { kit.header(ctx, title) }, content = { kit.empty("This entry no longer exists.", "trash") } }
+    return kit.gone(ctx, title)
   end
   local header = { kit.header(ctx, title, "Pick one for " .. store.entryTitle(eid, index, rule)) }
   if view.live == nil or view.live.kind ~= kind then
@@ -308,17 +297,15 @@ local function pickLivePage(ctx, route)
     ctx.back()
     ctx.flash("The rule now matches “" .. shown .. "”.", "info")
   end
-  local filter = string.lower(noctalia.string.trim(view.liveFilter or ""))
+  local filter = kit.filterText(ctx, "liveFilter")
   local content = {
-    ui.input({ key = "live-filter:" .. ctx.gen("live-filter"), value = view.liveFilter or "", controlSize = "sm",
-               placeholder = windows and "Filter by app id or title" or "Filter by namespace",
-               onChange = function(text) view.liveFilter = text; ctx.render() end }),
+    kit.filterBox(ctx, "liveFilter", { placeholder = windows and "Filter by app id or title" or "Filter by namespace" }),
   }
   local shown, matches = 0, 0
   for position, item in ipairs(live.items or {}) do
     local name = windows and item.app_id or item.namespace
     local detail = windows and item.title or (item.layer .. " · " .. table.concat(item.outputs or {}, ", "))
-    if filter == "" or string.find(string.lower(name .. " " .. detail), filter, 1, true) then
+    if filter == "" or kit.contains(name .. " " .. detail, filter) then
       matches = matches + 1
       if shown < LIVE_ROWS then
         shown = shown + 1
@@ -343,7 +330,7 @@ local function pickLivePage(ctx, route)
         table.insert(content, kit.card({ key = "live-" .. position }, {
           ui.row({ gap = 8, align = "center" }, {
             ui.column({ gap = 2, flexGrow = 1 }, {
-              ui.label({ text = name .. count, fontSize = 14, fontWeight = "bold" }),
+              ui.label({ text = name .. count, fontSize = kit.FONT.item, fontWeight = "bold" }),
               kit.muted(detail ~= "" and detail or "(no title)", { maxLines = 1 }),
             }),
             ui.row({ gap = 6 }, buttons),
