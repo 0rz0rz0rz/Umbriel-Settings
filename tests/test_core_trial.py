@@ -64,6 +64,28 @@ class TrialTests(TempDirTestCase):
         self.assertEqual(self.read(self.config), "edited\n")
         self.assertIn("changed during the Try", trial.describe(trial.outcome(self.config_dir, "abc")))
 
+    def test_a_try_confirmed_but_never_written_is_already_back(self):
+        self.write("umbriel", "config.toml", text="before\n")  # the save stopped between confirm and the write
+        path = self.arm(self.token)
+        self.assertEqual(trial.expire(path, self.lock_dir, "abc"), (True, trial.RESTORED))
+        self.assertEqual(self.read(self.config), "before\n")
+        self.assertEqual(self.snapshots(), [self.backup], "nothing was written, so no copy of a tried file")
+
+    def test_the_pending_backup_is_the_confirmed_one_until_its_watcher_is_surely_gone(self):
+        self.assertIsNone(trial.pending_backup(self.config_dir))
+        pending = {**self.token, "deadline": time.time() + 30}
+        self.arm({**pending, "backup": None})
+        self.assertIsNone(trial.pending_backup(self.config_dir), "armed, not confirmed yet")
+        self.arm(pending)
+        self.assertEqual(trial.pending_backup(self.config_dir), self.backup)
+        other = os.path.join(os.path.dirname(self.backup), "config.toml.0.bak")
+        self.assertEqual(trial.protect_pending(self.config_dir, [self.backup, other, 7]), (
+            [other, 7], ["config.toml.1.bak: kept until the running Try ends (it is its rollback)"]))
+        # a watcher killed with the session (logout, reboot) left its token behind: it protects nothing
+        self.arm({**pending, "deadline": time.time() - trial.GIVE_UP - 1})
+        self.assertIsNone(trial.pending_backup(self.config_dir))
+        self.assertEqual(trial.protect_pending(self.config_dir, [self.backup]), ([self.backup], []))
+
     def test_a_missing_backup_is_reported(self):
         os.remove(self.backup)
         path = self.arm(self.token)
@@ -78,8 +100,6 @@ class TrialTests(TempDirTestCase):
         claimed = trial.claim(self.config_dir, "abc")
         self.assertEqual(claimed["id"], "abc")
         self.assertFalse(trial.expire(path, self.lock_dir, "abc"))
-        trial.unclaim(self.config_dir, claimed)  # a failed restore puts it back for the watcher
-        self.assertEqual(trial.read_token(path)["id"], "abc")
         self.arm({**self.token, "id": "newer"})
         self.assertFalse(trial.expire(path, self.lock_dir, "abc"))
         self.assertEqual(self.read(self.config), "tried\n")
@@ -92,7 +112,13 @@ class TrialTests(TempDirTestCase):
             self.assertIsNone(trial.expire(path, self.lock_dir, "abc"))
         self.assertTrue(os.path.exists(path))
 
-    def test_the_countdown_starts_once_the_file_is_written(self):
+    def test_a_failed_confirm_says_nothing_was_tried(self):
+        with patch.object(trial, "_write_json", side_effect=OSError("No space left on device")):
+            with self.assertRaisesRegex(OSError, r"could not be set up \(No space left on device\), so nothing "
+                                                 "was tried"):
+                trial.confirm(self.config_dir, self.token, self.backup, "rev")
+
+    def test_the_countdown_starts_right_before_the_write(self):
         with patch("subprocess.run"):
             token = trial.arm(self.config, self.config_dir, self.lock_dir, 15)
         self.assertGreater(token["deadline"], time.time() + 15 + trial.GRACE + trial.CONFIRM_WINDOW - 5,

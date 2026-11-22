@@ -42,11 +42,15 @@ in-process. Commands that write (save, restore, trial-end, desktop-save, titleba
 waits up to 20 s for it; write commands get a 60 s timeout: 20 s lock + 5 s watcher start + 5 s schema + 30 s
 validation; reads that parse the config get 20 s; once a file is written, later failures are reported as
 `warnings`). The Try watcher and the title-bar script take the same lock. A display **Try** passes `trial` to
-`save`, which starts a detached watcher (`umbriel_core/trial.py`) before writing and sets its deadline once the
-file is written; Keep (`trial-end`) or Go back (`restore` with `trial`) claims its token, else the watcher
+`save`, which starts a detached watcher (`umbriel_core/trial.py`) before writing and records the backup, the
+tried revision and the deadline right before the write (`Session.save(before_write=...)`; a failure writes
+nothing); `delete-backups` keeps that backup while the token is pending (`trial.pending_backup`: until the
+deadline plus `GIVE_UP`, so a watcher killed with the session leaves nothing protected); Go back claims the token
+only after its write; Keep (`trial-end`) or Go back (`restore` with `trial`) claims its token, else the watcher
 restores the backup and records the outcome (`trial.result.json`), which a late Keep or Go back reports.
 Title-bar following travels as a `follow` intent on the `colors.title_bar.*` field changes; only `save` applies
-it (after writing the config), and `onExit` (disable, uninstall) runs `titlebar-cleanup`. Live
+it (after writing the config), and `onExit` (disable; uninstall best effort, as Noctalia may remove the plugin
+folder first) runs `titlebar-cleanup`. Live
 refresh is a long poll: `wait-live` runs `umbriel subscribe` and answers on the first change a page shows (or
 after 25 s), and the page asks again. Shared UI code must parse as both Luau and Lua 5.4 (the app runs it with lupa), stay within
 Noctalia's 25 ms per-callback CPU budget, and use only the API the app host implements

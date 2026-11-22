@@ -334,6 +334,21 @@ end
 clickText("Keep")
 assert(H.lastCall("trial-end") and hasText("Display settings kept.") and #store.entryOps == 0, screen())
 assert(H.release("wait") == 1 and not byKey("display-try-card"), "the countdown stops")
+-- tried but not read back: no Keep without the revision, and it says the helper's watcher still goes back
+local trySave = replies.save
+replies.save = function()
+  return true, json.encode({ saved = true, backup = "/b/config.toml.9.bak", trial = "t1",
+                             validation = { ran = true, valid = true, diagnostics = {} } })
+end
+H.drag("display-DP-2", "display-above-DP-1")
+clickText("Try")
+flushReads()
+assert(hasText("Tried, but the file could not be read back, so Keep isn't possible: the previous display "
+               .. "settings come back in about 30 seconds.") and not byKey("display-try-card"), screen())
+replies.save = trySave
+store.discardAll()
+H.goHome()
+clickText("Outputs")
 -- Go back; while a Try runs its card shows on every page and Save waits
 H.drag("display-DP-2", "display-above-DP-1")
 clickText("Try")

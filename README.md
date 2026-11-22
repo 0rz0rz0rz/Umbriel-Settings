@@ -39,7 +39,7 @@ same core and interface code, so they look and behave alike; the app adds a side
   display that shows nothing) the previous file comes back and the changes are unsaved again, also when the
   panel was closed meanwhile. A small background watcher (the system's `python3`) restores the file 30 seconds
   after the save even when the app was closed or Noctalia stopped (closing the app during a Try asks first),
-  unless the config was edited meanwhile; you get a notification either way. The page follows Umbriel as
+  unless the config was edited meanwhile or the session ended (logout, reboot); you get a notification either way. The page follows Umbriel as
   monitors come and go.
 
   ![The Outputs page in the plugin panel: three displays drawn to scale, the default one starred](noctalia-plugin/umbriel-settings/screenshot-outputs.png)
@@ -242,8 +242,8 @@ owner-only backup of the config (`*.titlebar.bak`).
 
 To stop, set a fixed color (or press **Stop following**) on every following field and save: once no config
 follows, the entry, the template, the rendered colors, the script and its backups are removed (the configs keep
-their last colors). Disabling or uninstalling the Noctalia plugin does the same for every config. Deleting the
-AppImage or checkout doesn't, so stop following first, or delete `[theme.templates.user.umbriel_titlebar]` from
+their last colors). Disabling the Noctalia plugin does the same for every config (uninstalling tries to, but
+Noctalia may remove the plugin before it runs, so disable it first). Deleting the AppImage or checkout doesn't, so stop following first, or delete `[theme.templates.user.umbriel_titlebar]` from
 `noctalia-config.toml`, `~/.config/noctalia/templates/umbriel-titlebar.toml` and `titlebar-colors.toml`,
 `titlebar_apply.py` and `*.titlebar.bak` in `~/.config/umbriel-settings/` yourself.
 

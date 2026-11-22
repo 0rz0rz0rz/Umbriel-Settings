@@ -248,6 +248,19 @@ class SaveTests(ConfigHelperTestCase):
         self.assertEqual((reply["code"], reply["error"]),
                          ("trial_over", "The previous display settings were already restored."))
 
+    def test_backups_keep_a_pending_trys_rollback(self):
+        older = self.save(self.read(), fields={"general.mod_key": {"value": "Ctrl"}})
+        report = self.ok("save", self.try_request(older["state"]))
+        request = {"config": str(self.config), "snapshots": [report["backup"], older["backup"]]}
+        reply = self.ok("delete-backups", request)
+        self.assertEqual(reply["deleted"], [os.path.basename(older["backup"])])
+        self.assertEqual(reply["errors"], [f"{os.path.basename(report['backup'])}: kept until the running Try ends "
+                                           "(it is its rollback)"])
+        self.assertTrue(Path(report["backup"]).exists())
+        self.ok("trial-end", {"config": str(self.config), "trial": report["trial"]})
+        reply = self.ok("delete-backups", {**request, "snapshots": [report["backup"]]})
+        self.assertEqual((reply["deleted"], reply["errors"]), ([os.path.basename(report["backup"])], []))
+
     def test_entry_operations_labels_and_maps(self):
         state = self.read()
         report = self.save(state, entries=[

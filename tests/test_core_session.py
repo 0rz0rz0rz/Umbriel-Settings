@@ -1,5 +1,6 @@
 """ConfigSession saves on hand-written config shapes: nothing invalid is written, no raw crashes (no Qt)."""
 
+import hashlib
 import os
 import tempfile
 import tomllib
@@ -116,6 +117,26 @@ class LockFileTests(SessionTestCase):
             with open(session.lock_path(), "w", encoding="utf-8") as handle:
                 handle.write(content)
             self.assertEqual(keybinds.load_locked(session.config_dir), expected, content)
+
+
+class BeforeWriteTests(SessionTestCase):
+    def test_before_write_sees_the_new_revision_and_can_stop_the_write(self):
+        seen = []
+        session = self.session("[general]\nmod_key = \"Super\"\n")
+        changes = {"revision": session.read()["revision"], "fields": {"general.mod_key": {"value": "Alt"}}}
+        session.save(changes, validate=False, backup=lambda path, config_dir: "snap",
+                     before_write=lambda backup, revision: seen.append((backup, revision)))
+        with open(self.path, "rb") as handle:
+            self.assertEqual(seen, [("snap", hashlib.sha256(handle.read()).hexdigest())])
+
+        def fail(backup, revision):
+            raise OSError("disk full")
+        session = self.session("[general]\nmod_key = \"Super\"\n")
+        changes = {"revision": session.read()["revision"], "fields": {"general.mod_key": {"value": "Alt"}}}
+        with self.assertRaises(OSError):
+            session.save(changes, validate=False, backup=lambda path, config_dir: "snap", before_write=fail)
+        with open(self.path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "[general]\nmod_key = \"Super\"\n")
 
 
 if __name__ == "__main__":
