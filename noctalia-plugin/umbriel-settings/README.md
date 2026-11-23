@@ -78,7 +78,7 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
   without an answer within 15 seconds the previous file comes back and the changes are unsaved again, also
   when the panel was closed meanwhile. Before anything is written, the helper starts a small watcher (system
   `python3`) that restores the previous file 30 seconds after the save unless you pressed Keep or Go back,
-  so the file comes back even if Noctalia stops (not if the session ends: logout or reboot); if the config was
+  so the file comes back even if Noctalia stops, also in the middle of the save (not if the session ends: logout or reboot); if the config was
   edited meanwhile it is left alone and you are told. The Backups page won't delete the backup a Try goes back
   to until it ends. Saving waits until the Try is answered. The tiles follow monitors being plugged in or out.
 

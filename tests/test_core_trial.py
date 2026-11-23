@@ -106,6 +106,19 @@ class TrialTests(TempDirTestCase):
         self.assertIsNone(trial.outcome(self.config_dir, "abc"))
         self.assertEqual(trial.describe(None), "This Try already ended.")
 
+    def test_a_failed_save_leaves_a_written_try_to_the_watcher(self):
+        path = self.arm(self.token)  # the config holds the tried file: only the watcher may end this trial
+        trial.abandon(self.config_dir, "other")
+        trial.abandon(self.config_dir, "abc")
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(trial.expire(path, self.lock_dir, "abc"), (True, trial.RESTORED))
+        self.assertEqual(self.read(self.config), "before\n")
+        for token in ({**self.token, "revision": "not the config's"},  # confirmed, never written
+                      {key: value for key, value in self.token.items() if key not in ("backup", "revision")}):
+            path = self.arm(token)
+            trial.abandon(self.config_dir, "abc")
+            self.assertFalse(os.path.exists(path), token)
+
     def test_expire_waits_while_another_writer_holds_the_lock(self):
         path = self.arm(self.token)
         with paths.write_lock(self.lock_dir), patch.object(trial, "LOCK_TIMEOUT", 0.2):

@@ -7,7 +7,8 @@ description: "Use when submitting the plugin to noctalia-dev/community-plugins o
 
 **Fork, push, open a PR or mark it ready only on the user's explicit request for that step.** Before a PR:
 `update-screenshots` if the panel looks different since `thumbnail.webp` was made; the user has tried
-the changed features in the live panel (Noctalia from the checkout, `noctalia-plugin/README.md`).
+the changed features in the live panel (Noctalia from the checkout, `noctalia-plugin/README.md`); the
+`audit-crash-safety` skill ran over every write path the change touched, and its gaps are fixed.
 
 Upstream: one folder `umbriel-settings/` (= id suffix) at the repo root, one plugin per PR against `main`,
 never commit `catalog.toml`, ≤ 200 files, `version` bumped on every change (here: only with a release, see
@@ -49,5 +50,5 @@ what it does (README intro); dependencies `python3` (bundled helper), `python-to
 `xdg-open`/editor, plus files written, processes and "Network: none" from the README Notes; Tested on another
 compositor: Umbriel; Noctalia version actually tested; Plugin API level = `plugin_api`; screenshots by raw URL
 of the pushed fork commit. Show the user the body first. Tick a box only when it is true; `gh pr ready` once the
-live test passed and the `validate-plugins` check is green. Review changes: fix here, commit, copy again, push
-to the same branch.
+live test passed and the `validate-plugins` check is green. Review changes: fix here, run `audit-crash-safety` on the
+touched paths (not only the reported line), commit, copy again, push to the same branch.

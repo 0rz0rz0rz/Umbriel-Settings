@@ -24,7 +24,7 @@ python/umbriel_settings/             PySide6 host: lupa runs the Luau, QWebEngin
 | App host | `app-host.md` | `edit-controls`, `split-module` |
 | Tests | `tests.md`, `noctalia-plugin-tests.md` | `add-test` |
 
-Also: `sync-umbriel-schema`, `verify-changes`, `update-screenshots`, `build-appimage`, `community-plugin-pr`. Use the matching skill first.
+Also: `sync-umbriel-schema`, `verify-changes`, `audit-crash-safety` (writes, recovery state, locks), `update-screenshots`, `build-appimage`, `community-plugin-pr`. Use the matching skill first.
 
 ## Commands
 

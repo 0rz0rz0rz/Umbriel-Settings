@@ -44,7 +44,8 @@ validation; reads that parse the config get 20 s; once a file is written, later 
 `warnings`). The Try watcher and the title-bar script take the same lock. A display **Try** passes `trial` to
 `save`, which starts a detached watcher (`umbriel_core/trial.py`) before writing and records the backup, the
 tried revision and the deadline right before the write (`Session.save(before_write=...)`; a failure writes
-nothing); `delete-backups` keeps that backup while the token is pending (`trial.pending_backup`: until the
+nothing; a save that fails or gets SIGTERM after that `trial.abandon`s the token, which keeps it unless the config
+surely isn't the tried file, so the watcher still goes back); `delete-backups` keeps that backup while the token is pending (`trial.pending_backup`: until the
 deadline plus `GIVE_UP`, so a watcher killed with the session leaves nothing protected); Go back claims the token
 only after its write; Keep (`trial-end`) or Go back (`restore` with `trial`) claims its token, else the watcher
 restores the backup and records the outcome (`trial.result.json`), which a late Keep or Go back reports.

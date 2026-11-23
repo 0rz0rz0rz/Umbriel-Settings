@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import textwrap
 import threading
 import time
 import unittest
@@ -222,6 +223,49 @@ class SaveTests(ConfigHelperTestCase):
         self.assertFalse(token.exists())
         self.assertEqual(self.fails("save", {**self.try_request(report["state"]), "trial": 0})["error"],
                          "trial must be a number of seconds from 1 to 120.")
+
+    def interrupted_save(self, request, how):
+        """Run `save` as the panel does, but with the config write either followed by a SIGTERM (Noctalia's
+        helper timeout) or failing (a full disk)."""
+        wrapper = textwrap.dedent("""\
+            import importlib.util, os, signal, sys
+            helper, how, config = sys.argv[1:4]
+            spec = importlib.util.spec_from_file_location("umbriel_settings_under_test", helper)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            from umbriel_core import session
+            real = session.write_text_file
+            def write(path, text, *rest):
+                if os.path.abspath(path) != config:
+                    return real(path, text, *rest)
+                if how == "full":
+                    raise OSError(28, "No space left on device")
+                real(path, text, *rest)
+                os.kill(os.getpid(), signal.SIGTERM)
+            session.write_text_file = write
+            sys.exit(module.main(sys.argv[4:]))
+        """)
+        request_file = self.root / "request.json"
+        request_file.write_text(json.dumps(request), encoding="utf-8")
+        return subprocess.run([sys.executable, "-I", "-c", wrapper, str(HELPER), how, str(self.config), "save",
+                               "--request", str(request_file)], env=self.env, capture_output=True, text=True,
+                              check=False)
+
+    def test_an_interrupted_try_is_left_to_the_watcher(self):
+        token = self.config_dir() / "trial.json"
+        state = self.read()
+        result = self.interrupted_save(self.try_request(state), "kill")
+        self.assertEqual(result.returncode, 143, result.stderr)
+        self.assertIn('mod_key = "Alt"', self.config.read_text())
+        armed = json.loads(token.read_text())  # the watcher still goes back
+        self.assertEqual(armed["revision"], hashlib.sha256(self.config.read_bytes()).hexdigest())
+        self.assertEqual(Path(armed["backup"]).read_text(), CONFIG)
+        self.ok("trial-end", {"config": str(self.config), "trial": armed["id"]})
+        # nothing written: no trial is left that would make the next Try wait
+        result = self.interrupted_save(self.try_request(self.read(), "Ctrl"), "full")
+        self.assertIn("No space left on device", json.loads(result.stdout)["error"])
+        self.assertIn('mod_key = "Alt"', self.config.read_text())
+        self.assertFalse(token.exists())
 
     def test_go_back_claims_the_trial_and_finds_the_watchers_result(self):
         token = self.config_dir() / "trial.json"
