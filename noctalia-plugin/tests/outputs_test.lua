@@ -415,4 +415,23 @@ entry.onOpen()
 flushReads()
 store.discardAll()
 
+-- Noctalia runs at most 8 commands per plugin: reopening the panel on Outputs keeps one live poll, not one per
+-- reopen (they piled up until every helper call failed); a poll answered while closed doesn't ask again
+H.goHome()
+clickText("Outputs")
+assert(#H.liveWaits == 1, "Outputs waits for display changes")
+for _ = 1, 8 do
+  entry.onClose()
+  entry.onOpen()
+  flushReads()
+end
+assert(#H.liveWaits == 1, "one live poll after reopening: " .. #H.liveWaits)
+assert(not hasText("Could not start"), screen())
+entry.onClose()
+assert(H.liveChange(nil) == 1 and #H.liveWaits == 0, "a poll answered while closed doesn't ask again")
+entry.onOpen()
+flushReads()
+assert(#H.liveWaits == 1, "the page polls again once it is shown")
+H.liveChange(nil)
+
 print("outputs ok")

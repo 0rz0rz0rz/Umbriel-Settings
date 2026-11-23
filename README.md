@@ -83,7 +83,8 @@ Nothing is written until you press **Review & save** (Ctrl+S):
   links to its setting. Skipped when `umbriel` isn't installed.
 - **Tidy file layout** regroups the file in canonical order with section banners (may move comments). It is
   on by default only for files that already have banners; `--no-rebuild` turns it off.
-- Every save or restore makes a timestamped backup (newest 10 kept). **Backups** compares, restores and
+- Every save or restore makes a timestamped backup (newest 10 kept, plus the one a running display **Try**
+  goes back to). **Backups** compares, restores and
   deletes them; a restore is checked with Umbriel too and warns about problems. User folders, default apps
   and Noctalia's config get their own backups.
 - Edits made while a save runs stay unsaved instead of being lost. If user folders save but default apps

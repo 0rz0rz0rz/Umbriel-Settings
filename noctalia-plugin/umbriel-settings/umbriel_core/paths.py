@@ -39,9 +39,22 @@ def tighten_dir(path):
         pass
 
 
+def make_dirs(path):
+    """`os.makedirs(path, exist_ok=True)`, with every directory it creates owner-only: makedirs gives only the
+    last one its `mode`. Existing directories keep theirs."""
+    path = os.path.abspath(path)
+    if os.path.isdir(path):
+        return
+    parent = os.path.dirname(path)
+    if parent != path:
+        make_dirs(parent)
+    with contextlib.suppress(FileExistsError):
+        os.mkdir(path, 0o700)
+
+
 def private_dir(path):
     """Create `path` (0700) or tighten it; for directories that hold copies of the user's files."""
-    os.makedirs(path, mode=0o700, exist_ok=True)
+    make_dirs(path)
     tighten_dir(path)
     return path
 
@@ -104,7 +117,7 @@ def atomic_write(path, data, mode=None):
     """
     path = os.fspath(path)
     directory = os.path.dirname(path) or "."
-    os.makedirs(directory, mode=0o700, exist_ok=True)  # only directories it creates
+    make_dirs(directory)  # owner-only, but only the directories it creates
     if isinstance(data, str):
         data = data.encode("utf-8")
     if mode is None:
@@ -134,8 +147,10 @@ def write_lock(directory, timeout=20.0):
     files in the same process). Raises TimeoutError when another writer keeps it longer than `timeout` seconds;
     20 s + schema (5 s) + validation (30 s) stays under the plugin's 60 s write timeout.
     """
-    os.makedirs(directory, mode=0o700, exist_ok=True)
-    handle = open(os.path.join(directory, "write.lock"), "a+b")  # closed in finally
+    make_dirs(directory)
+    handle = os.fdopen(os.open(os.path.join(directory, "write.lock"), os.O_RDWR | os.O_CREAT, 0o600), "r+b")
+    with contextlib.suppress(OSError):  # empty, but older versions made it 0644
+        os.fchmod(handle.fileno(), 0o600)
     try:
         deadline = time.monotonic() + timeout
         while True:
@@ -155,14 +170,14 @@ def write_lock(directory, timeout=20.0):
 def remove_stale_temp_files(directory, target_name, max_age=600.0):
     """Remove temporary files a killed writer left in `directory`: `atomic_write` copies of `target_name`
     and validation copies, once they are older than `max_age` seconds."""
-    prefixes = (f".{target_name}.", ".umbriel-settings-")
     try:
         names = os.listdir(directory)
     except OSError:
         return
     cutoff = time.time() - max_age
-    for name in names:
-        if not name.startswith(prefixes) or not name.endswith((".tmp", ".toml")):
+    for name in names:  # only the exact shapes those writers use, never a user's own hidden file
+        if not (name.startswith(f".{target_name}.") and name.endswith(".tmp")
+                or name.startswith(".umbriel-settings-") and name.endswith(".toml")):
             continue
         full = os.path.join(directory, name)
         try:

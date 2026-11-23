@@ -47,15 +47,21 @@ def replace_checked(path, backup_dir, expected_revision, update, label):
     updated = update(text).encode("utf-8")
     if revision != "missing":
         snapshot_file(str(path), str(backup_dir))
+    # again, right before the write: other programs save these files without our lock
+    if path.is_symlink() or read_document(path)[1] != revision:
+        raise ValueError(f"{label} changed externally. Reload before saving.")
     atomic_write(path, updated)
     return {"revision": hashlib.sha256(updated).hexdigest()}
 
 
 def prune_backup_snapshots(directory, config_path, keep=MAX_BACKUPS, protect=None):
-    """Delete the oldest snapshots so at most `keep` remain (never `protect`); return the deleted names."""
-    protect = os.path.abspath(protect) if protect else None
-    snapshots = [item for item in list_backup_snapshots(directory, config_path) if os.path.abspath(item) != protect]
-    keep -= 1 if protect and os.path.isfile(protect) else 0
+    """Delete the oldest snapshots so at most `keep` remain (never `protect`, nor the backup a pending display Try
+    goes back to: saves from another window may come in meanwhile); return the deleted names."""
+    from .trial import pending_backup  # stdlib-only at module level, so no import cycle
+    kept = {os.path.abspath(path) for path in (protect, pending_backup(os.path.dirname(directory))) if path}
+    listing = list_backup_snapshots(directory, config_path)
+    snapshots = [item for item in listing if os.path.abspath(item) not in kept]
+    keep -= len(listing) - len(snapshots)
     deleted, _errors = delete_backup_snapshots(directory, config_path, snapshots[:max(0, len(snapshots) - keep)])
     return deleted
 

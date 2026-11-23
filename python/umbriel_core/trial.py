@@ -255,7 +255,8 @@ def restore(token):
 
 def _lock(lock_dir):
     os.makedirs(lock_dir, mode=0o700, exist_ok=True)
-    handle = open(os.path.join(lock_dir, "write.lock"), "a+b")  # the caller closes it, which unlocks
+    # the caller closes it, which unlocks
+    handle = os.fdopen(os.open(os.path.join(lock_dir, "write.lock"), os.O_RDWR | os.O_CREAT, 0o600), "r+b")
     deadline = time.monotonic() + LOCK_TIMEOUT
     while True:
         try:

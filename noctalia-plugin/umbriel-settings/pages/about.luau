@@ -45,11 +45,12 @@ local function editorSection(ctx, state)
   local function save()
     local command = state.editorDraft
     if command == nil then command = state.editor or "" end
+    -- answered also after a close (always): the command is saved either way
     ctx.helper.call("set-editor", { editor = command }, function(err, data)
-      if err then ctx.flash(err.error, "error") return end
+      if err then ctx.tell(err.error, "error") return end
       state.editor, state.editorDraft = data.editor, nil
-      ctx.flash(data.editor == "" and "Edit file uses the default app." or "Edit file uses " .. data.editor .. ".", "info")
-    end)
+      ctx.tell(data.editor == "" and "Edit file uses the default app." or "Edit file uses " .. data.editor .. ".", "info")
+    end, { always = true })
   end
   return {
     kit.section("Editor", "about-editor"),
@@ -81,10 +82,10 @@ local function paletteSection(ctx, state)
       ui.button({ text = "Set up palette template", glyph = "palette", controlSize = "sm", variant = "outline",
                   onClick = function()
         ctx.helper.call("palette-template", {}, function(err, data)
-          if err then ctx.flash(err.error, "error") return end
+          if err then ctx.tell(err.error, "error") return end
           state.palette = data.palette
-          ctx.flash("Palette template set up.", "info")
-        end)
+          ctx.tell("Palette template set up.", "info")
+        end, { always = true })
       end }),
     }))
   end

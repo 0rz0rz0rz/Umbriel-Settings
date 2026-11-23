@@ -10,7 +10,7 @@ import re
 import stat
 
 from .backups import STAMP
-from .paths import DATA_DIR_NAME, xdg_config_home
+from .paths import DATA_DIR_NAME, make_dirs, xdg_config_home
 
 MARKER = ".migrated-v1"
 PRIVATE_MARKER = ".private-v1"
@@ -56,9 +56,8 @@ def make_private(directory, only=None):
 
 
 def _write_marker(marker):
-    os.makedirs(os.path.dirname(marker), exist_ok=True)
-    with open(marker, "w", encoding="utf-8"):
-        pass
+    make_dirs(os.path.dirname(marker))
+    os.close(os.open(marker, os.O_WRONLY | os.O_CREAT, 0o600))
 
 
 def _adopt_single_backups(directory):

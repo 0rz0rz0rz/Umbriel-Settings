@@ -255,6 +255,31 @@ assert(pending and pending.userdirs and pending.userdirs.changes.VIDEOS == "/tmp
        and pending.userdirs.changes.MUSIC == nil, "only what was sent is saved")
 store.discardAll()
 
+-- the panel closes and opens again while a save runs: its answer finishes it on the open panel (Save usable
+-- again, no notification), for the config and for the folders alike
+for _, kind in ipairs({ "save", "desktop-save" }) do
+  goHome()
+  if kind == "save" then store.setField("appearance.border_width", 12)
+  else store.setDesktop("userdirs", "MUSIC", "/tmp/music-test-5") end
+  entry.onKey("ctrl+s", true)
+  flushReads()
+  H.hold(kind)
+  clickText("Save")
+  assert(hasText("Saving…"), screen())
+  local notified = #H.notifications
+  entry.onClose()
+  entry.onOpen()
+  flushReads()
+  H.release(kind, true)
+  flushReads()
+  assert(#H.notifications == notified, kind .. ": no notification on an open panel: "
+         .. tostring(H.notifications[#H.notifications]))
+  assert(not hasText("Saving…"), kind .. ": " .. screen())
+  assert(hasText(kind == "save" and "Saved." or "Desktop settings saved; restart apps to use them."),
+         kind .. ": says it saved: " .. screen())
+  store.discardAll()
+end
+
 -- Noctalia tears the panel down: the edits stay as a draft; disabling or uninstalling also stops title bars
 -- following Noctalia (helper titlebar-cleanup), a reload doesn't
 entry.onOpen()

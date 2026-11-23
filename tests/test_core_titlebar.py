@@ -102,6 +102,39 @@ class TitlebarFollowTests(TempDirTestCase):
         self.assertTrue(os.path.exists(titlebar_theme.template_file()))
         self.assertTrue(os.path.exists(titlebar_theme.script_file()), "the hook keeps working")
 
+    def test_the_script_is_in_place_before_noctalia_is_told_to_run_it(self):
+        """Stopped between the two writes, Noctalia must never run a hook whose script is missing."""
+        from umbriel_core import noctalia_theme
+        real, seen = noctalia_theme.write_user_template, []
+
+        def spy(*args):
+            seen.append(os.path.exists(titlebar_theme.script_file()))
+            return real(*args)
+
+        with patch.object(noctalia_theme, "write_user_template", spy):
+            titlebar_theme.follow(self.config, "background", "kde", 0xFF, self.backups)
+        self.assertEqual(seen, [True])
+
+    def test_cleanup_stops_the_hook_even_when_noctalias_config_cant_change(self):
+        """Disable must never leave a hook that rewrites configs: the script and the copies go first."""
+        for broken in ("symlink", "no tomlkit"):
+            titlebar_theme.follow(self.config, "background", "kde", 0xFF, self.backups)
+            backup = self.write("umbriel-settings", "config.toml.1234abcd.titlebar.bak", text="secret\n")
+            with open(self.noctalia, encoding="utf-8") as handle:
+                text = handle.read()
+            with patch.dict("sys.modules", {"tomlkit": None} if broken == "no tomlkit" else {}):
+                if broken == "symlink":
+                    real = self.write("elsewhere", "noctalia-config.toml", text=text)
+                    os.remove(self.noctalia)
+                    os.symlink(real, self.noctalia)
+                with self.assertRaisesRegex(ValueError, r"umbriel_titlebar.*by hand"):
+                    titlebar_theme.cleanup(self.backups)
+            for path in (titlebar_theme.script_file(), titlebar_theme.output_file(), backup):
+                self.assertFalse(os.path.exists(path), f"{broken}: {path}")
+            os.remove(self.noctalia)
+            self.noctalia = self.write("noctalia", "noctalia-config.toml", text=text)
+            titlebar_theme.cleanup(self.backups)
+
     def test_each_config_follows_on_its_own(self):
         other = self.write("other", "config.toml", text="")
         titlebar_theme.follow(self.config, "background", "kde", 0xFF, self.backups)

@@ -229,6 +229,9 @@ noctalia = {
   end,
   runAsync = function(argv, callback)
     assert(argv[1] == "python3" and argv[3] == pluginDir .. "/umbriel_settings.py", "helper argv")
+    local running = #H.liveWaits  -- like Noctalia (kMaxAsyncCommandsPerHost): 8 unanswered commands at most
+    for _, waiting in pairs(H.held) do running = running + #waiting end
+    if running >= 8 then return false end
     assert(string.match(argv[2], "^%-Xpycache_prefix=.+/pycache$"), "bytecode goes to the data dir")
     local command, requestPath, responsePath = argv[4], argv[6], argv[8]
     local request = json.decode(files[requestPath])

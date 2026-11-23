@@ -134,6 +134,56 @@ class PrivateFilesTests(TempDirTestCase):
         new_dir = os.path.join(self.root, "data", "configs", "abc", "backups")
         self.assertEqual(self.mode(os.path.dirname(create_backup_snapshot(config, os.path.dirname(new_dir)))),
                          0o700)
+        for created in ("data/configs", "data/configs/abc"):  # not only the last folder made
+            self.assertEqual(self.mode(os.path.join(self.root, created)), 0o700, created)
+        paths.atomic_write(os.path.join(self.root, "side", "car", "labels.json"), "{}", 0o600)
+        self.assertEqual(self.mode(os.path.join(self.root, "side")), 0o700)
+        lock_dir = os.path.join(self.root, "locks")
+        with paths.write_lock(lock_dir):
+            pass
+        self.assertEqual(self.mode(os.path.join(lock_dir, "write.lock")), 0o600)
+
+    def test_a_desktop_file_changed_while_it_is_backed_up_is_left_alone(self):
+        from pathlib import Path
+
+        from umbriel_core import backups
+        target = Path(self.write("mimeapps.list", text="[Default Applications]\n"))
+        _text, revision = paths.read_document(target)
+        real = backups.snapshot_file
+
+        def racing(path, directory, protect=None):
+            snapshot = real(path, directory, protect)
+            target.write_text("[Default Applications]\nx=y.desktop\n")  # another program saves meanwhile
+            return snapshot
+
+        with patch.object(backups, "snapshot_file", racing), self.assertRaisesRegex(ValueError, "changed externally"):
+            backups.replace_checked(target, os.path.join(self.root, "bak"), revision, lambda text: text + "a=b\n",
+                                    "Default applications")
+        self.assertEqual(target.read_text(), "[Default Applications]\nx=y.desktop\n")
+
+    def test_pruning_keeps_a_pending_trys_rollback(self):
+        import time
+
+        from umbriel_core import backups, trial
+        config = self.write("config.toml", text="a\n")
+        config_dir = os.path.join(self.root, "configs", "x")
+        rollback = create_backup_snapshot(config, config_dir)
+        trial._write_json(trial.token_file(config_dir), {"id": "t", "backup": rollback, "deadline": time.time() + 30})
+        for _ in range(MAX_BACKUPS + 2):  # e.g. the app saving while the panel's Try waits
+            create_backup_snapshot(config, config_dir)
+        self.assertTrue(os.path.exists(rollback))
+        self.assertEqual(len(list_backup_snapshots(backups.backup_dir(config_dir), config)), MAX_BACKUPS)
+
+    def test_the_stale_temp_sweep_takes_only_its_own_files(self):
+        folder = os.path.join(self.root, "umbriel")
+        names = {".config.toml.k2j4h8x_.tmp": False, ".umbriel-settings-a1b2c3.toml": False,
+                 ".config.toml.old.toml": True, ".umbriel-settings-notes.txt": True}
+        for name in names:
+            path = self.write("umbriel", name, text="x\n")
+            os.utime(path, (1, 1))  # long ago
+        paths.remove_stale_temp_files(folder, "config.toml")
+        for name, kept in names.items():
+            self.assertEqual(os.path.exists(os.path.join(folder, name)), kept, name)
 
     def test_the_data_directory_is_kept_owner_only(self):
         data = os.path.join(self.root, "umbriel-settings")

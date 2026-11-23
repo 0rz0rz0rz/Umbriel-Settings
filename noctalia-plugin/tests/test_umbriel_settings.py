@@ -491,6 +491,16 @@ class BackupAndDesktopTests(ConfigHelperTestCase):
         self.assertEqual(self.config.read_text(), CONFIG)
         self.assertIsNotNone(restored["state"])
 
+    def test_restore_refuses_a_config_that_became_a_symlink_while_validating(self):
+        report = self.save(self.read(), fields={"general.mod_key": {"value": "Alt"}})
+        target = self.root / "elsewhere.toml"
+        target.write_text(self.config.read_text())  # same text: only the symlink check can tell
+        reply = self.fails("restore", {"config": str(self.config), "snapshot": report["backup"],
+                                       "revision": report["state"]["revision"]},
+                           env={**self.env, "LINK_ON_VALIDATE": f"{self.config}{os.pathsep}{target}"})
+        self.assertIn("symlink", reply["error"])
+        self.assertIn('mod_key = "Alt"', target.read_text(), "nothing written through the link")
+
     def test_wrongly_shaped_desktop_requests_are_rejected(self):
         for request in ({"userdirs": "x"}, {"apps": ["x"]}):
             self.assertEqual(self.fails("desktop-save", request)["code"], "error", request)
@@ -634,6 +644,22 @@ class TitlebarFollowTests(ConfigHelperTestCase):
         self.assertNotIn("umbriel_titlebar", self.noctalia.read_text())
         self.assertEqual(self.ok("titlebar", {"config": str(self.config)})["fields"], {})
         self.assertIn("colors.title_bar", self.config.read_text(), "the config keeps its last colors")
+
+    def test_a_cleanup_that_cannot_finish_stops_the_hook_and_says_so(self):
+        """On disable nobody reads the answer, so what is left behind goes to a notification."""
+        self.save_follow(self.read(), {"source": "kde", "alpha": "FF"}, "#303030FF")
+        log = self.root / "notify.log"
+        stub = self.root / "bin" / "notify-send"
+        stub.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{log}'\n")
+        stub.chmod(0o755)
+        real = self.root / "elsewhere.toml"
+        real.write_text(self.noctalia.read_text())
+        self.noctalia.unlink()
+        self.noctalia.symlink_to(real)
+        self.assertIn("by hand", self.fails("titlebar-cleanup", {})["error"])
+        script = self.root / "xdg-config" / "umbriel-settings" / "titlebar_apply.py"
+        self.assertFalse(script.exists(), "the hook can't rewrite configs any more")
+        self.assertIn("umbriel_titlebar", log.read_text())
 
 
 class LauncherTests(HelperTestCase):

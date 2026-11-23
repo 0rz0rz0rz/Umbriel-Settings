@@ -72,6 +72,11 @@ FAKE_UMBRIEL = textwrap.dedent("""\
             print("unknown action: " + sys.argv[2], file=sys.stderr)
             raise SystemExit(1)
         raise SystemExit(0)
+    swap = os.environ.get("LINK_ON_VALIDATE")  # "<config>:<target>": a symlink replaces the config meanwhile
+    if swap:
+        config, target = swap.split(os.pathsep)
+        os.symlink(target, config + ".link")
+        os.replace(config + ".link", config)
     valid = os.environ.get("VALID", "yes") == "yes"
     print(json.dumps({"valid": valid, "diagnostics": [] if valid else
                       [{"severity": "error", "message": "bad value for general.mod_key", "line": 3}]}))

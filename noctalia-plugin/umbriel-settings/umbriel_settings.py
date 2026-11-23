@@ -258,6 +258,8 @@ def cmd_restore(request):
     validation = current.validate(text) if request.get("validate", True) else {"ran": False}
     if current.revision() != request.get("revision"):  # again: validation takes a while
         raise HelperError("The config changed since it was loaded. Reload before restoring.", "conflict")
+    if os.path.islink(current.path):  # again too: the revision reads through a symlink put there meanwhile
+        raise HelperError("The config is a symlink; edit its target directly.")
     backups.create_backup_snapshot(current.path, current.config_dir, protect=snapshot)
     paths.write_text_file(current.path, text)
     if trial_id is not None:  # only now: until the write the watcher still goes back; killed after it, a no-op
@@ -685,10 +687,17 @@ def apply_follow_intents(config, intents, warnings):
 
 def cmd_titlebar_cleanup(request):
     """Stop following Noctalia for every config and remove the hook's files (the plugin was disabled or
-    uninstalled); the configs keep their last colors."""
-    need_tomlkit()
+    uninstalled); the configs keep their last colors. Nobody reads the answer then, so what is left behind for
+    the user to remove goes to a notification."""
     from umbriel_core import titlebar_theme
-    return {"followed": titlebar_theme.cleanup(noctalia_backups())}
+    try:
+        return {"followed": titlebar_theme.cleanup(noctalia_backups())}
+    except ValueError as error:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(["notify-send", "--app-name=Umbriel Settings", "Umbriel Settings", str(error)],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=10, check=False)
+        raise
 
 
 COMMANDS = {

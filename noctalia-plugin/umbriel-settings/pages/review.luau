@@ -116,7 +116,6 @@ local function save(ctx, state)
   ctx.saving = true  -- external file changes wait until the save is done (shell.onExternalChange)
   ctx.render()
   if not store.hasConfigChanges() then saveDesktop(ctx, state, ""); return end
-  local generation = ctx.helper.generation
   local mark, path = store.saveMark(), store.state.path
   -- clears what this save wrote; edits made meanwhile stay pending (false when another config is open now)
   local function saved(report)
@@ -134,8 +133,8 @@ local function save(ctx, state)
   end
   ctx.helper.call("save", { config = store.state.path, changes = store.changeSet(), validate = state.validate },
     function(err, report)
-      if generation ~= ctx.helper.generation then
-        ctx.savingDone()
+      if not ctx.isOpen() then  -- reopened meanwhile: the open panel finishes it below, like any save
+        stopSaving(ctx, state)
         local note = "Saved after the panel closed."
         if not err and report.saved then  -- saved() also rewrites the draft written on close
           note = note .. extra(report, saved(report))

@@ -30,6 +30,7 @@ from .paths import (
     file_revision,
     labels_file,
     load_all_entry_labels,
+    private_dir,
     remove_stale_temp_files,
     write_text_file,
 )
@@ -372,7 +373,10 @@ class ConfigSession:
         try:
             for directory in (os.path.dirname(self.path), self.config_dir):
                 try:
-                    os.makedirs(directory, exist_ok=True)
+                    if directory == self.config_dir:  # a full copy of the config goes in here
+                        private_dir(directory)
+                    else:
+                        os.makedirs(directory, exist_ok=True)
                     with tempfile.NamedTemporaryFile(
                         mode="w", encoding="utf-8", dir=directory, prefix=".umbriel-settings-",
                         suffix=".toml", delete=False,

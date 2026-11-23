@@ -148,10 +148,15 @@ in the save bar), Alt+Left back, Esc close.
   `noctalia-config.toml` and the palette file (title bars that follow Noctalia), XKB's
   `rules/evdev.lst` (keyboard layout picker; `$XKB_CONFIG_ROOT` or `/usr/share/X11/xkb`) and the files your
   config includes (`[include]`, for the effect presets, pools and curves they define).
-- **Files written** (all atomically, symlinked user files refused):
+- **Files written** (atomically, symlinked user files refused; only the panel's drafts and helper requests go
+  through Noctalia's plain `writeFile`):
   - on **Save**, **Try**, **Restore** and the Try's own rollback: the Umbriel config (validated),
     `$XDG_CONFIG_HOME/user-dirs.dirs` and `$XDG_CONFIG_HOME/mimeapps.list` (other entries and MIME fallbacks
     kept), each after a timestamped backup;
+  - whenever **Review** checks pending edits (and before each save): a temporary owner-only copy
+    `.umbriel-settings-*.toml` next to the config (in `configs/<id>/` below when that folder is read-only) for
+    `umbriel config validate`, removed right after; a later save removes leftovers of a killed one (only these
+    names and the `.<config name>.*.tmp` files of atomic writes) once they are 10 minutes old;
   - in `$XDG_DATA_HOME/umbriel-settings/` (owner-only, 0700; files 0600): those backups (`configs/<id>/backups/`
     per config, `backups/` for the desktop files, `noctalia-backups/` for Noctalia's config; newest 10 per file,
     the Try watcher may add one until the next save prunes), rule and display names (`gui-labels.json`) and
@@ -174,7 +179,10 @@ in the save bar), Alt+Left back, Esc close.
   **To stop**, set a fixed color (or press **Stop following**) on every field that follows and save: once no
   config follows any more, the entry, the template, the rendered file, the script and its `*.titlebar.bak`
   copies are removed (the configs keep their last colors). **Disabling the plugin** does the same for every
-  config (`onExit`, helper `titlebar-cleanup`); this also stops following set up in the standalone app.
+  config (`onExit`, helper `titlebar-cleanup`); this also stops following set up in the standalone app. When
+  `noctalia-config.toml` can't be changed (a symlink, or no `python-tomlkit` after following was set up in the
+  AppImage), disabling still removes the script, the rendered file and the copies, so nothing rewrites a config
+  any more, and a notification names the entry and the template to remove by hand.
   **Uninstalling** tries the same, but only on a best-effort basis: Noctalia may remove the plugin folder before
   the helper has loaded, so disable the plugin first, then uninstall. If the cleanup couldn't run (for example
   the plugin was removed directly or python3 was gone), delete
@@ -184,15 +192,22 @@ in the save bar), Alt+Left back, Esc close.
 - **Processes**: `python3 umbriel_settings.py <command>` (JSON request/response files and the helper's
   bytecode cache in the plugin data directory); `umbriel config validate` (on a temporary `.umbriel-settings-*.toml` next to the config,
   removed afterwards), `umbriel config schema --json`, `umbriel outputs --json`, `umbriel windows --json`, `umbriel layers --json`,
-  `umbriel keyboard-layouts --json`, `umbriel subscribe <events>` (live refresh, ends after at most 30 s or the
-  first change, while a page that shows live state is open); on button press only: `umbriel focused-window --json`
-  (**Use the focused window**), `umbriel msg <action>` (**Run now**),
-  `gio launch`, `xdg-open` or your editor. **Try** starts a detached watcher, the system's
+  `umbriel keyboard-layouts --json`, `umbriel subscribe <events>` (live refresh: each ends after at most 30 s or
+  the first change and is asked again while a page that shows live state is open; two at most at a time). The
+  schema is read when the panel first opens, validation runs when **Review** opens, and a **Try** countdown asks
+  the helper to wait one second at a time. On button press only: `umbriel focused-window --json` (**Use the
+  focused window**), `umbriel msg <action>` (**Run now**; for a `spawn …` action Umbriel runs that command
+  through its shell), `gio launch` (starts the installed standalone app), `xdg-open` (your default app for
+  `.toml` files) or your editor command. **Try** starts a detached watcher, the system's
   `python3 -I -c <umbriel_core/trial.py>`, that ends once the Try is answered or about 30 s after it started
-  (longer only while another save holds `write.lock`, at most 5 minutes), and `notify-send` when it went back
-  or couldn't. Noctalia runs `python3 titlebar_apply.py` after palette changes while a title-bar color follows
-  it, and the plugin runs helper `titlebar-cleanup` when it is disabled (on uninstall: best effort).
+  (longer only while another save holds `write.lock`, at most about 6 minutes), and `notify-send` when it went
+  back or couldn't. Noctalia runs `python3 titlebar_apply.py` after palette changes while a title-bar color
+  follows it, and the plugin runs helper `titlebar-cleanup` when it is disabled (on uninstall: best effort;
+  `notify-send` when it couldn't finish).
 - **Network**: none.
+- **Left behind on uninstall**: `$XDG_DATA_HOME/umbriel-settings/` (the backups and small state files above,
+  shared with the standalone app) and Noctalia's plugin data directory (drafts); remove them by hand if you
+  don't use the app.
 - `umbriel_core/` is the config library shared with the standalone app, bundled so the plugin works alone.
   `app.luau` is the app's layout; it isn't in `plugin.toml`, so Noctalia never loads it.
 - MIT License; see `LICENSE`.

@@ -51,9 +51,12 @@ only after its write; Keep (`trial-end`) or Go back (`restore` with `trial`) cla
 restores the backup and records the outcome (`trial.result.json`), which a late Keep or Go back reports.
 Title-bar following travels as a `follow` intent on the `colors.title_bar.*` field changes; only `save` applies
 it (after writing the config), and `onExit` (disable; uninstall best effort, as Noctalia may remove the plugin
-folder first) runs `titlebar-cleanup`. Live
+folder first) runs `titlebar-cleanup`, which removes the hook script and the config copies first and, when
+`noctalia-config.toml` can't be changed, says what is left with `notify-send` (nobody reads the answer). Live
 refresh is a long poll: `wait-live` runs `umbriel subscribe` and answers on the first change a page shows (or
-after 25 s), and the page asks again. Shared UI code must parse as both Luau and Lua 5.4 (the app runs it with lupa), stay within
+after 25 s), and the page asks again. A poll can't be stopped and Noctalia runs at most 8 commands per plugin
+(`kMaxAsyncCommandsPerHost`), so `lib/shell.luau` keeps one poll per event set and two at most; polls are
+`always`, so one dropped by a close still ends and frees its slot. Shared UI code must parse as both Luau and Lua 5.4 (the app runs it with lupa), stay within
 Noctalia's 25 ms per-callback CPU budget, and use only the API the app host implements
 (`python/umbriel_settings/host/api.py`).
 

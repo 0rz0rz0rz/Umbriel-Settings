@@ -109,7 +109,8 @@ function M.call(command, request, cb, opts)
   end, opts.timeout)
   if not accepted then
     cleanup(requestPath)
-    fail(cb, "Could not start python3. Install Python 3 and try again.", "missing_python")
+    -- a missing python3 shows up above (exit status 127); a refusal is Noctalia's limit of 8 running commands
+    fail(cb, "Noctalia did not start the helper (too many requests running); try again in a moment.")
     return false
   end
   return true

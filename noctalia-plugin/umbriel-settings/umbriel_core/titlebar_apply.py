@@ -112,7 +112,8 @@ def write_lock(directory=None):
     """paths.write_lock: one writer at a time across the app, the panel and this hook."""
     directory = directory or lock_dir()
     os.makedirs(directory, mode=0o700, exist_ok=True)
-    handle = open(os.path.join(directory, "write.lock"), "a+b")  # closed in finally
+    handle = os.fdopen(os.open(os.path.join(directory, "write.lock"), os.O_RDWR | os.O_CREAT, 0o600),
+                       "r+b")  # closed in finally
     try:
         deadline = time.monotonic() + LOCK_TIMEOUT
         while True:

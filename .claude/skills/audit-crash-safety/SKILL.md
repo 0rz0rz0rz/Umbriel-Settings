@@ -34,6 +34,7 @@ replace → sidecars → follow intents → read back → reply → unlock). Bet
 | `OSError` (disk full, EACCES) at each write | normal exception path | Does the failure write nothing, and leave no state that blocks the next attempt (`busy`)? |
 | A second writer (app + panel, hook, watcher) | flock on `write.lock` | Does it hold the shared lock and re-check the revision before replacing? |
 | User action in between (Backups delete, Save, a second Try) | another helper command | Can it destroy something a pending recovery still needs? |
+| Repeated page changes / close + reopen | callbacks dropped, processes keep running | Does anything that can't be stopped (long polls, `wait`) start again each time? Noctalia runs at most 8 commands per plugin; past that every call, Save included, is refused (the harness mirrors the cap). |
 
 Rules that came out of the reviews:
 - Persist recovery metadata (backup path, expected revision, deadline) **before** the write it protects.

@@ -118,26 +118,23 @@ function M.create(layout, options)
   -- Live refresh: a page showing what Umbriel reports calls ctx.watchLive(events, onChange) while rendering;
   -- a `wait-live` long poll (`umbriel subscribe`) then runs until the page changes, and onChange (from the
   -- newest render) runs on each change. A failed poll stops until the page asks for other events.
-  local liveWatch, livePoll, livePolls = nil, nil, 0
+  -- A poll can't be stopped and Noctalia runs only 8 commands per plugin at a time, so polls left running by
+  -- page changes or reopens would soon make every helper call fail: one poll per event set, two at most (the
+  -- shown page's and one still ending); answers also arrive after a close (`always`) and end that poll.
+  local liveWatch, livePolls, polling, failedKey = nil, {}, 0, nil
   function ctx.watchLive(events, onChange) liveWatch = { key = table.concat(events, ","), events = events,
                                                           onChange = onChange } end
   local function syncLivePoll()
-    local wanted = liveWatch and liveWatch.key
-    if (livePoll and livePoll.key) == wanted then return end
-    livePoll = nil
-    if not wanted then return end
-    livePolls = livePolls + 1
-    local id, events = livePolls, liveWatch.events
-    livePoll = { key = wanted, id = id }
-    local function ask()
-      helper.call("wait-live", { events = events, timeout = 25 }, function(err, data)
-        if not livePoll or livePoll.id ~= id then return end
-        if err then return end  -- e.g. Umbriel not running: the Refresh buttons remain
-        if data.event and liveWatch and liveWatch.key == wanted then liveWatch.onChange(data.event) end
-        ask()
-      end, { timeout = 35000 })
-    end
-    ask()
+    if not liveWatch then failedKey = nil return end  -- the page that failed was left: try again when it comes back
+    local key = liveWatch.key
+    if livePolls[key] or key == failedKey or polling >= 2 then return end
+    livePolls[key], polling = true, polling + 1
+    helper.call("wait-live", { events = liveWatch.events, timeout = 25 }, function(err, data)
+      livePolls[key], polling = nil, polling - 1
+      if err then failedKey = key; return end  -- e.g. Umbriel not running: the Refresh buttons remain
+      if data.event and liveWatch and liveWatch.key == key then liveWatch.onChange(data.event) end
+      syncLivePoll()  -- for whatever is shown now (nothing once closed)
+    end, { timeout = 35000, always = true })
   end
 
   function ctx.render()
@@ -327,7 +324,7 @@ function M.create(layout, options)
     helper.call(remembers and "set-config" or "read", request, function(err, state)
       loading.config = false
       if not open then  -- answered after the panel closed: the next open reads the chosen config again
-        if not err then store.load(state) end
+        if err then ctx.tell("The config could not be opened: " .. err.error, "error") else store.load(state) end
         return
       end
       if ctx.changedDuringLoad then  -- the file changed while it was read (maybe half-written): read it again
@@ -483,7 +480,7 @@ function M.create(layout, options)
     view.appCommandBusy, view.focusBusy = false, false
     if view.live and view.live.loading then view.live = nil end
     if liveOutputs and liveOutputs.loading then liveOutputs = nil end
-    livePoll = nil  -- a closed panel dropped its answer: poll again
+    failedKey = nil  -- a poll that failed before the close may work now
   end
 
   -- ---------------------------------------------------------------- entry points
@@ -519,6 +516,7 @@ function M.create(layout, options)
 
   function handlers.onClose()
     open = false
+    liveWatch = nil  -- a poll still running ends with its answer instead of asking again
     dropProvisional()
     drafts.save()
     helper.generation = helper.generation + 1

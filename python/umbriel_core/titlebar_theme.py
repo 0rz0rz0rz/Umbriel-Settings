@@ -12,7 +12,7 @@ import re
 import tomllib
 
 from . import noctalia_theme
-from .paths import DATA_DIR_NAME, atomic_write, xdg_config_home
+from .paths import DATA_DIR_NAME, atomic_write, tighten_dir, xdg_config_home
 
 TEMPLATE_KEY = "umbriel_titlebar"
 OLD_INCLUDE = "titlebar.toml"  # earlier versions included the rendered file; Noctalia's include order defeated it
@@ -63,6 +63,7 @@ def _install_script():
     if os.path.islink(target):
         raise ValueError(f"{target} is a symlink; remove it first.")
     atomic_write(target, _bundled_script(), 0o644)
+    tighten_dir(os.path.dirname(target))  # it also holds copies of configs (*.titlebar.bak); 0755 before 0.2.0
     return target
 
 
@@ -194,9 +195,20 @@ def _list(folder):
 
 def cleanup(backup_dir):
     """Stop following for every config and remove everything the hook installed (plugin disabled or
-    uninstalled). The configs keep their last colors. Returns whether anything followed."""
+    uninstalled). The configs keep their last colors. Returns whether anything followed.
+
+    The script and the copies of configs go first: when Noctalia's config can't be changed (a symlink, no
+    tomlkit), a hook entry left behind can't write anything; the ValueError then says what to remove by hand."""
     followed = bool(read_all()) or os.path.exists(template_file()) or os.path.exists(script_file())
-    _remove_hook(backup_dir)
+    folder = os.path.dirname(script_file())
+    _remove_files(script_file(), output_file(),
+                  *[os.path.join(folder, name) for name in _list(folder) if name.endswith(".titlebar.bak")])
+    try:
+        _remove_hook(backup_dir)
+    except (ImportError, OSError, ValueError) as error:
+        raise ValueError(f"Title bars no longer follow Noctalia, but remove [theme.templates.user.{TEMPLATE_KEY}] "
+                         f"from {noctalia_theme.noctalia_config_file()} and {template_file()} by hand "
+                         f"({error}).") from error
     return followed
 
 
@@ -235,8 +247,14 @@ def follow(config_path, field, source, alpha, backup_dir):
         raise ValueError("Paths with ' cannot be used in Noctalia's post_hook.")
     entry = {"input_path": _noctalia_path(template_file()), "output_path": output,
              "post_hook": f"python3 '{script}' '{output}'"}
-    noctalia_theme.write_user_template(TEMPLATE_KEY, template_file(), text, entry, backup_dir)
-    _install_script()  # last: Noctalia only runs it once the entry is there
+    installed = os.path.exists(script)
+    _install_script()  # first: stopped in between, Noctalia must never run a hook whose script is missing
+    try:
+        noctalia_theme.write_user_template(TEMPLATE_KEY, template_file(), text, entry, backup_dir)
+    except (OSError, ValueError):  # refused (e.g. Noctalia saved meanwhile): no script without a hook
+        if not installed:
+            _remove_files(script)
+        raise
     roles, palette = noctalia_theme.load_roles()
     rendered = render(text, roles) if palette == "noctalia" else None
     if rendered is not None:  # the UI queues these colors for review; Noctalia refreshes the file later
