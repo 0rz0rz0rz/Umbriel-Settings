@@ -310,13 +310,13 @@ icon is used if none exists or the file is invalid.
 
 | Item | Version |
 | --- | --- |
-| Umbriel Settings (app, AppImage and Noctalia plugin) | `0.2.0` |
+| Umbriel Settings (app, AppImage and Noctalia plugin) | `0.2.1` |
 | Made for Umbriel | `0.1.0` |
 | Needs Noctalia (plugin only) | `5.4.0` or newer (plugin API 43) |
-| Latest release | `0.2.0` |
+| Latest release | `0.2.1` |
 
 Umbriel Settings has its own `MAJOR.MINOR.PATCH` version, shared by the app, the AppImage, the plugin and the
-git tag (`v0.2.0`). A fix raises PATCH; new settings or features, a new Umbriel version or a newer Noctalia
+git tag (`v0.2.1`). A fix raises PATCH; new settings or features, a new Umbriel version or a newer Noctalia
 plugin API raise MINOR. The Umbriel and Noctalia versions it is made for are listed here and in both plugin
 READMEs, and **About** shows them. Releases up to `0.1.0-006` were named `<Umbriel version>-<build>`, all for
 Umbriel 0.1.0.

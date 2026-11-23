@@ -14,7 +14,7 @@ The same interface also runs as a standalone app: see the
 | --- | --- |
 | ID | `0rz0rz0rz/umbriel-settings` |
 | Entries | Bar widget: `settings`; panel: `main` |
-| Version | `0.2.0` |
+| Version | `0.2.1` |
 | Made for Umbriel | `0.1.0` |
 | Needs Noctalia | `5.4.0` or newer (plugin API 43) |
 
