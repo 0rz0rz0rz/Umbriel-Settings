@@ -12,7 +12,7 @@ import tomllib
 
 import tomlkit
 
-from . import entry_ops, keybinds, values
+from . import community_shaders, entry_ops, keybinds, values
 from .backups import create_backup_snapshot
 from .fields import TABS
 from .included import included_names
@@ -36,6 +36,7 @@ from .paths import (
 )
 from .schema import field_schema_option, run_umbriel
 from .tomlops import MISSING, getp, py, same_data, totext
+from .trial import pending_backup
 
 
 def page_field_index():
@@ -234,7 +235,61 @@ class ConfigSession:
             raise ValueError(f"The edited config would not be valid TOML ({error}). Nothing was written.") from error
         if not same_data(written, doc.unwrap()):
             raise ValueError("The edited config would not contain the same settings. Nothing was written.")
+        summary += self._shader_summary(tomllib.loads(text), written)
         return text, new_text, (labels_all if labels_changed else None), locks, summary
+
+    # ------------------------------------------------------- community shaders
+    def _shader_effects(self, data):
+        return community_shaders.config_effects(data, os.path.dirname(self.path))
+
+    def _shader_summary(self, old, new):
+        """Review lines for the community shader files a save installs or stops using."""
+        folder, before, after = os.path.dirname(self.path), self._shader_effects(old), self._shader_effects(new)
+        added = [e for e in after if e not in before
+                 and not os.path.isfile(os.path.join(folder, community_shaders.ROOT, e, "effect.toml"))]
+        dropped = [e for e in before if e not in after]
+        lines = []
+        if added:
+            lines.append({"page": "Effects", "label": "Install shader files: " + ", ".join(added)})
+        if dropped:
+            lines.append({"page": "Effects", "label": "Remove shader files once unused: " + ", ".join(dropped)})
+        return lines
+
+    def install_shaders(self, new, old=None):
+        """Before `new` is written (under the write lock): copy the community effects it includes and `old`
+        didn't (all of them without `old`) from the cache next to the config."""
+        wanted = self._shader_effects(tomllib.loads(new))
+        if old is not None:
+            before = self._shader_effects(tomllib.loads(old))
+            wanted = [effect for effect in wanted if effect not in before]
+        return community_shaders.install(os.path.dirname(self.path), self.data_dir, wanted)
+
+    def sweep_shaders(self, text, warnings):
+        """After `text` was written: remove the community shader files it no longer uses (failures are warnings)."""
+        try:
+            community_shaders.sweep(os.path.dirname(self.path), self.data_dir,
+                                    self._shader_effects(tomllib.loads(text)),
+                                    pending_backup(self.config_dir) is not None)
+        except (OSError, ValueError) as error:
+            warnings.append(f"Unused shader files could not be removed: {error}.")
+
+    def _validation_text(self, text):
+        """`text` with community effects that only the save installs read from the cache instead."""
+        try:
+            doc = tomlkit.parse(text)
+        except tomlkit.exceptions.TOMLKitError:
+            return text
+        changed = False
+        for path in (("include", "files"), ("include", "optional", "files")):
+            items = getp(doc, path)
+            if not isinstance(items, list):
+                continue
+            for index, item in enumerate(items):
+                cached = community_shaders.validation_path(item, os.path.dirname(self.path), self.data_dir)
+                if cached:
+                    items[index] = cached
+                    changed = True
+        return tomlkit.dumps(doc) if changed else text
 
     def _apply_fields(self, doc, fields, summary):
         for fid, change in fields.items():
@@ -369,6 +424,7 @@ class ConfigSession:
 
         A read-only config directory falls back to the GUI data directory; relative includes may then not
         resolve, which is still better than not validating at all."""
+        text = self._validation_text(text)
         name = None
         try:
             for directory in (os.path.dirname(self.path), self.config_dir):
@@ -445,10 +501,12 @@ class ConfigSession:
             report["backup"] = snapshot
             if os.path.islink(self.path) or self.revision() != changes.get("revision"):
                 raise ValueError("The config changed while saving. Reload before retrying.")
+            self.install_shaders(new, old)  # files the new config includes, before the config that needs them
             if before_write is not None:
                 before_write(snapshot, hashlib.sha256(new.encode("utf-8")).hexdigest())
             write_text_file(self.path, new)
         warnings = []
+        self.sweep_shaders(new, warnings)
         try:
             if labels_all is not None:
                 kept = {key: labels for key, labels in labels_all.items() if any(labels)}

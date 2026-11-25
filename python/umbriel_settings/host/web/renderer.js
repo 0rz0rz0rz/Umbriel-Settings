@@ -146,6 +146,15 @@ function create(node) {
     inner.className = "inner";
     el.appendChild(inner);
     el.__host = inner;
+    // onScroll(offset, maxOffset) like Noctalia's, at most once per frame
+    el.addEventListener("scroll", () => {
+      if (!el.__props.onScroll || el.__scrollQueued) return;
+      el.__scrollQueued = true;
+      requestAnimationFrame(() => {
+        el.__scrollQueued = false;
+        invoke(el.__props.onScroll, Math.round(el.scrollTop), Math.max(0, el.scrollHeight - el.clientHeight));
+      });
+    }, { passive: true });
   } else if (kind === "dragSource") {
     el = document.createElement("div");
     el.className = "drag-source";

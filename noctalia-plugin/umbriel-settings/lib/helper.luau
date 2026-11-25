@@ -22,9 +22,11 @@ local WRITE_COMMANDS = { save = true, ["set-config"] = true, restore = true, ["t
                          ["delete-backups"] = true, ["desktop-save"] = true, ["set-editor"] = true,
                          ["palette-template"] = true, ["titlebar-cleanup"] = true }
 local WRITE_TIMEOUT = 60000
--- Reads that parse the whole config or ask Umbriel for its schema: more than runAsync's 5 s default on a slow disk.
+-- Reads that parse the whole config or ask Umbriel for its schema, and community shader downloads: more than
+-- runAsync's 5 s default.
 local READ_COMMANDS = { meta = true, read = true, preview = true, desktop = true, backups = true,
-                        ["backup-diff"] = true, titlebar = true }
+                        ["backup-diff"] = true, titlebar = true, shaders = true, ["shader-previews"] = true,
+                        ["shader-prepare"] = true }
 local READ_TIMEOUT = 20000
 -- Request files carry the start time too: after a script reload the counter starts again while a helper of the
 -- previous run may still be using its files.

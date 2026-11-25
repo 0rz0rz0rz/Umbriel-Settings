@@ -159,7 +159,7 @@ function M.create(layout, options)
     local content = parts.fill
       and ui.column({ key = "content-fill-" .. #stack .. "-" .. current.name, gap = 8, flexGrow = 1 }, parts.content)
       or ui.scroll({ key = "content-" .. #stack .. "-" .. current.name, gap = 8, flexGrow = 1,
-                     revealKey = current.reveal }, parts.content or parts)
+                     revealKey = current.reveal, onScroll = parts.onScroll }, parts.content or parts)
     local pending = store.pendingCount()
     local saveBar = nil
     -- Always shown once a config is loaded (quiet while nothing is unsaved): a bar that came and went would
@@ -480,6 +480,9 @@ function M.create(layout, options)
     view.appCommandBusy, view.focusBusy = false, false
     if view.live and view.live.loading then view.live = nil end
     if liveOutputs and liveOutputs.loading then liveOutputs = nil end
+    if view.shaders then  -- community shaders (pages/shaders.luau): downloads still running answer nobody
+      view.shaders.loading, view.shaders.previewBusy, view.shaders.busy = false, false, {}
+    end
     failedKey = nil  -- a poll that failed before the close may work now
   end
 

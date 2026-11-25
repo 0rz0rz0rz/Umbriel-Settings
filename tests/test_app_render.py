@@ -290,6 +290,32 @@ class AppRenderTests(unittest.TestCase):
             self.pause(50)
         self.fail(f"{script} is {value!r}, not {expected!r}")
 
+    def test_scrolling_to_the_bottom_of_effects_loads_six_more_community_shaders(self):
+        from umbriel_core import community_shaders
+        patcher = patch.object(community_shaders, "urlopen", side_effect=OSError("no network in tests"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        cache = Path(os.environ["XDG_DATA_HOME"]) / "umbriel-settings" / "community"
+        cache.mkdir(parents=True)
+        effects = [{"id": f"window/e{index:02d}", "kind": "window", "name": f"E{index:02d}", "role": "effect",
+                    "install_files": [], "preview": {"image": f"window/e{index:02d}/preview.png"}}
+                   for index in range(1, 41)]
+        (cache / "catalogue.json").write_text(json.dumps(
+            {"schema_version": 1, "source": {"revision": "c" * 40}, "effects": effects, "files": {}}))
+        self.click("Effects")
+        self.wait_for_text("Window 40")
+        rows = "document.querySelectorAll('[data-key^=\"shader-window/\"]').length"
+        self.wait_until(rows, 12)
+        bottom = """(() => {
+          const page = [...document.querySelectorAll('.scroll')].find(e => e.dataset.key.startsWith('content-'));
+          page.scrollTop = page.scrollHeight;
+          return true;
+        })()"""
+        self.js(bottom)
+        self.wait_until(rows, 18)
+        self.js(bottom)
+        self.wait_until(rows, 24)
+
     def test_notifications_show_the_status_bar_only_while_they_last(self):
         bar = self.win.statusBar()
         self.assertTrue(bar.isHidden())

@@ -5,7 +5,8 @@
 -- keep their last colors. Both the panel and the bar widget call it (whichever Noctalia has loaded); it is
 -- idempotent. Nothing waits for the answer: the plugin is going away. On uninstall this is best effort: the
 -- helper runs from the plugin folder, which Noctalia may remove before python3 has loaded it (the README says
--- to disable first and lists the files to remove by hand).
+-- to disable first and lists the files to remove by hand). Community shaders stay next to the config (it includes
+-- them); the READMEs say how to remove them by hand.
 local helper = require("./helper.luau")
 
 local M = {}

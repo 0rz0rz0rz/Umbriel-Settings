@@ -59,7 +59,8 @@ class PanelHarnessTests(ConfigTestCase):
     def test_panel_and_app_flows(self):
         fixtures = self.fixtures(CONFIG)
         for script, marker in (("panel_test.lua", "panel ok"), ("state_test.lua", "state ok"),
-                               ("app_test.lua", "app ok"), ("outputs_test.lua", "outputs ok")):
+                               ("app_test.lua", "app ok"), ("outputs_test.lua", "outputs ok"),
+                               ("shaders_test.lua", "shaders ok")):
             with self.subTest(script=script):
                 self.run_lua(script, fixtures, marker)
 

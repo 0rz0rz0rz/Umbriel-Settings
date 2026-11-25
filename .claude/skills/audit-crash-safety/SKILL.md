@@ -18,6 +18,7 @@ Durable state and its owners (details in `core-helper.md`):
 | `trial.json` (Try token) | `trial.arm` → `confirm` (before the write); removed by `claim` (Keep, Go back after its write), `abandon` (failed save), watcher | watcher at deadline; `GIVE_UP` expiry |
 | backups `*.bak`, `*.titlebar.bak` | `Session.save`, `restore`, watcher, `titlebar_apply` | Backups page (`delete-backups` keeps `pending_backup`) |
 | `draft.json`, sidecars, `run/` files | panel/app, helper | `drafts.restore`; `sweep_run_files` |
+| Community shader files `shaders/community/` + `.umbriel-settings.json` (next to the config) | `Session.save` → `install_shaders` (manifest first) before the config write | `sweep_shaders` at the next `save`/`restore` (disable/uninstall leave them; READMEs: manual removal); never while `trial.pending_backup`; `restore` reinstalls from the cache |
 | Noctalia template, hook script, rendered file | `titlebar_theme.follow` | `cleanup` (`onExit` disable; uninstall best effort) |
 
 ## 2. For each path, number the steps and test every gap

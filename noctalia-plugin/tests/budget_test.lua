@@ -22,6 +22,19 @@ local function search(text)
   flushReads()
 end
 
+-- a downloaded community shader catalogue as large as Noctalia's (183 effects) on the Effects page
+local shaderRows, kinds = {}, { "window", "border", "screen", "cursor", "animation" }
+for index = 1, 183 do  -- the largest kind at the page's cap (72 rows)
+  local kind = index > 111 and "animation" or kinds[index % 4 + 1]
+  local id = kind .. "/effect-" .. index
+  table.insert(shaderRows, { id = id, kind = kind, name = "Effect " .. index, author = "Someone",
+                             description = string.rep("A long description of a shader. ", 8), license = "MIT",
+                             tags = { "retro", "glow", "fire" }, include = "shaders/community/" .. id .. "/effect.toml",
+                             settings = { ["effects.window"] = "e" .. index, ["animation.enabled"] = true },
+                             presets = { "e" .. index }, installed = index % 3 == 0 })
+end
+H.replies.shaders = function() return true, H.json.encode({ loaded = true, age = 60, rows = shaderRows }) end
+
 entry.onOpen()
 flushReads()
 search("a")  -- the widest search result list
@@ -40,6 +53,17 @@ for _, section in ipairs(meta.nav) do
   end
 end
 assert(visited >= 20, "visited " .. visited .. " pages")
+search("")
+assert(click("Effects"), "community shaders\nScreen: " .. H.screen())
+H.byKey("shaders-kind-animation").props.onClick()
+flushReads()
+for _ = 1, 12 do  -- scrolled to the bottom again and again: every animation effect (the largest kind)
+  local scroll = find("scroll", function(n) return tostring(n.props.key):match("^content%-") ~= nil end)
+  if not scroll.props.onScroll then break end
+  scroll.props.onScroll("9000", tostring(9000 + _))
+  flushReads()
+end
+assert(H.byKey("shader-animation/effect-183") and not H.byKey("shaders-more"), "all 72 animation effects shown")
 
 -- the customized view walks every field; undo of a typed shortcut restores the large keybind list
 search("")

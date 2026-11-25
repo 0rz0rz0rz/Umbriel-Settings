@@ -16,8 +16,9 @@ from umbriel_core.paths import atomic_write
 
 # Helper commands that ask the running compositor (up to 5 s): the scheduler's separate slow pool.
 SLOW_HELPER_COMMANDS = {"outputs", "windows", "layers", "xkb", "run-action", "focused-window"}
-# Long polls (wait for a compositor event or a timer): a thread each, so they never hold a pool thread.
-LONG_HELPER_COMMANDS = {"wait-live", "wait"}
+# Long polls (wait for a compositor event or a timer) and community shader downloads (up to 15 s): a thread each,
+# so they never hold a pool thread.
+LONG_HELPER_COMMANDS = {"wait-live", "wait", "shaders", "shader-previews", "shader-prepare"}
 
 
 def fuzzy_score(pattern, text):

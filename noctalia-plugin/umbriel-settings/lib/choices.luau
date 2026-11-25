@@ -12,6 +12,18 @@ local function includedNames(store, add, eid)
   local included = store.state and store.state.included
   for _, name in ipairs(included and included[eid] or {}) do add(name) end
 end
+-- presets of the community shaders the draft includes (pages/shaders.luau fills store.shaderPresets), before a
+-- save puts their files next to the config
+local function shaderNames(store, add)
+  local presets = store.shaderPresets
+  if not presets then return end
+  for _, fid in ipairs({ "include.files", "include.optional.files" }) do
+    local entries = store.value(fid)
+    for _, entry in ipairs(type(entries) == "table" and entries or {}) do
+      for _, name in ipairs(presets[entry] or {}) do add(name) end
+    end
+  end
+end
 local function entryNames(store, add, eid, field)
   for _, item in ipairs(store.entryItems(eid)) do
     if field then add(item.values and item.values[field]) else add(item.name) end
@@ -21,9 +33,10 @@ end
 function M.named(store, kind, base, extra)
   local c = namedCache
   if c.serial ~= store.serial or c.state ~= store.state or c.entries ~= store.entries or c.maps ~= store.maps
-     or c.keybinds ~= store.keybinds or c.entryOps ~= #store.entryOps or c.mapOps ~= #store.mapOps then
+     or c.keybinds ~= store.keybinds or c.entryOps ~= #store.entryOps or c.mapOps ~= #store.mapOps
+     or c.shaders ~= store.shaderPresets then
     namedCache = { serial = store.serial, state = store.state, entries = store.entries, maps = store.maps, keybinds = store.keybinds,
-                   entryOps = #store.entryOps, mapOps = #store.mapOps, lists = {} }
+                   entryOps = #store.entryOps, mapOps = #store.mapOps, shaders = store.shaderPresets, lists = {} }
   end
   local cached = namedCache.lists[kind]
   if cached and cached.base == base and cached.extra == extra then return cached.list end
@@ -42,6 +55,7 @@ function M.named(store, kind, base, extra)
     end
   elseif kind == "effect" then
     entryNames(store, add, "effect_preset")
+    shaderNames(store, add)
     entryNames(store, add, "effect_pool")
   elseif kind == "pool" then
     entryNames(store, add, "effect_pool")

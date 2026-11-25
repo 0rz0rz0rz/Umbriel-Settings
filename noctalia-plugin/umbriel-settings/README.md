@@ -30,6 +30,7 @@ The same interface also runs as a standalone app: see the
 - Optional: `gio` (open the standalone app), `xdg-open` or an
   editor command set under **About** (**Edit file**), and `notify-send` (the message when a display **Try**
   went back on its own while the panel was closed). Buttons explain what's missing.
+- Optional: internet access for **Community shaders** (Effects page), only when you browse or install them.
 
 ## Usage
 
@@ -88,6 +89,21 @@ noctalia msg panel-toggle 0rz0rz0rz/umbriel-settings:main
   and ICC profiles in a file browser of its own (the panel stays above other windows), and for autostart
   commands lists the installed apps like the default apps do. A keybind action's first argument (output,
   preset, pool, submap, scratchpad, named workspace) has a list too.
+- **Community shaders** (bottom of the **Effects** page): Noctalia's
+  [community-umbriel-shaders](https://github.com/noctalia-dev/community-umbriel-shaders) catalogue by kind
+  (window, border, screen, cursor, animation), with a preview (click it for a large one), author, license and
+  tags per effect. Nothing is
+  downloaded until you press **Browse community shaders** (never in Noctalia's offline mode); scrolling to the
+  end of the list shows 6 more, and a line under the kinds explains the two buttons for that kind.
+  **Use** downloads an effect and turns it on: its include and its settings (for example `[effects] window`
+  for every window, or the events an animation was made for) go into your unsaved edits, and the effect of its
+  kind that was on before is dropped, so saving deletes it (unless something else, such as a window rule,
+  still picks it). Animation effects for different events work side by side. **Install** only adds an
+  effect, so you can pick it for single apps under **Window rules**, for one display under **Outputs**, or
+  in an effect pool ("Picked in your settings" then shows on it). **Remove** takes an effect out again,
+  **Remove all** next to the kinds every effect of the shown kind, and a check on a kind shows that one of
+  its effects is in use; all of it is undone like any other edit. The files land in `shaders/community/` next to your config only when you save, as the
+  repository's own instructions install them, and a later save that no longer includes an effect removes them.
 - **Keyboard layouts**: **Choose…** next to Layout, Variant and XKB options picks from XKB's list.
 - **Keybinds** are grouped (shortcuts used twice show **conflict**): build shortcuts from modifier chips (the
   standalone app can also **Record…** a key press), pick actions from a searchable catalog,
@@ -167,6 +183,14 @@ in the save bar), Alt+Left back, Esc close.
   - in Noctalia's plugin data directory: drafts (`draft.json`, `draft-other-config.json`), the helper's
     request/response files (`run/`; pairs left by a plugin unload are removed after 10 minutes), its bytecode cache (`pycache/`) and the field catalog (`cache/`);
   - title bars that follow Noctalia, see below.
+- **Community shaders**: **Browse**, **Use** and **Install** download into
+  `$XDG_DATA_HOME/umbriel-settings/community/` only (the catalogue, previews and the effect's files, each
+  checked against the catalogue's SHA-256). A **Save** whose config includes an effect from
+  `shaders/community/` copies its files (and those of effects it needs, such as a border's overlay) next to the
+  config, before writing the config, after listing them in `shaders/community/.umbriel-settings.json`. Only
+  files listed there are ever removed, by a later save (or **Restore**) that no longer includes them; a file you
+  changed is kept, nothing is removed while a **Try** can still go back, and a `shaders/community` git checkout
+  is never written. **Restore** puts back files a restored backup includes, from that cache.
 - **Title bars that follow Noctalia**, only when a save starts following (**KDE** / **KDE header**): the user
   template `~/.config/noctalia/templates/umbriel-titlebar.toml`, its `umbriel_titlebar` entry in
   `noctalia-config.toml` (backed up first; refused when Noctalia saved it meanwhile) and
@@ -204,10 +228,14 @@ in the save bar), Alt+Left back, Esc close.
   back or couldn't. Noctalia runs `python3 titlebar_apply.py` after palette changes while a title-bar color
   follows it, and the plugin runs helper `titlebar-cleanup` when it is disabled (on uninstall: best effort;
   `notify-send` when it couldn't finish).
-- **Network**: none.
+- **Network**: only on request, from the **Effects** page: `raw.githubusercontent.com/noctalia-dev/community-umbriel-shaders`
+  (the catalogue on **Browse** or refresh, the shown effects' previews, an effect's files on **Use** or **Install**), by
+  the helper (Python's `urllib`), skipped in Noctalia's offline mode. Nothing else.
 - **Left behind on uninstall**: `$XDG_DATA_HOME/umbriel-settings/` (the backups and small state files above,
   shared with the standalone app) and Noctalia's plugin data directory (drafts); remove them by hand if you
-  don't use the app.
+  don't use the app. Community shaders stay in `shaders/community/` next to your config, which may still
+  include them: to remove them by hand, delete their `shaders/community/…` entries from `[include] files` (or
+  press **Remove** on each and save), then delete the `shaders/community/` folder.
 - `umbriel_core/` is the config library shared with the standalone app, bundled so the plugin works alone.
   `app.luau` is the app's layout; it isn't in `plugin.toml`, so Noctalia never loads it.
 - MIT License; see `LICENSE`.

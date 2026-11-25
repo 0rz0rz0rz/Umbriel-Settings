@@ -4,6 +4,7 @@
 local kit = require("../ui/kit.luau")
 local form = require("./form.luau")
 local outputs = require("./outputs.luau")
+local shaders = require("./shaders.luau")
 
 local M = {}
 
@@ -105,6 +106,10 @@ local function listPage(ctx, route)
   local filter = kit.filterText(ctx, filterKey)
   for _, eid in ipairs(page.editors) do
     for _, row in ipairs(editorList(ctx, eid, filter, #page.editors > 1)) do table.insert(content, row) end
+  end
+  if route.page == "Effects" then
+    for _, row in ipairs(shaders.content(ctx, filter)) do table.insert(content, row) end
+    return { header = header, content = content, onScroll = shaders.onScroll(ctx) }
   end
   return { header = header, content = content }
 end

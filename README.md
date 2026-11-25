@@ -29,6 +29,16 @@ same core and interface code, so they look and behave alike; the app adds a side
   app also Ctrl+Shift+Z) steps forward again until the next edit.
 - **Lists** for rules, devices and effects: edit, name, reorder, duplicate, delete; the filter also matches
   values such as an app id pattern.
+- **Community shaders** on the Effects page: Noctalia's
+  [community-umbriel-shaders](https://github.com/noctalia-dev/community-umbriel-shaders) by kind, with
+  previews and a check on each kind with an effect in use; **Use** adds the include and the effect's selector to
+  your edits and replaces the effect of its kind that was on before, **Install** only adds it (to pick it per
+  window rule or display), **Remove all** clears a kind, and the save
+  puts the files in `shaders/community/` next to the config (a later save that drops them, the replaced one too,
+  removes them).
+  Nothing is downloaded until you press **Browse community shaders**. Uninstalling the app or plugin leaves
+  them there: to remove them by hand, delete their `shaders/community/…` entries from `[include] files`, then
+  the `shaders/community/` folder.
 - **Outputs** draws the connected displays as numbered tiles at their real size and position. Drag one by its
   number onto an edge of another to place it there: displays snap to each other's center line, so two above a
   main display are centered as a pair, and a corner shifts it half a display that way. The star marks the
@@ -284,8 +294,8 @@ shortcut of its own).
 | Path | Contents |
 | --- | --- |
 | Your Umbriel config | Saved changes; custom keybind groups are TOML comments |
-| `$XDG_DATA_HOME/umbriel-settings/` (0700, files 0600) | `gui-config-path` (last config), `configs/<id>/` (backups, rule names, keybind locks, `trial.json` while a display Try waits and `trial.result.json`), `backups/` (user folders, default apps), `noctalia-backups/`, `app-ui/` (drafts incl. `draft-other-config.json`, `run/` helper requests, cache, icons, `window.json` with the app window size), `editor-command`, `write.lock` (one writer at a time), `.migrated-v1`/`.private-v1` (one-time migrations) |
-| Next to your config | `.umbriel-settings-*.toml` while `umbriel config validate` checks a save (removed afterwards) |
+| `$XDG_DATA_HOME/umbriel-settings/` (0700, files 0600) | `gui-config-path` (last config), `configs/<id>/` (backups, rule names, keybind locks, `trial.json` while a display Try waits and `trial.result.json`), `backups/` (user folders, default apps), `noctalia-backups/`, `app-ui/` (drafts incl. `draft-other-config.json`, `run/` helper requests, cache, icons, `window.json` with the app window size), `community/` (the shader catalogue, previews and downloaded effect files), `editor-command`, `write.lock` (one writer at a time), `.migrated-v1`/`.private-v1` (one-time migrations) |
+| Next to your config | `.umbriel-settings-*.toml` while `umbriel config validate` checks a save (removed afterwards); `shaders/community/` with the community shaders your config includes and `.umbriel-settings.json` (the files a save put there: only those are removed again, once unused and unchanged) |
 | `$XDG_RUNTIME_DIR/umbriel-settings-<uid>.sock` (+ `.lock`) | Single instance: a second start hands over to the open window |
 | `$XDG_CONFIG_HOME/umbriel-settings/` | `noctalia-palette.conf` (from Noctalia), `titlebar-colors.toml`, `titlebar_apply.py`, `*.titlebar.bak` (config before the script's last change) |
 | `$XDG_CONFIG_HOME/noctalia/templates/` | `umbriel-settings-palette.conf`, `umbriel-titlebar.toml` (entries in `noctalia-config.toml`) |
@@ -296,7 +306,8 @@ shortcut of its own).
 now**), `gio launch`/your editor/`xdg-open` on button press, and, for a display **Try**, a detached watcher
 (the system's `python3 -I -c <umbriel_core/trial.py>`) that ends when the Try is answered or about 30 seconds
 later, plus `notify-send` when it went back. Noctalia runs `python3 titlebar_apply.py` on palette changes while
-a title bar follows it.
+a title bar follows it. **Network**: only the Effects page's community shaders, on request, from
+`raw.githubusercontent.com` (catalogue, previews, effect files; checked against the catalogue's SHA-256).
 
 The app writes the desktop entry for the install it was started from (the checkout's script or the AppImage
 file), which is what the plugin's **Standalone app** button opens. With a checkout and an AppImage on one

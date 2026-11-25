@@ -52,7 +52,12 @@ restores the backup and records the outcome (`trial.result.json`), which a late 
 Title-bar following travels as a `follow` intent on the `colors.title_bar.*` field changes; only `save` applies
 it (after writing the config), and `onExit` (disable; uninstall best effort, as Noctalia may remove the plugin
 folder first) runs `titlebar-cleanup`, which removes the hook script and the config copies first and, when
-`noctalia-config.toml` can't be changed, says what is left with `notify-send` (nobody reads the answer). Live
+`noctalia-config.toml` can't be changed, says what is left with `notify-send` (nobody reads the answer).
+Community shaders (`pages/shaders.luau`, `umbriel_core/community_shaders.py`): `shaders`, `shader-previews` and
+`shader-prepare` only touch the private cache; `save` installs what the new config includes from it (manifest
+first, then the files, then the config) and sweeps what the written config no longer uses (never while a Try is
+pending; decided from the files on disk) and `restore` reinstalls what a backup includes. Disabling or
+uninstalling leaves them (the READMEs give the manual steps). Live
 refresh is a long poll: `wait-live` runs `umbriel subscribe` and answers on the first change a page shows (or
 after 25 s), and the page asks again. A poll can't be stopped and Noctalia runs at most 8 commands per plugin
 (`kMaxAsyncCommandsPerHost`), so `lib/shell.luau` keeps one poll per event set and two at most; polls are

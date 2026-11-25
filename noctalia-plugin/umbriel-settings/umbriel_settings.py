@@ -10,7 +10,6 @@ result is printed to stdout instead (useful for tests).
 
 import contextlib
 import datetime
-import fnmatch
 import json
 import os
 import re
@@ -25,6 +24,7 @@ PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PLUGIN_DIR)
 
 from umbriel_core import backups, legacy, paths, schema  # noqa: E402
+from umbriel_core.filebrowser import BrowseError, cmd_list_dir, cmd_pick_file, cmd_pick_folder  # noqa: E402
 from umbriel_core.launch import child_env  # noqa: E402
 
 TOMLKIT_HINT = ("Python's tomlkit module is missing. Install it with your package manager "
@@ -261,11 +261,16 @@ def cmd_restore(request):
     if os.path.islink(current.path):  # again too: the revision reads through a symlink put there meanwhile
         raise HelperError("The config is a symlink; edit its target directly.")
     backups.create_backup_snapshot(current.path, current.config_dir, protect=snapshot)
+    warnings = []
+    try:  # community shaders the backup includes but that a later save removed: back from the cache
+        current.install_shaders(text)
+    except (OSError, ValueError) as error:
+        warnings.append(f"Shader files the backup uses could not be installed: {error}")
     paths.write_text_file(current.path, text)
     if trial_id is not None:  # only now: until the write the watcher still goes back; killed after it, a no-op
         with contextlib.suppress(OSError):
             trial.claim(current.config_dir, trial_id)
-    warnings = []
+    current.sweep_shaders(text, warnings)
     if validation.get("ran") and not validation.get("valid"):
         problems = [item["message"] for item in validation.get("diagnostics", []) if item.get("severity") == "error"]
         warnings.append("Umbriel reports problems in the restored config: " + "; ".join(problems[:3]))
@@ -448,101 +453,6 @@ def cmd_kde_colors(request):
     return {"available": True, "colors": hex_map(colors), "backgrounds": hex_map(backgrounds)}
 
 
-def expand_home(path):
-    return os.path.expanduser(str(path).replace("$HOME", os.path.expanduser("~"), 1))
-
-
-def config_folder(request):
-    config = str(request.get("config") or "")
-    return os.path.dirname(os.path.abspath(os.path.expanduser(config))) if config else ""
-
-
-def start_folder(request):
-    """Where the file browser opens: `start` when it is a folder, else the config's folder, else home."""
-    start = expand_home(request.get("start") or "")
-    if os.path.isdir(start):
-        return start
-    folder = config_folder(request)
-    return folder if os.path.isdir(folder) else os.path.expanduser("~")
-
-
-def cmd_pick_folder(request):
-    """The value for a folder chosen in the UI's file browser (`chosen`): home becomes `$HOME`."""
-    chosen = str(request.get("chosen") or "")
-    if not chosen:
-        return {"cancelled": True}
-    home = os.path.expanduser("~")
-    if chosen == home or chosen.startswith(home + "/"):
-        chosen = "$HOME" + chosen[len(home):]
-    return {"path": chosen}
-
-
-def file_patterns(request):
-    pattern = request.get("filter")
-    return pattern if isinstance(pattern, list) and len(pattern) == 2 else None
-
-
-def cmd_pick_file(request):
-    """The value for a file chosen in the UI's file browser (`chosen`): an absolute path, or relative to the
-    config's folder (`relative`) when inside it; with `command`, an app's Exec command or the quoted program path."""
-    chosen = str(request.get("chosen") or "")
-    if not chosen:
-        return {"cancelled": True}
-    if request.get("command"):  # an autostart command: an app's Exec line, or the program itself
-        if not chosen.endswith(".desktop"):
-            return {"path": shlex.quote(chosen)}
-        from umbriel_core import mimeapps
-        command = mimeapps.exec_command(chosen)
-        if not command:
-            raise HelperError("That app has no command to run.", "no_command")
-        return {"path": command}
-    folder = config_folder(request)
-    if request.get("relative") and folder:
-        # compare real paths: the config folder is often a symlink into a dotfiles checkout
-        real_folder, real_chosen = os.path.realpath(folder), os.path.realpath(chosen)
-        if real_chosen.startswith(real_folder + os.sep):
-            chosen = os.path.relpath(real_chosen, real_folder)
-    return {"path": chosen}
-
-
-LIST_DIR_LIMIT = 2000
-
-
-def cmd_list_dir(request):
-    """One folder for the UI's file browser (the plugin panel would hide a chooser window): `path`, else where
-    it opens. Folders and files (matching `filter`; none with `folders`), hidden ones left out."""
-    path = request.get("path")
-    path = os.path.abspath(expand_home(path)) if path else start_folder(request)
-    if not os.path.isdir(path):
-        raise HelperError(f"{path} is not a folder.", "not_folder")
-    pattern = file_patterns(request)
-    patterns = pattern[1].lower().split() if pattern else None
-    folders, files = [], []
-    try:
-        with os.scandir(path) as listing:
-            for entry in listing:
-                if entry.name.startswith("."):
-                    continue
-                try:
-                    is_dir = entry.is_dir()
-                except OSError:
-                    continue
-                if is_dir:
-                    folders.append(entry.name)
-                elif not request.get("folders") and (
-                        not patterns or any(fnmatch.fnmatchcase(entry.name.lower(), p) for p in patterns)):
-                    files.append(entry.name)
-    except OSError as error:
-        raise HelperError(f"Can't open {path}: {error.strerror or error}", "unreadable") from error
-    folders.sort(key=str.casefold)
-    files.sort(key=str.casefold)
-    truncated = len(folders) + len(files) > LIST_DIR_LIMIT
-    files = files[:max(0, LIST_DIR_LIMIT - len(folders))]
-    parent = os.path.dirname(path)
-    return {"path": path, "parent": parent if parent != path else None, "folders": folders[:LIST_DIR_LIMIT],
-            "files": files, "truncated": truncated, "home": os.path.expanduser("~")}
-
-
 def cmd_app_command(request):
     """The command that starts an installed app (its desktop file's Exec, without field codes)."""
     from umbriel_core import mimeapps
@@ -700,6 +610,47 @@ def cmd_titlebar_cleanup(request):
         raise
 
 
+def cmd_shaders(request):
+    """The community shader catalogue as rows for the Effects page; `refresh` downloads it again (not `offline`).
+    `loaded` is false until it was downloaded once; a failed refresh keeps the cached one and sets `error`."""
+    from umbriel_core import community_shaders as shaders
+    catalogue, fetched = shaders.load_catalogue(data_dir())
+    error = None
+    if request.get("refresh") and not request.get("offline"):
+        try:
+            catalogue, fetched = shaders.refresh_catalogue(data_dir()), time.time()
+        except shaders.ShaderError as failure:
+            if catalogue is None:
+                raise HelperError(str(failure), "offline") from None
+            error = str(failure)
+    if catalogue is None:
+        return {"loaded": False}
+    folder = os.path.dirname(config_path(request))
+    return {"loaded": True, "age": max(0, int(time.time() - fetched)), "error": error,
+            "git": shaders.is_git_checkout(folder), "rows": shaders.entries(catalogue, folder)}
+
+
+def cached_catalogue():
+    from umbriel_core import community_shaders as shaders
+    catalogue, _ = shaders.load_catalogue(data_dir())
+    if catalogue is None:
+        raise HelperError("The shader catalogue isn't downloaded yet.")
+    return catalogue
+
+
+def cmd_shader_previews(request):
+    from umbriel_core import community_shaders as shaders
+    ids = request.get("ids")
+    return shaders.previews(cached_catalogue(), data_dir(), ids if isinstance(ids, list) else [],
+                            bool(request.get("offline")))
+
+
+def cmd_shader_prepare(request):
+    """Download one effect and its dependencies into the cache; a save installs them next to the config."""
+    from umbriel_core import community_shaders as shaders
+    return shaders.prepare(cached_catalogue(), data_dir(), str(request.get("id") or ""), bool(request.get("offline")))
+
+
 COMMANDS = {
     "meta": cmd_meta, "read": cmd_read, "preview": cmd_preview, "save": cmd_save, "set-config": cmd_set_config,
     "backups": cmd_backups, "backup-diff": cmd_backup_diff, "restore": cmd_restore, "trial-end": cmd_trial_end,
@@ -710,7 +661,8 @@ COMMANDS = {
     "set-editor": cmd_set_editor, "about": cmd_about, "palette-template": cmd_palette_template,
     "titlebar": cmd_titlebar, "titlebar-cleanup": cmd_titlebar_cleanup, "windows": cmd_windows,
     "layers": cmd_layers, "xkb": cmd_xkb, "run-action": cmd_run_action, "focused-window": cmd_focused_window,
-    "wait-live": cmd_wait_live, "wait": cmd_wait,
+    "wait-live": cmd_wait_live, "wait": cmd_wait, "shaders": cmd_shaders, "shader-previews": cmd_shader_previews,
+    "shader-prepare": cmd_shader_prepare,
 }
 
 # Commands that write the config, its sidecars, backups or desktop files; they run one at a time across the
@@ -759,7 +711,7 @@ def run(argv):
             atomic_write_text(response, json.dumps(result, ensure_ascii=False, separators=(",", ":")))
             return json.dumps({"ok": True})
         return json.dumps({"ok": True, "result": result}, ensure_ascii=False)
-    except HelperError as error:
+    except (HelperError, BrowseError) as error:
         return json.dumps({"ok": False, "error": str(error), "code": error.code})
     except TimeoutError as error:  # the write lock (subprocess timeouts are handled by each command)
         return json.dumps({"ok": False, "error": str(error), "code": "busy"})

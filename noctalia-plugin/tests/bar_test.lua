@@ -103,7 +103,8 @@ update()
 glyph = shown("tools")
 assert(glyph, "the chosen icon is drawn")
 
--- disabling or uninstalling the plugin stops title bars following Noctalia; a reload or shutdown doesn't
+-- disabling or uninstalling the plugin stops title bars following Noctalia (community shaders stay); a reload or
+-- shutdown doesn't
 onExit(0, "reload")
 onExit(15, "shutdown")
 assert(#helperRuns == 0, "nothing on reload or shutdown")

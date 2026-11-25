@@ -19,7 +19,8 @@ def _table(data, path):
     return data if isinstance(data, dict) else {}
 
 
-def _include_lists(data):
+def include_lists(data):
+    """The entries of `include.files` and `include.optional.files` in a parsed TOML file."""
     include = _table(data, ("include",))
     lists = [include.get("files"), _table(include, ("optional",)).get("files")]
     return [item for files in lists if isinstance(files, list) for item in files if isinstance(item, str)]
@@ -29,7 +30,7 @@ def included_names(data, config_dir):
     """{kind: [names]} from the files `data` (a parsed config) includes, and the files they include in turn.
     Unreadable or missing files are skipped: this only feeds suggestions."""
     names = {kind: [] for kind in KINDS}
-    pending = [(path, config_dir) for path in _include_lists(data)]
+    pending = [(path, config_dir) for path in include_lists(data)]
     seen = set()
     while pending and len(seen) < MAX_FILES:
         path, base = pending.pop(0)
@@ -50,5 +51,5 @@ def included_names(data, config_dir):
             for name in _table(included, table_path):
                 if name not in names[kind]:
                     names[kind].append(name)
-        pending += [(child, os.path.dirname(path)) for child in _include_lists(included)]
+        pending += [(child, os.path.dirname(path)) for child in include_lists(included)]
     return names
