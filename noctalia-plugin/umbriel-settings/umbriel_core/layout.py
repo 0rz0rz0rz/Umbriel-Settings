@@ -4,7 +4,7 @@ import re
 
 import tomlkit
 
-from .tomlops import header_re
+from .tomlops import header_re, same_data
 
 
 def add_entry_name_comments(text, sections):
@@ -322,7 +322,7 @@ def rebuild_config(text):
         out.append(newline)
         out.extend(ensure_eol(b) if kind != "blank" else newline for kind, b in leftover)
     result = "".join(out)
-    if tomlkit.parse(result).unwrap() != tomlkit.parse(text).unwrap():
+    if not same_data(tomlkit.parse(result).unwrap(), tomlkit.parse(text).unwrap()):
         raise ValueError("the rebuilt file would not contain the same settings")
     return result
 
@@ -361,8 +361,7 @@ def group_diff_by_section(diff, new_text):
         new_start = int(match.group(1)) if match else 1
         index += 1
         while index < len(lines) and not lines[index].startswith("@@ "):
-            if not lines[index].startswith(("--- ", "+++ ")):
-                hunk.append(lines[index])
+            hunk.append(lines[index])  # the ---/+++ file headers only come before the first @@
             index += 1
 
         current_section = section_by_line.get(max(1, new_start), section)

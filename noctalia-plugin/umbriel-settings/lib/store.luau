@@ -15,7 +15,8 @@ M.maps = {}          -- map editor id -> working { name, text } rows
 M.mapOps = {}
 M.keybinds = nil     -- working { rows, groups }
 M.keybindsDirty = false
-M.desktop = nil      -- { userdirs = {...}, apps = {...} }
+M.cursorRemovals = {}  -- cursor theme -> true: installed by this app, deleted by the next save (helper)
+M.desktop = nil      -- { userdirs = {...}, apps = {...}, icons = {theme, original, removals, revision, targets} }
 M.rebuild = nil      -- nil follows the file (banners present), else true/false
 M.history = {}       -- undo steps, newest last (see M.undo)
 M.future = {}        -- redo steps, next last (see M.redo); valid while `serial` is unchanged
@@ -352,10 +353,13 @@ end
 local function desktopTable(part)
   local d = M.desktop
   if part == "userdirs" then return d.userdirs.values end
+  if part == "icons" then return d.icons end  -- key "theme"
+  if part == "iconRemovals" then return d.icons.removals end  -- theme -> true: deleted by the save
   return part == "roles" and d.apps.roles or d.apps.mimes
 end
 
--- part: "userdirs" (folder key), "roles" (role name) or "mimes" (MIME type).
+-- part: "userdirs" (folder key), "roles" (role name), "mimes" (MIME type), "icons" (key "theme") or
+-- "iconRemovals" (theme name → true, nil to keep it).
 function M.setDesktop(part, key, value)
   M.serial = M.serial + 1
   local values = desktopTable(part)
@@ -390,6 +394,17 @@ function M.desktopChanges()
     end
   end
   if #apps > 0 then request.apps = { revision = d.apps.revision, changes = apps }; any = true end
+  local icons = d.icons
+  if icons and not icons.error then
+    local remove = {}
+    for name in pairs(icons.removals) do table.insert(remove, name) end
+    table.sort(remove)
+    local theme = (icons.theme or "") ~= (icons.original or "") and icons.theme ~= "" and icons.theme or nil
+    if theme or #remove > 0 then
+      request.icons = { revision = icons.revision, theme = theme, remove = #remove > 0 and remove or nil }
+      any = true
+    end
+  end
   return any and request or nil
 end
 
@@ -399,6 +414,9 @@ local function inverse(step)
   if step.kind == "field" then return { kind = "field", id = step.id, previous = deepCopy(M.fieldChanges[step.id]) } end
   if step.kind == "entry" then return { kind = "entry", editor = step.editor, ops = { table.unpack(M.entryOps) } } end
   if step.kind == "map" then return { kind = "map", editor = step.editor, ops = { table.unpack(M.mapOps) } } end
+  if step.kind == "cursorRemove" then
+    return { kind = "cursorRemove", theme = step.theme, previous = M.cursorRemovals[step.theme] }
+  end
   if step.kind == "keybinds" then
     return { kind = "keybinds", step = step.step, rows = deepCopy(M.keybinds.rows), groups = deepCopy(M.keybinds.groups),
              dirty = M.keybindsDirty }
@@ -430,6 +448,8 @@ local function undoStep(step)
     M.keybindsDirty = step.dirty
   elseif step.kind == "desktop" then
     if M.desktop then desktopTable(step.part)[step.key] = step.previous end
+  elseif step.kind == "cursorRemove" then
+    M.cursorRemovals[step.theme] = step.previous
   end
   return back
 end
@@ -463,18 +483,41 @@ function M.canUndo() return #M.history > 0 end
 -- ------------------------------------------------------------------ totals
 function M.pendingCount()
   local count = #M.entryOps + #M.mapOps
+  for _ in pairs(M.cursorRemovals) do count = count + 1 end
   for _ in pairs(M.fieldChanges) do count = count + 1 end
   if M.keybindsDirty then count = count + 1 end
   local desktop = M.desktopChanges()
   if desktop then
     if desktop.userdirs then for _ in pairs(desktop.userdirs.changes) do count = count + 1 end end
     if desktop.apps then count = count + #desktop.apps.changes end
+    if desktop.icons then count = count + (desktop.icons.theme and 1 or 0) + #(desktop.icons.remove or {}) end
   end
   return count
 end
 
 function M.hasConfigChanges()
   return next(M.fieldChanges) ~= nil or #M.entryOps > 0 or #M.mapOps > 0 or M.keybindsDirty
+    or next(M.cursorRemovals) ~= nil
+end
+
+-- Drop queued removals of themes that can't be removed any more (`removable`: theme -> true), e.g. removed by an
+-- earlier save or by hand; not an undo step, there is nothing to put back.
+function M.forgetCursorRemovals(removable)
+  for theme in pairs(M.cursorRemovals) do
+    if not removable[theme] then
+      M.cursorRemovals[theme] = nil
+      M.serial = M.serial + 1
+    end
+  end
+end
+
+-- Queue (or, with `keep`, unqueue) deleting a cursor theme (the save deletes it); one undo step each.
+function M.removeCursorTheme(theme, keep)
+  local wanted = (not keep) or nil
+  if M.cursorRemovals[theme] == wanted then return end
+  M.serial = M.serial + 1
+  remember({ kind = "cursorRemove", theme = theme, previous = M.cursorRemovals[theme] })
+  M.cursorRemovals[theme] = wanted
 end
 
 function M.changeSet()
@@ -488,6 +531,12 @@ function M.changeSet()
     changes.keybinds = { rows = rows, groups = M.keybinds.groups, locks = locks }
   end
   if M.rebuild ~= nil then changes.rebuild = M.rebuild end
+  local removals = {}
+  for theme in pairs(M.cursorRemovals) do table.insert(removals, theme) end
+  if #removals > 0 then
+    table.sort(removals)
+    changes.cursor_remove = removals
+  end
   return changes
 end
 
@@ -511,7 +560,7 @@ function M.load(state)
   local unchanged = sameFile and equal(previous.revision, state.revision)
   local dropped = false
   if not sameFile then
-    M.fieldChanges = {}
+    M.fieldChanges, M.cursorRemovals = {}, {}
   else
     dropSavedFieldChanges(state)
   end
@@ -532,7 +581,7 @@ end
 
 -- What a save is about to write; pass it back to markSaved when the save succeeds.
 function M.saveMark()
-  return { serial = M.serial, entries = #M.entryOps, maps = #M.mapOps }
+  return { serial = M.serial, entries = #M.entryOps, maps = #M.mapOps, removals = deepCopy(M.cursorRemovals) }
 end
 
 local function rest(list, from)
@@ -550,6 +599,7 @@ function M.markSaved(state, mark)
   local keepKeybinds = newer and M.keybindsDirty and keybindsSerial > mark.serial
   M.state = state
   dropSavedFieldChanges(state, true)
+  for theme in pairs(mark.removals or {}) do M.cursorRemovals[theme] = nil end  -- that save deleted them
   M.entryOps, M.mapOps = entryOps, mapOps
   M.entries = replayAll(state.editors, entryOps, applyEntryOp)
   M.maps = replayAll(state.maps, mapOps, applyMapOp)
@@ -564,7 +614,9 @@ function M.markSaved(state, mark)
 end
 
 function M.discardAll()
+  M.serial = M.serial + 1  -- an edit too: caches keyed by serial (shader references) must see it
   M.fieldChanges, M.entryOps, M.mapOps, M.keybindsDirty = {}, {}, {}, false
+  M.cursorRemovals = {}
   M.desktopDraft = nil
   M.history, M.future = {}, {}
   if M.state then
@@ -576,6 +628,7 @@ function M.discardAll()
     M.desktop.userdirs.values = deepCopy(M.desktop.userdirs.original)
     M.desktop.apps.roles = deepCopy(M.desktop.apps.originalRoles)
     M.desktop.apps.mimes = deepCopy(M.desktop.apps.originalMimes)
+    M.desktop.icons.theme, M.desktop.icons.removals = M.desktop.icons.original, {}
   end
 end
 
@@ -601,14 +654,24 @@ function M.applyDesktopDraft(draft)
       skipped = true
     end
   end
-  if skipped then return "User folders or default apps changed on disk; their unsaved edits were discarded." end
-  if M.desktopChanges() and not before then return "Restored unsaved user folder and default app edits." end
+  if type(draft.icons) == "table" then
+    if draft.icons.revision == d.icons.revision then
+      d.icons.theme = type(draft.icons.theme) == "string" and draft.icons.theme or d.icons.original
+      d.icons.removals = deepCopy(type(draft.icons.removals) == "table" and draft.icons.removals or {})
+    else
+      skipped = true
+    end
+  end
+  if skipped then
+    return "User folders, default apps or the icon theme changed on disk; their unsaved edits were discarded."
+  end
+  if M.desktopChanges() and not before then return "Restored unsaved desktop edits." end
   return nil
 end
 
 -- Returns a message when drafted desktop edits were restored or dropped.
 function M.loadDesktop(data)
-  local apps = data.apps
+  local apps, icons = data.apps, type(data.icons) == "table" and data.icons or { error = "not read" }
   M.desktop = {
     userdirs = { values = deepCopy(data.userdirs.values), original = deepCopy(data.userdirs.values),
                  revision = data.userdirs.revision },
@@ -616,13 +679,27 @@ function M.loadDesktop(data)
              originalMimes = deepCopy(apps.mimes), revision = apps.revision, apps = apps.apps,
              names = apps.names or {},  -- names of assigned apps missing from `apps` (NoDisplay)
              roleMimes = apps.role_mimes, extensions = apps.extensions or {} },
+    icons = { theme = icons.theme or "", original = icons.theme or "", removals = {}, revision = icons.revision,
+              targets = icons.targets or {}, error = icons.error },
   }
   local draft = M.desktopDraft
   M.desktopDraft = nil
   return draft and M.applyDesktopDraft(draft) or nil
 end
 
--- One desktop part was written (the other may have failed): its values become the saved state.
+-- Drop queued deletions of icon themes that can't be deleted any more (`removable`: name -> true), e.g. deleted
+-- by hand meanwhile; not an undo step, there is nothing to put back.
+function M.forgetIconRemovals(removable)
+  local icons = M.desktop and M.desktop.icons
+  if not icons then return end
+  for name in pairs(icons.removals) do
+    if not removable[name] then
+      icons.removals[name] = nil
+      M.serial = M.serial + 1
+    end
+  end
+end
+
 -- One desktop part was written: what `sent` (that part of the desktopChanges() the save sent) changed is now
 -- the original; edits made while the save ran stay pending.
 function M.desktopSaved(part, revision, sent)
@@ -631,6 +708,10 @@ function M.desktopSaved(part, revision, sent)
   if part == "userdirs" then
     for key, value in pairs(sent.changes or {}) do d.userdirs.original[key] = value ~= "" and value or nil end
     d.userdirs.revision = revision
+  elseif part == "icons" then
+    if sent.theme then d.icons.original = sent.theme end
+    for _, name in ipairs(sent.remove or {}) do d.icons.removals[name] = nil end
+    d.icons.revision = revision
   else
     for _, change in ipairs(sent.changes or {}) do
       local original = change.kind == "role" and d.apps.originalRoles or d.apps.originalMimes

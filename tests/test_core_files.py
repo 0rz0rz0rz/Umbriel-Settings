@@ -1,11 +1,13 @@
 """File-system helpers in umbriel_core: backups, cursor themes, KDE schemes, launch environment (no Qt)."""
 
 import os
+import struct
 import tempfile
 import unittest
+import zlib
 from unittest.mock import patch
 
-from umbriel_core import kde, noctalia_theme, paths
+from umbriel_core import cursor_preview, kde, noctalia_theme, paths
 from umbriel_core.backups import (
     MAX_BACKUPS,
     create_backup_snapshot,
@@ -289,6 +291,108 @@ class CursorThemeTests(TempDirTestCase):
         env = {"HOME": home, "XCURSOR_PATH": os.pathsep.join(["~/custom", os.path.join(home, "missing")])}
         with patch.dict(os.environ, env, clear=True):
             self.assertEqual(installed_cursor_themes(), ["Custom"])
+
+
+
+def xcursor(*images):
+    """An Xcursor file: one image per (nominal size, width, height, ARGB) with every pixel that color."""
+    toc, chunks, offset = [], [], 16 + 12 * len(images)
+    for nominal, width, height, argb in images:
+        chunk = struct.pack("<9I", 36, 0xFFFD0002, nominal, 1, width, height, 0, 0, 0) \
+            + struct.pack("<I", argb) * (width * height)
+        toc.append(struct.pack("<III", 0xFFFD0002, nominal, offset))
+        chunks.append(chunk)
+        offset += len(chunk)
+    return b"Xcur" + struct.pack("<III", 16, 0x10000, len(images)) + b"".join(toc) + b"".join(chunks)
+
+
+class CursorPreviewTests(TempDirTestCase):
+    def setUp(self):
+        super().setUp()
+        self.icons = os.path.join(self.root, "icons")
+        env = patch.dict(os.environ, {"XCURSOR_PATH": self.icons})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def theme(self, name, files, inherits=None):
+        folder = os.path.join(self.icons, name, "cursors")
+        os.makedirs(folder, exist_ok=True)
+        for shape, data in files.items():
+            with open(os.path.join(folder, shape), "wb") as handle:
+                handle.write(data)
+        if inherits:
+            self.write("icons", name, "index.theme", text=f"[Icon Theme]\nInherits={inherits}\n")
+
+    @staticmethod
+    def png_size(path):
+        with open(path, "rb") as handle:
+            data = handle.read()
+        assert data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR"
+        return struct.unpack(">II", data[16:24])
+
+    def test_reads_the_image_nearest_the_preview_size_and_refuses_broken_files(self):
+        path = os.path.join(self.root, "c")
+        with open(path, "wb") as handle:
+            handle.write(xcursor((24, 24, 24, 0xFF0000FF), (48, 48, 48, 0xFF00FF00), (96, 96, 96, 0xFFFF0000)))
+        width, height, pixels = cursor_preview.read_xcursor(path, 48)
+        self.assertEqual((width, height, pixels[0]), (48, 48, 0xFF00FF00))
+        self.assertEqual(cursor_preview.read_xcursor(path, 200)[0], 96, "the largest when none is big enough")
+        with open(path, "r+b") as handle:
+            handle.truncate(200)
+        self.assertIsNone(cursor_preview.read_xcursor(path, 48))
+        os.unlink(path)
+        os.mkfifo(path)
+        self.assertIsNone(cursor_preview.read_xcursor(path, 48), "never opens a FIFO")
+
+    def test_strips_follow_inherits_aliases_and_change_with_the_theme(self):
+        # half-transparent premultiplied red comes out straight red
+        self.theme("Base", {"left_ptr": xcursor((48, 48, 48, 0x80800000)), "hand2": xcursor((48, 8, 8, 0xFF00FF00))})
+        self.theme("Child", {"default": xcursor((24, 32, 32, 0xFF0000FF))}, inherits="Base")
+        self.theme("Empty", {"unknown": xcursor((24, 4, 4, 0xFFFFFFFF))})
+        self.write("icons", "default", "index.theme", text="[Icon Theme]\nInherits=Child\n")
+        data = os.path.join(self.root, "data")
+        result = cursor_preview.previews(data)
+        rows = {row["name"]: row for row in result["themes"]}
+        self.assertTrue(result["complete"])
+        self.assertEqual(list(rows), ["Base", "Child", "default", "Empty"])
+        self.assertIsNone(rows["Empty"]["preview"], "none of the shapes")
+        cell, count = cursor_preview.CELL, len(cursor_preview.SHAPES)
+        self.assertEqual(self.png_size(rows["Child"]["preview"]), (cell * count, cell))
+        self.assertEqual(self.png_size(rows["Child"]["arrow"]), (cell, cell))
+        self.assertEqual(os.stat(rows["Child"]["preview"]).st_mode & 0o777, 0o600)
+        self.assertNotEqual(rows["Child"]["preview"], rows["Base"]["preview"], "the child's own arrow")
+        self.assertEqual(png_pixel(rows["default"]["preview"], 24, 24), (0, 0, 255, 255),
+                         "an alias draws what it inherits")
+        self.assertEqual(png_pixel(rows["Child"]["preview"], cell + cell // 2, cell // 2), (0, 255, 0, 255),
+                         "a shape the child lacks comes from its parent")
+        image = png_pixel(rows["Base"]["preview"], 24, 24)
+        self.assertEqual(image, (255, 0, 0, 128))
+        old = rows["Child"]["preview"]
+        self.theme("Child", {"default": xcursor((24, 32, 32, 0xFFFFFFFF), (48, 40, 40, 0xFFFFFFFF))})
+        later = {row["name"]: row for row in cursor_preview.previews(data)["themes"]}
+        self.assertNotEqual(later["Child"]["preview"], old, "a changed theme gets a new picture")
+        self.assertFalse(os.path.exists(old), "the old one is removed")
+
+    def test_a_spent_budget_leaves_the_rest_for_the_next_request(self):
+        self.theme("A", {"default": xcursor((24, 4, 4, 0xFFFFFFFF))})
+        result = cursor_preview.previews(os.path.join(self.root, "data"), budget=-1)
+        self.assertEqual((result["complete"], result["themes"][0]["preview"]), (False, None))
+
+
+def png_pixel(path, x, y):
+    """(r, g, b, a) at x, y of an 8-bit RGBA PNG written by cursor_preview.png (filter 0 rows only)."""
+    with open(path, "rb") as handle:
+        data = handle.read()
+    width = struct.unpack(">I", data[16:20])[0]
+    position, idat = 8, b""
+    while position < len(data):
+        length = struct.unpack(">I", data[position:position + 4])[0]
+        if data[position + 4:position + 8] == b"IDAT":
+            idat += data[position + 8:position + 8 + length]
+        position += 12 + length
+    raw = zlib.decompress(idat)
+    start = y * (width * 4 + 1) + 1 + x * 4
+    return tuple(raw[start:start + 4])
 
 
 class KdeSchemeTests(TempDirTestCase):

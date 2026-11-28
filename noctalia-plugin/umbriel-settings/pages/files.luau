@@ -51,13 +51,14 @@ local function load(ctx, path)
 end
 
 local function choose(ctx, path)
-  local view, pick = ctx.view, ctx.view.pick
+  local view, pick, page = ctx.view, ctx.view.pick, ctx.route()
   view.files.choosing = true
   ctx.render()
   ctx.helper.call(pick.options.mode == "folder" and "pick-folder" or "pick-file", request(ctx, pick.options, path),
     function(err, data)
-      if view.pick ~= pick then return end
-      view.files.choosing = false
+      if view.files then view.files.choosing = false end
+      -- left meanwhile: back() would leave whatever page is shown now
+      if view.pick ~= pick or ctx.route() ~= page then ctx.render(); return end
       if err then ctx.flash(err.error, "warning"); ctx.render(); return end
       view.pick = nil
       pick.onChosen(data.path)

@@ -239,7 +239,7 @@ end
 
 -- Opacity 0-1 for a #RRGGBB(AA) color, written back as its alpha byte (0.84 = D7).
 local function opacityRow(ctx, spec, effective)
-  local key, view = spec.key, ctx.view
+  local key = spec.key
   local follow = spec.follow
   local color = type(effective) == "string" and effective or spec.field.initial
   if follow then color = "#000000" .. follow.alpha end

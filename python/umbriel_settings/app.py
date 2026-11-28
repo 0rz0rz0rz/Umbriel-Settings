@@ -102,7 +102,11 @@ def main(argv=None):
         app.win.showMaximized()
     else:
         app.win.show()
-    return app.exec()
+    status = app.exec()
+    # Python still waits for running helper calls before it exits: a launch meanwhile must open a new window,
+    # not hand over to this closing one
+    server.server.close()
+    return status
 
 
 if __name__ == "__main__":

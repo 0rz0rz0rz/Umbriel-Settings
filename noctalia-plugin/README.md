@@ -39,8 +39,8 @@ The panel writes a JSON request file, runs `python3 -Xpycache_prefix=<data>/pyca
 and reads the response file (helper output and argv are size-limited); the app calls the same commands
 in-process. Commands that write (save, restore, trial-end, desktop-save, titlebar-cleanup, …) hold
 `write.lock` in the shared data directory, so the plugin and the app never write at the same time (a writer
-waits up to 20 s for it; write commands get a 60 s timeout: 20 s lock + 5 s watcher start + 5 s schema + 30 s
-validation; reads that parse the config get 20 s; once a file is written, later failures are reported as
+waits up to 15 s for it; write commands get a 60 s timeout: 15 s lock + 5 s watcher start + 5 s schema + 30 s
+validation; reads that parse the config get 20 s, commands that ask Umbriel 12 s, an effect or cursor theme download 60 s; once a file is written, later failures are reported as
 `warnings`). The Try watcher and the title-bar script take the same lock. A display **Try** passes `trial` to
 `save`, which starts a detached watcher (`umbriel_core/trial.py`) before writing and records the backup, the
 tried revision and the deadline right before the write (`Session.save(before_write=...)`; a failure writes

@@ -601,7 +601,7 @@ OUTPUT_GROUPS = regroup(OUTPUT, [
 
 # Navigation order shared by the app sidebar and the plugin home page.
 NAV_SECTIONS = [
-    ("Desktop", ["User folders", "Default apps"]),
+    ("Desktop", ["User folders", "Default apps", "Icon theme"]),
     ("Basics", ["General"]),
     ("Look", ["Appearance", "Colors", "Animation", "Animation curves", "Effects"]),
     ("Behavior", ["Input", "Layout", "Workspaces"]),

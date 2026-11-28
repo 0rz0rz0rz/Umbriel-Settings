@@ -46,6 +46,7 @@ class AppRenderTests(unittest.TestCase):
         # Let background helper calls finish before the temp dir goes: they still write to app-ui/run.
         self.win.scheduler.pool.shutdown(wait=True)
         self.win.scheduler.slow_pool.shutdown(wait=True)
+        self.win.scheduler.io_pool.shutdown(wait=True)
         self.win.deleteLater()
         # Delete the page before Python tears down QApplication, or QtWebEngine crashes at exit.
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
@@ -316,6 +317,31 @@ class AppRenderTests(unittest.TestCase):
         self.js(bottom)
         self.wait_until(rows, 24)
 
+    def test_reused_elements_drop_old_styles_and_clickable_images_take_the_keyboard(self):
+        self.wait_for_text("Home", "Appearance")
+        tree = """{kind: "column", props: {key: "t"}, children: [
+          {kind: "image", props: {key: "img", tooltip: "Large preview", onClick: {"$callback": "none"}}},
+          {kind: "colorPicker", props: {key: "cp", value: "#112233FF"}},
+          {kind: "row", props: {key: "r", width: 10, flexGrow: 1}, children: []},
+          {kind: "button", props: {key: "b", text: "B", fontSize: 20}},
+          ROWS]}"""
+        twice = '{kind: "label", props: {key: "d", text: "a"}}, {kind: "label", props: {key: "d", text: "b"}}'
+        self.js(f"render({tree.replace('ROWS', twice)}); true")
+        self.js(f"render({tree.replace('ROWS', twice)}); true")
+        self.assertEqual(self.js("document.querySelectorAll('[data-key=d]').length"), 2)
+        self.assertTrue(self.js("document.querySelector('.picker .hex').matches('input[type=text]')"),
+                        "Ctrl+Z in the hex field is the field's own undo")
+        self.assertEqual(self.js("[document.querySelector('[data-key=img]').tabIndex,"
+                                 " document.querySelector('[data-key=img]').classList.contains('clickable')]"
+                                 ".join()"), "0,true")
+        self.js("render(" + tree.replace('ROWS', '{kind: "label", props: {key: "d", text: "a"}}')
+                .replace("width: 10, flexGrow: 1", "").replace(", fontSize: 20", "") + "); true")
+        self.assertEqual(self.js("document.querySelectorAll('[data-key=d]').length"), 1, "no duplicate left behind")
+        style = "(e => [e.style.flexShrink, e.style.flexBasis, e.style.flexGrow].join('|'))" \
+                "(document.querySelector('[data-key=r]'))"
+        self.assertEqual(self.js(style), "||")
+        self.assertEqual(self.js("document.querySelector('[data-key=b] .text').style.fontSize"), "")
+
     def test_notifications_show_the_status_bar_only_while_they_last(self):
         bar = self.win.statusBar()
         self.assertTrue(bar.isHidden())
@@ -417,6 +443,32 @@ class AppRenderTests(unittest.TestCase):
         errors = self.win.view.page().console_errors
         self.assertTrue(any("Content Security Policy" in e for e in errors), errors)
         self.assertFalse([e for e in errors if "Content Security Policy" not in e], errors)
+
+
+
+class ThemeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_only_changes_to_its_own_files_restyle_the_page(self):
+        from umbriel_settings.host.theme import Theme
+        root, _ = isolated_home(self)
+        state = root / "state" / "noctalia"
+        state.mkdir(parents=True)
+        (state / "settings.toml").write_text('[shell]\nfont_family = "A"\n')
+        theme = Theme(self.app.palette)
+        self.addCleanup(theme.deleteLater)
+        sent = []
+        theme.changed.connect(sent.append)
+        (state / "usage_counts.json").write_text("{}")  # Noctalia writes these all the time
+        theme._changed()
+        self.assertEqual(sent, [])
+        time.sleep(0.01)
+        (state / "settings.toml").write_text('[shell]\nfont_family = "B"\n')
+        theme._changed()
+        self.assertEqual(len(sent), 1)
+        self.assertIn("B", sent[0])
 
 
 if __name__ == "__main__":

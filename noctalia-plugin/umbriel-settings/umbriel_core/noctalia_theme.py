@@ -168,7 +168,7 @@ def _shell_table(path):
     try:
         with open(path, "rb") as handle:
             shell = tomllib.load(handle).get("shell", {})
-    except (OSError, tomllib.TOMLDecodeError):
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return {}
     return shell if isinstance(shell, dict) else {}
 

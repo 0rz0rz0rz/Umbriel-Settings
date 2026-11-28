@@ -187,8 +187,10 @@ end
 
 local function pathRow(ctx, path)
   local view = ctx.view
+  if view.pathShown ~= path then view.pathShown, view.pathDraft = path, nil end  -- a load or relaunch changed it
   return ui.row({ key = "path-row", gap = 8, align = "center" }, {
-    ui.input({ key = "path:" .. ctx.gen("path"), value = path, flexGrow = 1, controlSize = "sm",
+    -- the loaded path is part of the key: an input takes its text only when created
+    ui.input({ key = "path:" .. ctx.gen("path") .. ":" .. path, value = path, flexGrow = 1, controlSize = "sm",
                placeholder = "~/.config/umbriel/config.toml",
                onChange = function(text) view.pathDraft = text end,
                onSubmit = function(text) view.pathDraft = text; ctx.switchConfig() end }),

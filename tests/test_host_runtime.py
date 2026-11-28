@@ -170,7 +170,7 @@ class HostRuntimeTests(unittest.TestCase):
         self.host.call("onOpen")
         self.settle()
         self.assertEqual(self.states.get("umbriel.pending"), 1, "the folder edit came back")
-        self.assertIn("Restored unsaved user folder and default app edits.", self.screen())
+        self.assertIn("Restored unsaved desktop edits.", self.screen())
 
     def test_tree_conversion_and_callbacks(self):
         toggle_page = self.find(lambda n: n["props"].get("key") == "nav-General")

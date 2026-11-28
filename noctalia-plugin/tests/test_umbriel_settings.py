@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import textwrap
@@ -441,6 +442,17 @@ class BackupAndDesktopTests(ConfigHelperTestCase):
         self.assertEqual(len(deleted["errors"]), 1)
         self.assertTrue(os.path.exists("/etc/passwd"))
 
+    def test_a_config_that_no_longer_parses_is_restored_with_the_listings_revision(self):
+        state = self.read()
+        report = self.save(state, fields={"general.mod_key": {"value": "Alt"}})
+        self.assertEqual(self.ok("backups", {"config": str(self.config)})["revision"], report["state"]["revision"])
+        self.config.write_text("broken = [toml\n")
+        self.fails("read", {"config": str(self.config)})
+        listing = self.ok("backups", {"config": str(self.config)})
+        self.ok("restore", {"config": str(self.config), "snapshot": report["backup"], "revision": listing["revision"],
+                            "validate": False})
+        self.assertEqual(self.config.read_text(), CONFIG)
+
     def test_restore_keeps_the_restored_backup_when_pruning(self):
         state = self.read()
         report = self.save(state, fields={"general.mod_key": {"value": "Alt"}})
@@ -585,6 +597,25 @@ class EditorAndAboutTests(ConfigHelperTestCase):
         self.assertTrue(config.read_text().startswith("# mine\n"))
         backups = self.root / "data" / "umbriel-settings" / "noctalia-backups"
         self.assertEqual(len(list(backups.glob("noctalia-config.toml.*.bak"))), 1)
+
+
+class CursorThemeTests(HelperTestCase):
+    def test_cursor_themes_come_with_private_preview_strips(self):
+        cursors = self.root / "icons" / "Plain" / "cursors"
+        cursors.mkdir(parents=True)
+        image = struct.pack("<9I", 36, 0xFFFD0002, 24, 1, 2, 2, 0, 0, 0) + struct.pack("<I", 0xFFFFFFFF) * 4
+        (cursors / "left_ptr").write_bytes(b"Xcur" + struct.pack("<III", 16, 0x10000, 1)
+                                           + struct.pack("<III", 0xFFFD0002, 24, 28) + image)
+        (self.root / "icons" / "Broken" / "cursors").mkdir(parents=True)
+        (self.root / "icons" / "Broken" / "cursors" / "default").write_bytes(b"Xcur")
+        reply = self.ok("cursor-themes", {}, env={**self.env, "XCURSOR_PATH": str(self.root / "icons")})
+        rows = {row["name"]: row for row in reply["themes"]}
+        self.assertEqual(sorted(rows), ["Broken", "Plain"])
+        self.assertIsNone(rows["Broken"]["preview"], "a broken file is no picture, not an error")
+        preview = Path(rows["Plain"]["preview"])
+        self.assertTrue(preview.read_bytes().startswith(b"\x89PNG"))
+        self.assertEqual(preview.stat().st_mode & 0o777, 0o600)
+        self.assertTrue(str(preview).startswith(str(self.root / "data")), "in the private data dir")
 
 
 class TitlebarFollowTests(ConfigHelperTestCase):

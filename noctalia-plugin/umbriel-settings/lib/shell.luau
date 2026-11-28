@@ -19,6 +19,10 @@ local review = require("../pages/review.luau")
 local about = require("../pages/about.luau")
 local xkb = require("../pages/xkb.luau")
 local files = require("../pages/files.luau")
+local cursors = require("../pages/cursors.luau")
+local icons = require("../pages/icons.luau")
+local iconstore = require("../pages/iconstore.luau")
+local storePage = require("../ui/store.luau")
 local trymode = require("../pages/trymode.luau")
 local teardown = require("./teardown.luau")
 
@@ -111,6 +115,9 @@ function M.create(layout, options)
     if name == "folders" or name == "apps" or name == "appPicker" then return desktop.render(ctx, current) end
     if name == "about" then return about.render(ctx, current) end
     if name == "files" then return files.render(ctx, current) end
+    if name == "cursorStore" then return cursors.render(ctx) end
+    if name == "icons" then return icons.render(ctx) end
+    if name == "iconStore" then return iconstore.render(ctx) end
     if name == "customized" then return home.renderCustomized(ctx) end
     return review.render(ctx, current)
   end
@@ -233,6 +240,7 @@ function M.create(layout, options)
     view.confirmReset = nil
     view.confirm = nil
     view.kbRecording = nil
+    view.openCursor = nil  -- the cursor theme list (ui/cursor.luau) is a dropdown: it closes with the page
     dropProvisional()
     if not keepNotices then notices = {} end
   end
@@ -276,6 +284,7 @@ function M.create(layout, options)
     elseif kind == "map" then next.name = "map"
     elseif kind == "keybinds" then next.name = "keybinds"
     elseif kind == "userdirs" then next.name = "folders"
+    elseif kind == "icons" then next.name = "icons"
     else next.name = "apps" end
     for key, value in pairs(extra or {}) do next[key] = value end
     return next
@@ -372,7 +381,7 @@ function M.create(layout, options)
         ctx.desktopError = nil
         local note = store.loadDesktop(data)
         if note then table.insert(notices, { text = note, kind = "info" }) end
-        for _, part in ipairs({ data.userdirs, data.apps }) do  -- unreadable file: its edits can't be saved
+        for _, part in ipairs({ data.userdirs, data.apps, data.icons or {} }) do  -- unreadable: no saving edits
           if part.error then table.insert(notices, { text = part.error .. " Fix the file, then reopen this page.",
                                                      kind = "error" }) end
         end
@@ -478,10 +487,17 @@ function M.create(layout, options)
     view.kbRunning, view.xkbLoading = false, false
     if view.files and (view.files.loading or view.files.choosing) then view.files = nil end  -- listed again
     view.appCommandBusy, view.focusBusy = false, false
+    view.cursorLoading = false  -- the cursor themes are asked again (shown meanwhile): installed or deleted since
+    if view.cursorThemes then view.cursorThemes.stale = true end
+    view.iconLoading = false  -- likewise the icon themes
+    if view.iconThemes then view.iconThemes.stale = true end
+    storePage.clearBusy(view.cursorStore)  -- the store pages: answers dropped by a close never clear these
+    storePage.clearBusy(view.iconStore)
     if view.live and view.live.loading then view.live = nil end
     if liveOutputs and liveOutputs.loading then liveOutputs = nil end
     if view.shaders then  -- community shaders (pages/shaders.luau): downloads still running answer nobody
       view.shaders.loading, view.shaders.previewBusy, view.shaders.busy = false, false, {}
+      view.shaders.requested = {}  -- previews whose answer was dropped are asked again
     end
     failedKey = nil  -- a poll that failed before the close may work now
   end
@@ -517,11 +533,23 @@ function M.create(layout, options)
     ctx.render()
   end
 
+  -- Keeps the edits for a restart; a failed write (disk full) says so once, not with every edit.
+  local draftError = nil
+  function ctx.saveDraft()
+    local ok, err = drafts.save()
+    if ok then draftError = nil; return end
+    err = tostring(err or "unknown error")
+    if err ~= draftError then
+      draftError = err
+      ctx.tell("Unsaved edits can't be kept for next time: " .. err, "warning")
+    end
+  end
+
   function handlers.onClose()
     open = false
     liveWatch = nil  -- a poll still running ends with its answer instead of asking again
     dropProvisional()
-    drafts.save()
+    ctx.saveDraft()
     helper.generation = helper.generation + 1
   end
 
@@ -530,7 +558,7 @@ function M.create(layout, options)
   function handlers.onExit(_, reason)
     if open then
       dropProvisional()
-      drafts.save()
+      ctx.saveDraft()
     end
     teardown.onExit(reason)
   end
@@ -581,9 +609,9 @@ function M.create(layout, options)
     if ctx.dropHandler then ctx.dropHandler(tostring(payload or ""), tostring(value or "")) end
   end
 
-  -- The app re-reads the config when it changes on disk; unsaved edits are rebased by store.load.
-  -- The app's file watch. kind "desktop": user-dirs.dirs or mimeapps.list; otherwise the config. While a save
-  -- runs the change is most likely that save itself: re-read once it is done (ctx.savingDone).
+  -- The app's file watch (unsaved edits are rebased by store.load). kind "desktop": user-dirs.dirs or
+  -- mimeapps.list; otherwise the config. While a save runs the change is most likely that save itself: re-read
+  -- once it is done (ctx.savingDone).
   function handlers.onExternalChange(kind)
     if kind == "desktop" then
       if not store.desktop or loading.desktop then return end
@@ -603,6 +631,9 @@ function M.create(layout, options)
 
   function ctx.savingDone()
     ctx.saving = false
+    -- a save may have installed or deleted cursor or icon themes: their lists ask again
+    if view.cursorThemes then view.cursorThemes.stale = true end
+    if view.iconThemes then view.iconThemes.stale = true end
     if ctx.changedDuringSave then
       ctx.changedDuringSave = false
       ctx.reload()

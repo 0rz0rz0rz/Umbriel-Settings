@@ -158,7 +158,11 @@ GENERIC_HELP = {
 def setting_help_text(field, group):
     """Return the unwrapped description and usage notes for a setting."""
     if field.path == ("input", "cursor", "theme"):
-        description = "Choose an installed cursor theme or type a custom theme name."
+        description = ("Choose an installed cursor theme or type a custom theme name. Browse cursor themes opens "
+                       "the Pling store (gnome-look.org, store.kde.org); a downloaded theme is copied into "
+                       "~/.local/share/icons/ when you save with it picked. Other themes: your distribution's "
+                       "packages, or a theme folder (the one holding cursors/ and index.theme) extracted into "
+                       "~/.local/share/icons/.")
     elif field.label == "Radius" and group == "Cursor-only settings":
         description = "Set the size of the cursor effect in pixels; zero covers the whole output."
     else:
@@ -348,6 +352,7 @@ CATEGORY_HELP = {
     "General": "Session startup, XWayland, screencast, device exclusions, and included config files.",
     "User folders": "Set the standard XDG folders used by applications.",
     "Default apps": "Choose applications associated with common file types and MIME types.",
+    "Icon theme": "Choose the icon theme GTK, Qt and KDE apps use, and delete themes you don't need.",
     "Appearance": "Set window decorations, blur, shadows, and tab-bar styling.",
     "Colors": "Customize interface, window, overview, tab-bar, and title-bar colors.",
     "Animation": "Set default timing and per-event animations, including drag physics.",

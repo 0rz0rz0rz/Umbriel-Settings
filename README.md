@@ -65,6 +65,15 @@ same core and interface code, so they look and behave alike; the app adds a side
   when inside its folder) and ICC color profiles. For
   autostart commands it lists the installed apps like the default apps do (an app adds its command), with
   **Browse files…** for any other program (added as its quoted path).
+- **Cursor themes**: the Theme setting (Input → Cursor) opens a list of the installed cursor themes, each with
+  a strip of its arrow, hand, text, busy, grab, move and crosshair shapes, plus **Refresh**.
+  **Browse cursor themes…** opens a store page like the Effects page's community shaders: the ~1200 X11 cursor
+  themes of the Pling store (gnome-look.org, store.kde.org), sorted and searchable, with previews. They are
+  community uploads, so a download is checked against the store's MD5, only the Xcursor images and `index.theme`
+  are kept and nothing from it is run. **Use** picks it; the save copies it into `~/.local/share/icons/`, where it
+  stays until you remove it. Every theme in your home folder and every download gets a remove button (the next
+  save deletes it; not the theme in use or Umbriel's default; system themes go with their package). The list is
+  read again each time it opens and after a save, so themes added or deleted meanwhile show up right away.
 - **Keyboard layouts**: **Choose…** next to Layout, Variant and XKB options (also for input devices) picks
   layouts in order, a variant for each and options from XKB's own list, and shows the active layout.
 - **Keybinds** in groups (a shortcut used twice shows **conflict**): build shortcuts from modifier chips or
@@ -103,7 +112,8 @@ Nothing is written until you press **Review & save** (Ctrl+S):
   file changed meanwhile. Edits for another config file are kept until you open that file again.
 - The window size (and maximized state) is remembered between runs.
 - If the config changes on disk, it is reloaded: setting edits are kept, rule and keybind edits are dropped
-  with a note. The app also notices changes to `user-dirs.dirs` and `mimeapps.list`.
+  with a note. The app also notices changes to `user-dirs.dirs`, `mimeapps.list` and the icon theme's GTK/Qt/KDE
+  files.
 - An unexpected UI error is shown in the status bar, and the app clears any stuck “Saving…” or loading state.
 - Symlinked files are refused; open the link's target instead.
 - The app and the Noctalia plugin save one at a time, and a save is refused if the file changed since it was
@@ -264,6 +274,22 @@ Noctalia may remove the plugin before it runs, so disable it first). Deleting th
 `[Default Applications]` section of `$XDG_CONFIG_HOME/mimeapps.list` (custom desktop-file IDs work too).
 Other entries and comments are kept. Folders are recorded, not created or moved.
 
+**Icon theme** (Umbriel has no icon setting; apps take theirs from their toolkit) lists the installed icon
+themes with six of their icons. Saving writes the pick into GNOME settings (`gsettings`, when installed) and
+the files that exist of `~/.config/gtk-3.0/settings.ini`, `gtk-4.0/settings.ini`, `~/.gtkrc-2.0`,
+`qt6ct/qt6ct.conf`, `qt5ct/qt5ct.conf` and `kdeglobals` (GTK 3's is created when no GTK file exists). Only
+the theme lines change, each file is backed up first (`backups/toolkit/` in the data folder) and a symlinked
+one is skipped with a warning. The trash button deletes a theme from your home folder on save; not the one
+in use, a theme it builds on, or one that also holds a cursor theme. **Browse icon themes…** lists the Pling
+store's icon themes (sorted and searchable, with previews, from `api.pling.com` and `images.pling.com` once
+you ask) without downloading anything: **Open page** opens a theme's `www.pling.com` page in your browser
+(`xdg-open`); extract the theme into `~/.local/share/icons/` and it shows up when you come back.
+
+The **cursor theme** follows along: a save whose config sets `input.cursor.theme` also writes it (and the
+size) into GNOME settings, GTK 2/3/4, `kcminputrc` and `~/.icons/default/index.theme`, where they name
+another one, so GTK, Qt and X11 apps that draw their own cursor match Umbriel. Review lists it; with
+“Umbriel default” these files stay as they are, and a display **Try** never touches them.
+
 ## Noctalia plugin
 
 The plugin opens the same interface in a Noctalia panel, with a bar button that turns your accent color while
@@ -303,11 +329,15 @@ shortcut of its own).
 
 **Processes**: the app runs `umbriel` (`config validate`, `config schema --json`, `outputs`, `windows`,
 `layers`, `keyboard-layouts` and `focused-window` with `--json`, `subscribe` for live pages, `msg` for **Run
-now**), `gio launch`/your editor/`xdg-open` on button press, and, for a display **Try**, a detached watcher
+now**), `gio launch`/your editor/`xdg-open` (also the cursor theme folder) on button press, and, for a display **Try**, a detached watcher
 (the system's `python3 -I -c <umbriel_core/trial.py>`) that ends when the Try is answered or about 30 seconds
 later, plus `notify-send` when it went back. Noctalia runs `python3 titlebar_apply.py` on palette changes while
-a title bar follows it. **Network**: only the Effects page's community shaders, on request, from
-`raw.githubusercontent.com` (catalogue, previews, effect files; checked against the catalogue's SHA-256).
+a title bar follows it. **Network**: only on request: the Effects page's community shaders from
+`raw.githubusercontent.com` (catalogue, previews, effect files; checked against the catalogue's SHA-256), and the
+Cursor themes page after **Browse**: `api.pling.com` (listing), `images.pling.com` (previews) and, on **Download**,
+`files*.pling.com` (checked against the store's MD5); the Icon themes page only lists and previews (its **Open page**
+links open in your browser). A save that picks a downloaded cursor theme writes it into
+`~/.local/share/icons/<theme>/`.
 
 The app writes the desktop entry for the install it was started from (the checkout's script or the AppImage
 file), which is what the plugin's **Standalone app** button opens. With a checkout and an AppImage on one

@@ -5,7 +5,6 @@
 -- The helper starts a watcher before it writes anything (umbriel_core/trial.py) that restores the backup a little
 -- later unless Keep or Go back ended the trial first, so the rollback never depends on these callbacks.
 local kit = require("../ui/kit.luau")
-local drafts = require("../lib/drafts.luau")
 
 local M = {}
 
@@ -14,7 +13,7 @@ local PRIMARY_FIELD = "general.xwayland_primary_output"
 
 -- Whether every pending config edit is a display edit (so trying them saves nothing else).
 local function available(store)
-  if not store.state or store.keybindsDirty or #store.mapOps > 0 then return false end
+  if not store.state or store.keybindsDirty or #store.mapOps > 0 or next(store.cursorRemovals) then return false end
   for _, op in ipairs(store.entryOps) do
     if op.editor ~= "output" then return false end
   end
@@ -38,8 +37,6 @@ local function reapply(store, edits)
   end)
 end
 
-local function tell(ctx, text, kind) ctx.tell(text, kind) end
-
 -- The tried file is gone again (or the trial ended without the panel): load `state` (read it first when nil),
 -- queue the tried edits again and tell the user.
 local function ended(ctx, attempt, state, text, kind)
@@ -47,14 +44,14 @@ local function ended(ctx, attempt, state, text, kind)
   if view.tryState == attempt then view.tryState = nil end
   local function finish(loaded)
     if loaded and store.state and store.state.path == attempt.path then
-      store.load(loaded)
+      local note = store.load(loaded)  -- e.g. other edits dropped: the file changed under them
       reapply(store, attempt.edits)
-      drafts.save()
+      ctx.saveDraft()
       ctx.publishPending()
       if ctx.isOpen() then ctx.resetInputs() end
-      text = text .. " Your display edits are unsaved again."
+      text = text .. " Your display edits are unsaved again." .. (note and (" " .. note) or "")
     end
-    tell(ctx, text, kind)
+    ctx.tell(text, kind)
   end
   if state then finish(state); return end
   ctx.helper.call("read", { config = attempt.path }, function(err, data) finish(not err and data or nil) end,
@@ -70,7 +67,7 @@ local function revert(ctx, attempt, why)
       ended(ctx, attempt, nil, err.error, "info")
     elseif err then
       if ctx.view.tryState == attempt then ctx.view.tryState = nil end
-      tell(ctx, "Could not restore the previous display settings: " .. err.error .. " Restore them from Backups.",
+      ctx.tell("Could not restore the previous display settings: " .. err.error .. " Restore them from Backups.",
            "error")
     else
       ended(ctx, attempt, data.state, why .. " The previous display settings are back.", "info")
@@ -79,8 +76,12 @@ local function revert(ctx, attempt, why)
 end
 
 local function tick(ctx, attempt)
-  ctx.helper.call("wait", { seconds = 1 }, function()
+  ctx.helper.call("wait", { seconds = 1 }, function(err)
     if ctx.view.tryState ~= attempt or attempt.phase ~= "confirm" then return end
+    if err then  -- refused (too many requests): no countdown without the timer, so go back now
+      revert(ctx, attempt, "The countdown could not run (" .. err.error .. ").")
+      return
+    end
     attempt.left = attempt.left - 1
     if attempt.left <= 0 then
       revert(ctx, attempt, "No answer within " .. SECONDS .. " seconds.")
@@ -105,7 +106,7 @@ local function start(ctx)
     ctx.savingDone()
     local function stop(text, kind)
       if view.tryState == attempt then view.tryState = nil end
-      tell(ctx, text, kind or "error")
+      ctx.tell(text, kind or "error")
     end
     if err then stop("Could not try the display settings: " .. err.error); return end
     if not report.saved then stop("Umbriel rejected these display settings, so nothing changed."); return end
@@ -126,7 +127,7 @@ local function start(ctx)
       return
     end
     store.markSaved(report.state, mark)
-    drafts.save()
+    ctx.saveDraft()
     ctx.publishPending()
     attempt.phase, attempt.left = "confirm", SECONDS
     attempt.backup, attempt.revision, attempt.trial = report.backup, report.state.revision, report.trial
@@ -147,10 +148,10 @@ local function keep(ctx, attempt)
   end
   ctx.helper.call("trial-end", { config = attempt.path, trial = attempt.trial }, function(err, data)
     if err then
-      tell(ctx, "Could not stop the automatic rollback (" .. err.error .. "), so the previous display settings "
+      ctx.tell("Could not stop the automatic rollback (" .. err.error .. "), so the previous display settings "
         .. "come back in a few seconds.", "error")
     elseif data.ended then
-      tell(ctx, "Display settings kept.", "info")
+      ctx.tell("Display settings kept.", "info")
     else  -- the watcher acted first
       ended(ctx, attempt, nil, "Too late: " .. (data.message or "this Try already ended."), "warning")
     end

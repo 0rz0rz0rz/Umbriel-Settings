@@ -144,7 +144,7 @@ def from_ui(field, value, schema_option=None):
 
 
 def apply_value(container, field, value, default):
-    """Write one field like the app's apply_fields: None deletes; new keys are written when optional or non-default."""
+    """Write one field: None deletes; new keys are written when optional or non-default."""
     path = field.path
     current = getp(container, path)
     if value is None:

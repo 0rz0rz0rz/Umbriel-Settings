@@ -1,7 +1,6 @@
 --!nonstrict
 -- Review & save (readable changes, diff, validation) and backups.
 local kit = require("../ui/kit.luau")
-local drafts = require("../lib/drafts.luau")
 local format = require("../ui/format.luau")
 
 local M = {}
@@ -66,7 +65,7 @@ local function finishSave(ctx, state, message)
   ctx.view.titlebar = nil  -- read again: the save may have started or stopped title bars following Noctalia
   ctx.diagnostics = nil
   ctx.resetInputs()
-  drafts.save()  -- drops a draft from an earlier close that held what was just saved
+  ctx.saveDraft()  -- drops a draft from an earlier close that held what was just saved
   if ctx.route().name == "review" then ctx.back() end  -- the user may have moved on while it saved
   ctx.flash(message, (state.newer or state.warnings) and "warning" or "info")
 end
@@ -79,8 +78,11 @@ local function saveDesktop(ctx, state, message)
   ctx.helper.call("desktop-save", desktop, function(err, result)
     local failed = err and err.error or nil
     if not err then  -- each part that was written: only what this save sent is no longer pending
-      for _, part in ipairs({ "userdirs", "apps" }) do
+      for _, part in ipairs({ "userdirs", "apps", "icons" }) do
         if result[part] then store.desktopSaved(part, result[part].revision, desktop[part]) end
+      end
+      if result.icons and type(result.icons.warnings) == "table" and #result.icons.warnings > 0 then
+        message = sentences(message, table.concat(result.icons.warnings, " "))
       end
     end
     if not err and result.errors then
@@ -88,7 +90,7 @@ local function saveDesktop(ctx, state, message)
       for _, text in pairs(result.errors) do table.insert(texts, text) end
       failed = table.concat(texts, " ")
     end
-    drafts.save()
+    ctx.saveDraft()
     ctx.publishPending()
     if not ctx.isOpen() then
       stopSaving(ctx, state)
@@ -122,7 +124,7 @@ local function save(ctx, state)
     if not store.state or store.state.path ~= path then return false end
     if not report.state then ctx.reload() return false end  -- written but not read back: read it again
     local newer = store.markSaved(report.state, mark)
-    drafts.save()
+    ctx.saveDraft()
     return newer
   end
   local function extra(report, newer)
@@ -188,11 +190,24 @@ local function reviewPage(ctx, route)
   local content = {}
   if state.error then table.insert(content, kit.notice(state.error, "error", nil, "review-error")) end
   if state.loading then table.insert(content, kit.empty("Checking your changes…", "loader")) end
+  -- Long lists grow by kit.LIST_CAP rows per click (a big restored draft must not overrun a callback).
+  state.limits = state.limits or {}
+  local function limit(key) return state.limits[key] or kit.LIST_CAP end
+  local function more(key, total)
+    if total <= limit(key) then return end
+    table.insert(content, ui.row({ key = key .. "-more", justify = "start" }, {
+      ui.button({ text = "Show " .. math.min(kit.LIST_CAP, total - limit(key)) .. " more of " .. total,
+                  controlSize = "sm", variant = "ghost", onClick = function()
+                    state.limits[key] = limit(key) + kit.LIST_CAP
+                    ctx.render()
+                  end }) }))
+  end
   local preview = state.preview
   if preview then
     if #preview.summary > 0 then
       table.insert(content, kit.section("Changes"))
       for index, item in ipairs(preview.summary) do
+        if index > limit("sum") then break end
         local text = item.label
         if item.old ~= nil or item.new ~= nil then
           text = text .. ":  " .. shown(item.old) .. "  →  " .. shown(item.new)
@@ -210,6 +225,7 @@ local function reviewPage(ctx, route)
                                      "sum-go-" .. index) or ui.spacer({ width = 1 }),
         }))
       end
+      more("sum", #preview.summary)
     end
     local desktop = store.desktopChanges()
     if desktop then
@@ -224,16 +240,26 @@ local function reviewPage(ctx, route)
         table.insert(rows, { part = change.kind == "role" and "roles" or "mimes", key = change.key,
                              value = change.value, page = "Default apps", text = change.key })
       end
+      if desktop.icons and desktop.icons.theme then
+        table.insert(rows, { part = "icons", key = "theme", value = desktop.icons.theme, page = "Icon theme",
+                             text = "Icon theme" })
+      end
+      for _, name in ipairs(desktop.icons and desktop.icons.remove or {}) do
+        table.insert(rows, { part = "iconRemovals", key = name, value = "deleted for good", page = "Icon theme",
+                             text = "Icon theme " .. name })
+      end
       table.sort(rows, function(a, b) return a.page .. a.text < b.page .. b.text end)  -- pairs() order varies
       local d = store.desktop
-      local originals = { userdirs = d.userdirs.original, roles = d.apps.originalRoles, mimes = d.apps.originalMimes }
+      local originals = { userdirs = d.userdirs.original, roles = d.apps.originalRoles, mimes = d.apps.originalMimes,
+                          icons = { theme = d.icons.original }, iconRemovals = {} }
       for index, row in ipairs(rows) do
+        if index > limit("desk") then break end
         table.insert(content, ui.row({ key = "desk-" .. index, gap = 4, align = "center" }, {
           kit.badge(row.page, "secondary", "dp-" .. index),
           kit.label(row.text .. ":  " .. (row.value ~= "" and row.value or "removed"), { flexGrow = 1, maxLines = 2 }),
           kit.iconButton("arrow-back-up", "Revert this change", function()
             local original = originals[row.part][row.key]
-            if row.part ~= "userdirs" then original = original or "" end
+            if row.part ~= "userdirs" and row.part ~= "iconRemovals" then original = original or "" end
             store.setDesktop(row.part, row.key, original)
             ctx.render()
           end, true, "desk-revert-" .. index),
@@ -241,6 +267,7 @@ local function reviewPage(ctx, route)
                          "desk-go-" .. index),
         }))
       end
+      more("desk", #rows)
     end
     local validation = preview.validation or {}
     if validation.ran then
@@ -249,6 +276,7 @@ local function reviewPage(ctx, route)
         table.insert(content, kit.notice("Umbriel accepts the new config.", "info", nil, "valid"))
       end
       for index, item in ipairs(validation.diagnostics or {}) do
+        if index > limit("diag") then break end
         local kind = item.severity == "error" and "error" or "warning"
         local text = item.message .. (item.line and ("  (line " .. item.line .. ")") or "")
         table.insert(content, ui.row({ key = "diag-" .. index, gap = 6, align = "center" }, {
@@ -257,6 +285,7 @@ local function reviewPage(ctx, route)
                                      onClick = function() ctx.openField(item.field) end }) or ui.spacer({ width = 1 }),
         }))
       end
+      more("diag", #(validation.diagnostics or {}))
     elseif store.hasConfigChanges() and validation.reason then
       table.insert(content, kit.notice(validation.reason, "warning", nil, "novalid"))
     end
@@ -327,7 +356,7 @@ local function reviewPage(ctx, route)
 end
 
 local function backupsPage(ctx, route)
-  local store, view = ctx.store, ctx.view
+  local store = ctx.store
   route.state = route.state or { marked = {} }
   local state = route.state
   local path = store.state and store.state.path or nil
@@ -336,7 +365,11 @@ local function backupsPage(ctx, route)
     ctx.helper.call("backups", { config = path }, function(err, data)
       state.loading = false
       -- never leave the list nil without an error, or every render would ask again
-      if err then state.error = err.error else state.list = data.backups or {}; state.error = nil end
+      if err then
+        state.error = err.error
+      else
+        state.list, state.revision, state.error = data.backups or {}, data.revision, nil
+      end
       ctx.render()
     end)
   end
@@ -409,7 +442,9 @@ local function backupsPage(ctx, route)
                                  if not store.hasConfigChanges() then return true end
                                  ctx.flash("Save or discard your changes before restoring.", "warning")
                                end }, function()
-        ctx.helper.call("restore", { config = path, snapshot = item.path, revision = store.state.revision },
+        -- without a loaded config (it doesn't parse), the revision the listing read
+        local revision = store.state and store.state.revision or state.revision
+        ctx.helper.call("restore", { config = path, snapshot = item.path, revision = revision },
           function(err, data)
             if err then ctx.tell(err.error, "error") return end
             if data.state then store.load(data.state) elseif ctx.isOpen() then ctx.reload() end

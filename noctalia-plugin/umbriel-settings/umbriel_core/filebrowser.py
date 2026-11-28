@@ -45,7 +45,9 @@ def cmd_pick_folder(request):
 
 def file_patterns(request):
     pattern = request.get("filter")
-    return pattern if isinstance(pattern, list) and len(pattern) == 2 else None
+    if isinstance(pattern, list) and len(pattern) == 2 and all(isinstance(part, str) for part in pattern):
+        return pattern
+    return None
 
 
 def cmd_pick_file(request):

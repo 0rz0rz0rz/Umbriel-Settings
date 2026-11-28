@@ -22,12 +22,18 @@ local WRITE_COMMANDS = { save = true, ["set-config"] = true, restore = true, ["t
                          ["delete-backups"] = true, ["desktop-save"] = true, ["set-editor"] = true,
                          ["palette-template"] = true, ["titlebar-cleanup"] = true }
 local WRITE_TIMEOUT = 60000
--- Reads that parse the whole config or ask Umbriel for its schema, and community shader downloads: more than
--- runAsync's 5 s default.
+-- Reads that parse the whole config or ask Umbriel for its schema, and the community catalogue and previews: more
+-- than runAsync's 5 s default.
 local READ_COMMANDS = { meta = true, read = true, preview = true, desktop = true, backups = true,
                         ["backup-diff"] = true, titlebar = true, shaders = true, ["shader-previews"] = true,
-                        ["shader-prepare"] = true }
+                        ["cursor-themes"] = true, ["icon-themes"] = true, ["cursor-store"] = true, ["icon-store"] = true,
+                        ["cursor-store-previews"] = true }
 local READ_TIMEOUT = 20000
+-- Commands that ask Umbriel (each `umbriel` call may take 5 s), wait for `gio launch` (10 s) or download an effect
+-- with its dependencies (50 s): past those, so the helper's own message arrives instead of a bare timeout.
+local TIMEOUTS = { outputs = 12000, windows = 12000, layers = 12000, ["focused-window"] = 12000,
+                   ["run-action"] = 12000, xkb = 12000, ["launch-app"] = 15000, ["shader-prepare"] = 60000,
+                   ["cursor-store-download"] = 60000 }
 -- Request files carry the start time too: after a script reload the counter starts again while a helper of the
 -- previous run may still be using its files.
 local runId = string.format("%d", math.floor(noctalia.nowMs and noctalia.nowMs() or os.time()))
@@ -36,6 +42,7 @@ function M.call(command, request, cb, opts)
   opts = opts or {}
   if opts.timeout == nil and WRITE_COMMANDS[command] then opts.timeout = WRITE_TIMEOUT end
   if opts.timeout == nil and READ_COMMANDS[command] then opts.timeout = READ_TIMEOUT end
+  if opts.timeout == nil then opts.timeout = TIMEOUTS[command] end
   local pluginDir = noctalia.pluginDir()
   local dataDir, dirError = noctalia.pluginDataDir()
   if not pluginDir or not dataDir then

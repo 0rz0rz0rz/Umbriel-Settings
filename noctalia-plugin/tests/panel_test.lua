@@ -116,6 +116,20 @@ assert(hasText("Saving is disabled until Umbriel accepts the config, or turn off
 clickText("Go to setting")
 assert(hasText("General"), "jumped to the setting")
 
+-- a long review grows by 40 rows per click (a big restored draft must not overrun a callback)
+local many = {}
+for i = 1, 50 do table.insert(many, { page = "General", label = "Setting " .. i, old = "a", new = "b" }) end
+replies.preview = function()
+  return true, json.encode({ changed = true, summary = many, sections = {},
+                             validation = { ran = true, valid = true, diagnostics = {} } })
+end
+entry.onKey("ctrl+s", true)
+flushReads()
+assert(H.byKey("sum-40") and not H.byKey("sum-41") and hasText("Show 10 more of 50"), screen())
+clickText("Show 10 more of 50")
+assert(H.byKey("sum-50") and not hasText("Show 10 more of 50"), "all shown after one click")
+entry.onKey("alt+Left", true)
+
 -- rule editor: add an entry, name it, and record the operations
 entry.onKey("ctrl+f", true)
 clickText("Window rules")
@@ -156,6 +170,13 @@ H.clickShortcut(first.key)
 find("button", function(n) return n.props.key == "mod-Shift" end).props.onClick()
 assert(store.keybinds.rows[1].key:find("Shift"), "Shift added: " .. store.keybinds.rows[1].key)
 assert(store.keybindsDirty)
+-- the Cooldown box is replaced on undo (it only takes its text when created)
+local cooldownKey = H.input("^opt%-in%-cooldown_ms:").props.key
+H.input("^opt%-in%-cooldown_ms:").props.onChange("250")
+assert(store.keybinds.rows[1].opts.cooldown_ms == 250, "cooldown typed")
+entry.onKey("ctrl+z", true)
+assert(store.keybinds.rows[1].opts.cooldown_ms == nil, "cooldown undone")
+assert(H.input("^opt%-in%-cooldown_ms:").props.key ~= cooldownKey, "the undone box shows the old value again")
 
 -- keybinds: reorder shortcuts and groups by drag and drop, and with the buttons
 local walk = H.walk

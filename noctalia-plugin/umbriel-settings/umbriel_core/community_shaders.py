@@ -16,9 +16,8 @@ import posixpath
 import re
 import time
 import tomllib
-import urllib.error
-import urllib.request
 
+from . import fetch
 from .included import include_lists
 from .paths import atomic_write, private_dir
 
@@ -30,11 +29,11 @@ MANIFEST = ".umbriel-settings.json"
 KINDS = ("window", "border", "screen", "cursor", "animation")
 CATALOGUE_LIMIT = 4 << 20
 FILE_LIMIT = 1 << 20
-TIMEOUT = 15
+TIMEOUT = 15  # seconds per download, connecting and reading together
 PREVIEW_TIMEOUT = 8
-PREVIEW_BUDGET = 12  # seconds per request: stay inside the helper's 20 s read timeout
+PREVIEW_BUDGET = 16  # seconds per request, the last download included: inside the helper's 20 s read timeout
+PREPARE_BUDGET = 50  # seconds per effect with its dependencies: inside the helper's 60 s timeout
 PREVIEW_BATCH = 24
-USER_AGENT = "umbriel-settings"
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*")
 PART_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]*")
 SHA_RE = re.compile(r"[0-9a-f]{64}")
@@ -46,30 +45,27 @@ class ShaderError(ValueError):
 
 
 def urlopen(request, timeout):  # tests replace this
-    return urllib.request.urlopen(request, timeout=timeout)
+    return fetch.urlopen(request, timeout)
 
 
 def cache_dir(data_dir):
     return os.path.join(data_dir, "community")
 
 
-def _fetch(url, limit, timeout=TIMEOUT):
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def _fetch(url, limit, timeout=TIMEOUT, deadline=None):
     try:
-        with urlopen(request, timeout) as response:
-            data = response.read(limit + 1)
-    except (urllib.error.URLError, OSError, ValueError) as error:  # incl. HTTPError and socket timeouts
-        reason = getattr(error, "reason", None) or error
-        raise ShaderError(f"Could not download {url}: {reason}") from None
-    if len(data) > limit:
-        raise ShaderError(f"{url} is larger than expected.")
-    return data
+        return fetch.fetch(url, limit, timeout, deadline, opener=urlopen)
+    except fetch.FetchError as error:
+        raise ShaderError(str(error)) from None
 
 
 def _sha_file(path):
-    """SHA-256 of a regular file, None when it is missing; a symlink is refused (never followed)."""
+    """SHA-256 of a regular file, None when it is missing; a symlink is refused (never followed), and so is
+    anything else that isn't a regular file (a FIFO would block the save holding the write lock)."""
     if os.path.islink(path):
         raise ShaderError(f"{path} is a symlink; Umbriel Settings doesn't write through symlinks.")
+    if os.path.exists(path) and not os.path.isfile(path):
+        raise ShaderError(f"{path} isn't a regular file.")
     try:
         with open(path, "rb") as handle:
             return hashlib.sha256(handle.read()).hexdigest()
@@ -85,7 +81,8 @@ def _safe_path(path):
 
 # ------------------------------------------------------------------ catalogue
 def _checked(data):
-    revision = data.get("source", {}).get("revision") if isinstance(data, dict) else None
+    source = data.get("source") if isinstance(data, dict) else None
+    revision = source.get("revision") if isinstance(source, dict) else None
     if not isinstance(data, dict) or data.get("schema_version") != 1 or not isinstance(data.get("effects"), list) \
             or not isinstance(data.get("files"), dict) or not isinstance(revision, str) \
             or not REVISION_RE.fullmatch(revision):
@@ -133,7 +130,7 @@ def _closure(records, effect):
         if current not in records:
             raise ShaderError(f"The shader catalogue has no effect {current}.")
         order.append(current)
-        pending += [dep for dep in records[current].get("dependencies") or [] if isinstance(dep, str)]
+        pending += [dep for dep in _list(records[current].get("dependencies")) if isinstance(dep, str)]
     return order
 
 
@@ -148,6 +145,10 @@ def _files(catalogue, records, effects):
                 raise ShaderError(f"The shader catalogue has no checksum for {path}.")
             wanted[path] = sha
     return wanted
+
+
+def _list(value):
+    return value if isinstance(value, list) else []
 
 
 def _text(value, limit=300):
@@ -175,6 +176,11 @@ def _effect_dir(config_dir, effect):
     return os.path.join(config_dir, ROOT, effect)
 
 
+def is_installed(config_dir, effect):
+    """Whether the effect's files are next to the config (its effect.toml is there)."""
+    return os.path.isfile(os.path.join(_effect_dir(config_dir, effect), "effect.toml"))
+
+
 def is_git_checkout(config_dir):
     return os.path.lexists(os.path.join(config_dir, ROOT, ".git"))
 
@@ -195,12 +201,12 @@ def entries(catalogue, config_dir):
             "id": effect, "kind": record["kind"], "name": _text(record.get("name"), 60) or effect,
             "description": _text(record.get("description")), "author": _text(record.get("author"), 60),
             "license": _text(record.get("license"), 40),
-            "tags": [tag for tag in record.get("tags") or [] if isinstance(tag, str)][:4],
+            "tags": [tag for tag in _list(record.get("tags")) if isinstance(tag, str)][:4],
             "include": include_path(effect),
             "settings": {key: value for key, value in settings.items()
                          if isinstance(key, str) and isinstance(value, (str, int, float, bool))},
             "presets": [name for name in presets if isinstance(name, str)],
-            "installed": os.path.isfile(os.path.join(_effect_dir(config_dir, effect), "effect.toml")),
+            "installed": is_installed(config_dir, effect),
         })
     rows.sort(key=lambda row: (KINDS.index(row["kind"]), row["name"].casefold()))
     return rows
@@ -208,11 +214,12 @@ def entries(catalogue, config_dir):
 
 def previews(catalogue, data_dir, effects, offline=False):
     """{paths: {id: cached PNG}, failed: [ids]}; downloads what isn't cached yet (not when `offline`), for as long
-    as PREVIEW_BUDGET allows. Each image is checked against the catalogue's checksum."""
+    as PREVIEW_BUDGET allows (a download cut off by it counts as failed). Each image is checked against the
+    catalogue's checksum."""
     records, listed = _records(catalogue), catalogue["files"]
     revision = catalogue["source"]["revision"]
     folder = os.path.join(cache_dir(data_dir), "previews")
-    found, failed, started = {}, [], time.monotonic()
+    found, failed, deadline = {}, [], time.monotonic() + PREVIEW_BUDGET
     for effect in [e for e in effects if isinstance(e, str)][:PREVIEW_BATCH]:
         record = records.get(effect)
         preview = record.get("preview") if record else None
@@ -226,10 +233,11 @@ def previews(catalogue, data_dir, effects, offline=False):
         if _sha_file(target) == sha:
             found[effect] = target
             continue
-        if offline or time.monotonic() - started > PREVIEW_BUDGET:
+        if offline or time.monotonic() > deadline - 1:
             continue
         try:
-            data = _fetch(FILE_URL.format(revision=revision, path=_safe_path(path)), FILE_LIMIT, PREVIEW_TIMEOUT)
+            data = _fetch(FILE_URL.format(revision=revision, path=_safe_path(path)), FILE_LIMIT, PREVIEW_TIMEOUT,
+                          deadline)
         except ShaderError:
             failed.append(effect)
             continue
@@ -248,14 +256,14 @@ def prepare(catalogue, data_dir, effect, offline=False):
     records = _records(catalogue)
     effects = _closure(records, effect)
     revision = catalogue["source"]["revision"]
-    folder = os.path.join(cache_dir(data_dir), "files")
+    folder, deadline = os.path.join(cache_dir(data_dir), "files"), time.monotonic() + PREPARE_BUDGET
     for path, sha in _files(catalogue, records, effects).items():
         target = os.path.join(folder, path)
         if _sha_file(target) == sha:
             continue
         if offline:
             raise ShaderError("Noctalia is in offline mode, so the shader can't be downloaded.")
-        data = _fetch(FILE_URL.format(revision=revision, path=path), FILE_LIMIT)
+        data = _fetch(FILE_URL.format(revision=revision, path=path), FILE_LIMIT, deadline=deadline)
         if hashlib.sha256(data).hexdigest() != sha:
             raise ShaderError(f"{path} does not match the catalogue's checksum; try again later.")
         atomic_write(target, data, 0o600)  # the directories it creates are 0700
@@ -268,7 +276,7 @@ def validation_path(include, config_dir, data_dir):
     """The cached copy of a community effect that `include` names but that only the save will install, so the
     config can be validated before that; None otherwise."""
     effect = effect_of(include, config_dir)
-    if effect is None or os.path.isfile(os.path.join(_effect_dir(config_dir, effect), "effect.toml")):
+    if effect is None or is_installed(config_dir, effect):
         return None
     cached = os.path.join(cache_dir(data_dir), "files", effect, "effect.toml")
     return cached if os.path.isfile(cached) else None
@@ -316,7 +324,7 @@ def install(config_dir, data_dir, effects):
     """Copy the files of `effects` (and their dependencies) that are not next to the config yet from the cache;
     called under the write lock before the config that includes them is written. Each file is listed in the
     manifest before it is written; a file changed by hand is never replaced. Returns the effects copied."""
-    effects = [e for e in effects if not os.path.isfile(os.path.join(_effect_dir(config_dir, e), "effect.toml"))]
+    effects = [e for e in effects if not is_installed(config_dir, e)]
     if not effects:
         return []
     root = os.path.join(config_dir, ROOT)
@@ -362,6 +370,8 @@ def _used_dirs(config_dir, effects):
             continue
         used.add(effect)
         folder = _effect_dir(config_dir, effect)
+        if not is_installed(config_dir, effect):  # missing, or not a regular file (a FIFO would block)
+            continue
         try:
             with open(os.path.join(folder, "effect.toml"), "rb") as handle:
                 data = tomllib.load(handle)
@@ -377,7 +387,7 @@ def _used_dirs(config_dir, effects):
 
 def sweep(config_dir, data_dir, effects, trial_pending=False):
     """Remove what this app installed that the written config (which includes `effects`) no longer uses; called
-    under the write lock after the config was written, and when the plugin is disabled. Decides from the files on
+    under the write lock after the config was written (save, restore). Decides from the files on
     disk only: a file changed since is kept (and forgotten), and nothing goes while a Try may still go back to a
     config that uses it. Returns the removed paths (relative to ROOT)."""
     manifest = _read_manifest(config_dir)

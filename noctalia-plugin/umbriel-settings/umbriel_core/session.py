@@ -12,7 +12,7 @@ import tomllib
 
 import tomlkit
 
-from . import community_shaders, entry_ops, keybinds, values
+from . import community_shaders, cursor_download, entry_ops, keybinds, toolkit_settings, values
 from .backups import create_backup_snapshot
 from .fields import TABS
 from .included import included_names
@@ -63,6 +63,9 @@ def entry_labels(config_dir):
     return labels_all
 
 
+CURSOR_SIZE = 24  # Umbriel's default `input.cursor.size` (its schema)
+
+
 class ConfigSession:
     """One config file plus its GUI sidecars (labels, keybind locks) under the shared GUI data directory."""
 
@@ -73,6 +76,9 @@ class ConfigSession:
         self.data_dir = data_dir
         self.config_dir = config_gui_data_dir(self.path, data_dir)
         self._options = schema_options
+        # GTK/Qt/KDE apps get the config's cursor theme too (toolkit_settings); the helper turns it on, except for
+        # a display Try (its rollback would leave them behind), so library users and tests never touch them
+        self.sync_toolkit = False
 
     @property
     def options(self):
@@ -95,6 +101,8 @@ class ConfigSession:
         """Return (text, parsed document, revision); raise ValueError with a readable message."""
         if os.path.islink(self.path):
             raise ValueError("The config is a symlink; edit its target directly or choose the target file.")
+        if os.path.exists(self.path) and not os.path.isfile(self.path):  # a FIFO or device would block the read
+            raise ValueError(f"{self.path} isn't a regular file.")
         try:
             with open(self.path, "rb") as f:
                 data = f.read()
@@ -219,7 +227,7 @@ class ConfigSession:
             try:
                 new_text = rebuild_config(new_text)
                 rebuilt = True
-            except Exception as error:  # like the app: never block a save on the optional rebuild
+            except Exception as error:  # never block a save on the optional rebuild
                 summary.append({"page": "File", "label": f"Structure rebuild skipped ({error})"})
         if not rebuilt:
             new_text = move_new_keybinds(new_text, new_keys)
@@ -236,6 +244,9 @@ class ConfigSession:
         if not same_data(written, doc.unwrap()):
             raise ValueError("The edited config would not contain the same settings. Nothing was written.")
         summary += self._shader_summary(tomllib.loads(text), written)
+        summary += self._cursor_summary(tomllib.loads(text), written)
+        summary += self._cursor_removal_summary(changes, written)
+        summary += self._cursor_sync_summary(written)
         return text, new_text, (labels_all if labels_changed else None), locks, summary
 
     # ------------------------------------------------------- community shaders
@@ -245,8 +256,7 @@ class ConfigSession:
     def _shader_summary(self, old, new):
         """Review lines for the community shader files a save installs or stops using."""
         folder, before, after = os.path.dirname(self.path), self._shader_effects(old), self._shader_effects(new)
-        added = [e for e in after if e not in before
-                 and not os.path.isfile(os.path.join(folder, community_shaders.ROOT, e, "effect.toml"))]
+        added = [e for e in after if e not in before and not community_shaders.is_installed(folder, e)]
         dropped = [e for e in before if e not in after]
         lines = []
         if added:
@@ -254,6 +264,116 @@ class ConfigSession:
         if dropped:
             lines.append({"page": "Effects", "label": "Remove shader files once unused: " + ", ".join(dropped)})
         return lines
+
+    # ------------------------------------------------------- downloaded cursor themes
+    @staticmethod
+    def _cursor_theme(data):
+        cursor = data.get("input", {}).get("cursor") if isinstance(data.get("input"), dict) else None
+        theme = cursor.get("theme") if isinstance(cursor, dict) else None
+        return theme if isinstance(theme, str) else ""
+
+    def _cursor_summary(self, old, new):
+        """The review line for a downloaded cursor theme the save installs."""
+        theme = self._cursor_theme(new)
+        if theme == self._cursor_theme(old) or not cursor_download.needs_install(theme, self.data_dir):
+            return []
+        try:
+            where = cursor_download.target_root().replace(os.path.expanduser("~"), "~", 1)
+        except cursor_download.CursorError as error:
+            return [{"page": "Input", "label": f"Install cursor theme: {theme} (not possible: {error})"}]
+        return [{"page": "Input", "label": f"Install cursor theme: {theme} (into {where})"}]
+
+    @staticmethod
+    def _cursor_removals(changes):
+        themes = changes.get("cursor_remove") if isinstance(changes, dict) else None
+        if themes is None:
+            return []
+        if not isinstance(themes, list) or not all(isinstance(theme, str) and theme for theme in themes):
+            raise ValueError("cursor_remove must be a list of theme names.")
+        return sorted(set(themes))
+
+    def _cursor_removal_summary(self, changes, new):
+        """Review lines for the cursor themes the save deletes; never the one the new config picks or Umbriel's
+        default (ValueError). Themes already gone, or left only in system folders, are nothing to do."""
+        lines = []
+        removals = self._cursor_removals(changes)
+        if not removals:
+            return lines
+        picked = self._cursor_theme(new)
+        protected = cursor_download.protected_themes(picked)
+        home = os.path.expanduser("~")
+        for theme in removals:
+            plan = cursor_download.removal(theme, self.data_dir)
+            if not plan["folders"] and not plan["downloads"]:
+                continue  # removed meanwhile (by an earlier save or by hand), or a system copy only
+            if theme == picked:
+                raise ValueError(f"{theme} is the cursor theme the config picks; pick another before removing it.")
+            if theme in protected:
+                raise ValueError(f"{theme} is Umbriel's default cursor theme, so it can't be removed.")
+            for folder, kind in plan["folders"]:
+                where = "~" + folder[len(home):] if folder.startswith(home + os.sep) else folder
+                lines.append({"page": "Input", "label": {
+                    "ours": f"Remove cursor theme: {theme} (from {where})",
+                    "whole": f"Delete cursor theme: {theme} ({where}, for good)",
+                    "cursors": f"Delete the cursors of {theme} ({where}/cursors; its icons stay)",
+                }[kind]})
+            if not plan["folders"]:
+                lines.append({"page": "Input", "label": f"Delete downloaded cursor theme: {theme}"})
+        return lines
+
+    def remove_cursor_themes(self, changes, warnings, new):
+        """After `new` was written: delete the cursor themes the save asked to remove (failures and files kept
+        because they changed are warnings)."""
+        removals = self._cursor_removals(changes)
+        protected = cursor_download.protected_themes(self._cursor_theme(tomllib.loads(new))) if removals else ()
+        for theme in removals:
+            try:
+                kept = cursor_download.remove(theme, self.data_dir, protected)
+            except (OSError, ValueError) as error:
+                warnings.append(f"The cursor theme {theme} could not be removed: {error}")
+                continue
+            if kept:
+                warnings.append(f"{theme}: {len(kept)} file(s) changed since they were installed were kept.")
+
+    def _cursor_sync(self, data):
+        """(theme, size) GTK/Qt apps should use after a save of `data`, or None (no theme set, sync off, or
+        already theirs)."""
+        if not self.sync_toolkit:
+            return None
+        theme = self._cursor_theme(data)
+        cursor = data.get("input", {}).get("cursor") if isinstance(data.get("input"), dict) else None
+        size = cursor.get("size") if isinstance(cursor, dict) else None
+        size = size if isinstance(size, int) and not isinstance(size, bool) and 1 <= size <= 512 else CURSOR_SIZE
+        if not theme or not toolkit_settings.NAME_RE.fullmatch(theme):
+            return None  # "Umbriel default": the toolkits keep theirs
+        return (theme, size) if toolkit_settings.cursor_differs(theme, size) else None
+
+    def _cursor_sync_summary(self, new):
+        wanted = self._cursor_sync(new)
+        if not wanted:
+            return []
+        where = ", ".join(toolkit_settings.read()["targets"]["cursor"])
+        return [{"page": "Input", "label": f"Cursor theme for other apps: {wanted[0]}, {wanted[1]} px ({where})"}]
+
+    def sync_cursor_theme(self, new, warnings):
+        """After `new` was written: give GTK/Qt/KDE apps its cursor theme and size (failures are warnings)."""
+        try:
+            wanted = self._cursor_sync(tomllib.loads(new))
+            if wanted:
+                result = toolkit_settings.set_cursor_theme(*wanted, os.path.join(self.data_dir, "backups", "toolkit"))
+                warnings.extend(result["warnings"])
+        except (OSError, ValueError) as error:
+            warnings.append(f"The cursor theme wasn't set for other apps: {error}")
+
+    def install_cursor_theme(self, new, old=None):
+        """Before `new` is written (under the write lock): copy the downloaded cursor theme it picks into the
+        icon folder, unless `old` picked it already or it is installed. Raises CursorError (nothing written)."""
+        theme = self._cursor_theme(tomllib.loads(new))
+        if old is not None and theme == self._cursor_theme(tomllib.loads(old)):
+            return None
+        if cursor_download.needs_install(theme, self.data_dir):
+            return cursor_download.install(theme, self.data_dir)
+        return None
 
     def install_shaders(self, new, old=None):
         """Before `new` is written (under the write lock): copy the community effects it includes and `old`
@@ -502,11 +622,14 @@ class ConfigSession:
             if os.path.islink(self.path) or self.revision() != changes.get("revision"):
                 raise ValueError("The config changed while saving. Reload before retrying.")
             self.install_shaders(new, old)  # files the new config includes, before the config that needs them
+            self.install_cursor_theme(new, old)  # likewise the downloaded cursor theme it picks
             if before_write is not None:
                 before_write(snapshot, hashlib.sha256(new.encode("utf-8")).hexdigest())
             write_text_file(self.path, new)
         warnings = []
         self.sweep_shaders(new, warnings)
+        self.remove_cursor_themes(changes, warnings, new)
+        self.sync_cursor_theme(new, warnings)
         try:
             if labels_all is not None:
                 kept = {key: labels for key, labels in labels_all.items() if any(labels)}

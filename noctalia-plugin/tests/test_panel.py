@@ -60,7 +60,10 @@ class PanelHarnessTests(ConfigTestCase):
         fixtures = self.fixtures(CONFIG)
         for script, marker in (("panel_test.lua", "panel ok"), ("state_test.lua", "state ok"),
                                ("app_test.lua", "app ok"), ("outputs_test.lua", "outputs ok"),
-                               ("shaders_test.lua", "shaders ok")):
+                               ("shaders_test.lua", "shaders ok"), ("recovery_test.lua", "recovery ok"),
+                               ("cursor_store_test.lua", "cursor store ok"),
+                               ("cursor_themes_test.lua", "cursor themes ok"), ("icons_test.lua", "icons ok"),
+                               ("icon_store_test.lua", "icon store ok")):
             with self.subTest(script=script):
                 self.run_lua(script, fixtures, marker)
 

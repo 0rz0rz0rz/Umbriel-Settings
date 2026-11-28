@@ -32,7 +32,7 @@ GIVE_UP = 300  # seconds after the deadline: stop waiting for the lock
 SPAWN_TIMEOUT = 5
 STAMP = "%Y%m%d-%H%M%S-%f"  # backups.STAMP
 
-RESTORED, CHANGED, BUSY = "restored", "changed", "busy"
+RESTORED, CHANGED = "restored", "changed"
 
 
 class Busy(Exception):
@@ -281,14 +281,17 @@ def expire(path, lock_dir, trial_id):
             return False
         _remove(path)
         restored, reason = restore(token)
-        _write_json(os.path.join(os.path.dirname(path), RESULT_NAME),
-                    {"id": trial_id, "restored": restored, "reason": reason})
+        try:  # best effort: the notification still goes out (restore/trial-end then say the Try already ended)
+            _write_json(os.path.join(os.path.dirname(path), RESULT_NAME),
+                        {"id": trial_id, "restored": restored, "reason": reason})
+        except OSError:
+            pass
         return restored, reason
     finally:
         handle.close()
 
 
-def _notify(text):
+def notify(text):
     try:
         subprocess.run(["notify-send", "--app-name=Umbriel Settings", "Umbriel Settings", text],
                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -324,11 +327,13 @@ def watch(path, lock_dir):
             if done is None:
                 if time.time() < deadline + GIVE_UP:
                     continue
-                _remove(path)  # the panel's Go back still finds the backup in Backups
-                _notify(_message(False, "another save kept the config busy"))
+                current = read_token(path)
+                if current is not None and current["id"] == token["id"]:  # never a newer Try's token
+                    _remove(path)  # the panel's Go back still finds the backup in Backups
+                notify(_message(False, "another save kept the config busy"))
                 return 0
             if done:
-                _notify(_message(*done))
+                notify(_message(*done))
             return 0
         time.sleep(1)
 

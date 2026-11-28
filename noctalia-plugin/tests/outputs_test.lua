@@ -383,6 +383,18 @@ flushReads()
 assert(hasText("Too late: The previous display settings were already restored." .. AGAIN) and #store.entryOps > 0,
        screen())
 H.release("wait", true)
+-- a refused timer (Noctalia's command limit) goes back at once, with one restore, not a countdown run to zero
+local restoresBefore = 0
+for _, call in ipairs(H.calls) do if call.command == "restore" then restoresBefore = restoresBefore + 1 end end
+replies.wait = function() return false, "too many requests", "busy" end
+clickText("Try")
+flushReads()
+replies.wait = nil
+local restores = 0
+for _, call in ipairs(H.calls) do if call.command == "restore" then restores = restores + 1 end end
+assert(restores == restoresBefore + 1, "one restore: " .. restores - restoresBefore)
+assert(H.fullScreen():find("The countdown could not run (too many requests).", 1, true) and #store.entryOps > 0,
+       screen())
 -- Go back after the watcher went back: trial_over, not an error
 H.hold("wait")
 clickText("Try")

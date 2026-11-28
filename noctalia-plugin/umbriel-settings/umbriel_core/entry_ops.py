@@ -1,7 +1,7 @@
 """Entry editors (rules, outputs, devices, effects) and key/value maps, with replayable edit operations.
 
-Operations mirror the app's EntryEditor/KVTable/RawValueMapEditor behavior so a UI can record what the
-user did and the helper can replay it on a fresh parse of the config, keeping comments intact.
+The UI records what the user did as operations and the helper replays them on a fresh parse of the config,
+keeping comments intact.
 """
 
 import copy

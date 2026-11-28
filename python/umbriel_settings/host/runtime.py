@@ -154,6 +154,7 @@ class LuaHost:
             return function(*args)
         except Exception as error:  # Lua errors and Python errors raised inside API calls
             self.errors.append(str(error))
+            del self.errors[:-50]  # a failing per-frame callback would grow it all session
             self.on_error(error)
             return None
 

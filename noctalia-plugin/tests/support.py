@@ -97,6 +97,9 @@ class HelperTestCase(unittest.TestCase):
             "XDG_CONFIG_HOME": str(self.root / "xdg-config"),
             "XDG_DATA_DIRS": str(self.root / "share"),  # not the machine's installed apps
             "PYTHONDONTWRITEBYTECODE": "1",
+            # a save writes the GTK/Qt cursor theme (toolkit_settings): never into the user's files or dconf
+            "HOME": str(self.root / "home"),
+            "GSETTINGS_BACKEND": "memory",
         }
 
     def reply(self, command, request=None, env=None):

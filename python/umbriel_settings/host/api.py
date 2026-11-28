@@ -16,9 +16,11 @@ from umbriel_core.paths import atomic_write
 
 # Helper commands that ask the running compositor (up to 5 s): the scheduler's separate slow pool.
 SLOW_HELPER_COMMANDS = {"outputs", "windows", "layers", "xkb", "run-action", "focused-window"}
-# Long polls (wait for a compositor event or a timer) and community shader downloads (up to 15 s): a thread each,
-# so they never hold a pool thread.
-LONG_HELPER_COMMANDS = {"wait-live", "wait", "shaders", "shader-previews", "shader-prepare"}
+# Long polls (wait for a compositor event or a timer) and community shader downloads (up to 50 s): a thread each,
+# so they never hold a pool thread. File reads (`readFileAsync`, every helper reply) have an "io" pool of their own,
+# so they never queue behind saves and validations.
+LONG_HELPER_COMMANDS = {"wait-live", "wait", "shaders", "shader-previews", "shader-prepare",
+                        "cursor-store", "icon-store", "cursor-store-previews", "cursor-store-download"}
 
 
 def fuzzy_score(pattern, text):
@@ -93,8 +95,10 @@ class NoctaliaApi:
     def writeFile(self, path, content):
         path = os.path.expanduser(path)
         try:
-            # Atomic (a crash never leaves half a draft) and private from the first byte.
-            atomic_write(path, content, None if os.path.exists(path) else 0o600)
+            # Atomic (a crash never leaves half a draft) and private from the first byte. Helper request files
+            # (`run/`) are thrown away after one call: no fsync, which could stall the window on a busy disk.
+            throwaway = os.path.basename(os.path.dirname(path)) == "run"
+            atomic_write(path, content, None if os.path.exists(path) else 0o600, sync=not throwaway)
             return True
         except OSError as error:
             return False, str(error)
@@ -115,7 +119,7 @@ class NoctaliaApi:
                 self.host.guard(callback, None, result[1])
             else:
                 self.host.guard(callback, result, None)
-        self.scheduler.background(work, done, lambda error: (None, f"{type(error).__name__}: {error}"))
+        self.scheduler.background(work, done, lambda error: (None, f"{type(error).__name__}: {error}"), lane="io")
         return True
 
     def fileExists(self, path):

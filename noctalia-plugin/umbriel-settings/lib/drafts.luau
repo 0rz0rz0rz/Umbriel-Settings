@@ -25,22 +25,25 @@ local function desktopDraft()
   local d = store.desktop
   if not d or not store.desktopChanges() then return store.desktopDraft end  -- not loaded yet: keep the pending one
   return { userdirs = { revision = d.userdirs.revision, values = d.userdirs.values },
-           apps = { revision = d.apps.revision, roles = d.apps.roles, mimes = d.apps.mimes } }
+           apps = { revision = d.apps.revision, roles = d.apps.roles, mimes = d.apps.mimes },
+           icons = { revision = d.icons.revision, theme = d.icons.theme, removals = d.icons.removals } }
 end
 
+-- Returns true, or false and why (nothing to keep counts as kept: callers report only real failures).
 function M.save()
   local path = draftPath()
-  if not path or not (store.state or store.desktop) then return end
+  if not path or not (store.state or store.desktop) then return true end
   local desktop = desktopDraft()
   if store.pendingCount() == 0 and not desktop then
     if noctalia.fileExists(path) then noctalia.removeFile(path) end
-    return
+    return true
   end
   local draft = { desktop = desktop }
   if store.state then
     draft.path, draft.revision, draft.fields = store.state.path, store.state.revision, store.fieldChanges
     draft.entryOps, draft.mapOps = store.entryOps, store.mapOps
     draft.keybinds = store.keybindsDirty and store.keybinds or nil
+    draft.cursorRemovals = next(store.cursorRemovals) and store.cursorRemovals or nil
   end
   local encoded, encodeError = noctalia.json.encode(draft)
   if not encoded then return false, encodeError end
@@ -62,12 +65,20 @@ local function applyConfigDraft(draft)
     end
   end
   if store.equal(draft.revision, store.state.revision) then
-    for _, op in ipairs(draft.entryOps or {}) do store.entryOp(op.editor, op); restored = restored + 1 end
+    -- ops of an editor this version doesn't have (renamed by an update) are left out, not replayed into nothing
+    for _, op in ipairs(draft.entryOps or {}) do
+      if type(op) == "table" and store.entries[op.editor] then store.entryOp(op.editor, op); restored = restored + 1 end
+    end
     for _, op in ipairs(draft.mapOps or {}) do
-      if op.op == "remove" then store.mapRemove(op.editor, op.name) else store.mapSet(op.editor, op.name, op.value, op.from) end
-      restored = restored + 1
+      if type(op) == "table" and store.maps[op.editor] then
+        if op.op == "remove" then store.mapRemove(op.editor, op.name) else store.mapSet(op.editor, op.name, op.value, op.from) end
+        restored = restored + 1
+      end
     end
     if draft.keybinds then store.restoreKeybinds(draft.keybinds); restored = restored + 1 end
+    for theme in pairs(type(draft.cursorRemovals) == "table" and draft.cursorRemovals or {}) do
+      if type(theme) == "string" then store.removeCursorTheme(theme); restored = restored + 1 end
+    end
   end
   store.history, store.future = {}, {}  -- the restored draft is where undo stops
   return restored
@@ -75,7 +86,7 @@ end
 
 local function hasConfigEdits(draft)
   return next(draft.fields or {}) ~= nil or #(draft.entryOps or {}) > 0 or #(draft.mapOps or {}) > 0
-    or draft.keybinds ~= nil
+    or draft.keybinds ~= nil or draft.cursorRemovals ~= nil
 end
 
 -- Re-apply a draft after the first `read`; returns a message or nil. Desktop edits don't depend on the
@@ -107,8 +118,12 @@ function M.restore()
     local note = "Unsaved edits for " .. draft.path .. " were kept; open that config to get them back."
     return desktopNote and (note .. " " .. desktopNote) or note
   end
-  noctalia.removeFile(path)
-  local restored = applyConfigDraft(draft)
+  local ok, restored = pcall(applyConfigDraft, draft)
+  if not ok then  -- draft.json stays for a later version; the config opens without its edits
+    local note = "Unsaved edits from last time could not be restored (" .. tostring(restored) .. ")."
+    return desktopNote and (note .. " " .. desktopNote) or note
+  end
+  noctalia.removeFile(path)  -- only once they are back
   if restored == 0 then return desktopNote end
   local note = restoredNote(restored)
   return desktopNote and (note .. " " .. desktopNote) or note

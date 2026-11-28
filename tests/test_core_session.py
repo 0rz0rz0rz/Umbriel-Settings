@@ -139,5 +139,23 @@ class BeforeWriteTests(SessionTestCase):
             self.assertEqual(handle.read(), "[general]\nmod_key = \"Super\"\n")
 
 
+class ConfigFileTests(SessionTestCase):
+    def test_a_fifo_in_place_of_the_config_is_refused_without_blocking(self):
+        os.mkfifo(self.path)
+        with self.assertRaisesRegex(ValueError, "regular file"):
+            ConfigSession(self.path, self.data).load()
+
+    def test_a_config_with_nan_still_gets_the_structure_rebuild(self):
+        text = "# ==========\n# General\n# ==========\n[general]\nx = nan\n"
+        self.assertEqual(layout.rebuild_config(text).count("x = nan"), 1)
+
+    def test_changed_lines_that_look_like_diff_headers_stay_in_the_review(self):
+        diff = "--- a\n+++ b\n@@ -1,2 +1,2 @@\n [general]\n--- old text\n+++ new text\n"
+        lines = [line for group in layout.group_diff_by_section(diff, "[general]\n++ new text\n").values()
+                 for line in (group if isinstance(group, list) else [group])]
+        self.assertTrue(any("old text" in str(line) for line in lines), lines)
+        self.assertTrue(any("new text" in str(line) for line in lines), lines)
+
+
 if __name__ == "__main__":
     unittest.main()

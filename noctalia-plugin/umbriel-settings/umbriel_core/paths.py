@@ -108,12 +108,13 @@ def load_saved_config_path(saved_file, default_path):
     return default_path
 
 
-def atomic_write(path, data, mode=None):
+def atomic_write(path, data, mode=None, sync=True):
     """Replace `path` with `data` (str or bytes) so readers and file watchers never see a partial file.
 
     The data goes to a unique temporary file in the same directory and reaches the disk before it replaces the
-    old file. `mode` defaults to the replaced file's permissions, else 0o644. A symlink at `path` is replaced
-    itself; callers that must refuse symlinks check first.
+    old file (not with `sync=False`: for throwaway files such as helper requests, where only atomicity matters).
+    `mode` defaults to the replaced file's permissions, else 0o644. A symlink at `path` is replaced itself;
+    callers that must refuse symlinks check first.
     """
     path = os.fspath(path)
     directory = os.path.dirname(path) or "."
@@ -130,7 +131,8 @@ def atomic_write(path, data, mode=None):
         with os.fdopen(handle, "wb") as out:
             out.write(data)
             out.flush()
-            os.fsync(out.fileno())
+            if sync:
+                os.fsync(out.fileno())
         os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
@@ -139,13 +141,18 @@ def atomic_write(path, data, mode=None):
         raise
 
 
+class LockTimeout(TimeoutError):
+    """Another writer kept the write lock too long (the helper answers `code: "busy"`)."""
+
+
 @contextlib.contextmanager
-def write_lock(directory, timeout=20.0):
+def write_lock(directory, timeout=15.0):
     """Hold `<directory>/write.lock` so one writer at a time edits the config, its sidecars and desktop files.
 
     The plugin's helper processes and the app's worker threads all take it (flock also excludes other open
-    files in the same process). Raises TimeoutError when another writer keeps it longer than `timeout` seconds;
-    20 s + schema (5 s) + validation (30 s) stays under the plugin's 60 s write timeout.
+    files in the same process). Raises LockTimeout when another writer keeps it longer than `timeout` seconds;
+    15 s + schema (5 s) + validation (30 s) + starting a Try's watcher (5 s) stays under the plugin's 60 s write
+    timeout.
     """
     make_dirs(directory)
     handle = os.fdopen(os.open(os.path.join(directory, "write.lock"), os.O_RDWR | os.O_CREAT, 0o600), "r+b")
@@ -159,7 +166,7 @@ def write_lock(directory, timeout=20.0):
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise TimeoutError("Another Umbriel Settings window is still saving. Try again in a moment.") \
+                    raise LockTimeout("Another Umbriel Settings window is still saving. Try again in a moment.") \
                         from None
                 time.sleep(0.05)
         yield

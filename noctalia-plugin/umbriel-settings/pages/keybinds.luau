@@ -65,13 +65,14 @@ end
 -- ------------------------------------------------------------------ list
 local function listPage(ctx)
   local store, view = ctx.store, ctx.view
-  local header = { kit.header(ctx, "Keybinds", "Shortcuts, grouped. Locked shortcuts are protected from edits.", {
-    ui.button({ key = "add", text = "Add shortcut", glyph = "plus", variant = "primary", controlSize = "sm",
-                onClick = function()
-                  view.kbNew = { key = "", action = "", opts = {}, group = view.kbGroup or "" }
-                  ctx.go({ name = "keybind", index = nil })
-                end }),
-  }) }
+  -- no Add while nothing is loaded: the shortcut page needs the groups
+  local add = store.keybinds and ui.button({ key = "add", text = "Add shortcut", glyph = "plus", variant = "primary",
+    controlSize = "sm", onClick = function()
+      view.kbNew = { key = "", action = "", opts = {}, group = "" }
+      ctx.go({ name = "keybind", index = nil })
+    end }) or nil
+  local header = { kit.header(ctx, "Keybinds", "Shortcuts, grouped. Locked shortcuts are protected from edits.",
+                              { add }) }
   if not store.keybinds then return { header = header, content = { kit.loading() } } end
   local content = {
     kit.filterBox(ctx, "kbFilter", { placeholder = "Filter shortcuts and actions" }),
@@ -200,6 +201,7 @@ end
 local function detailPage(ctx, route)
   local store, view = ctx.store, ctx.view
   local isNew = route.index == nil
+  if not store.keybinds then return kit.gone(ctx, "Keybind", "The config isn't loaded.") end
   local row = isNew and view.kbNew or store.keybinds.rows[route.index]
   if not row then return kit.gone(ctx, "Keybind", "This shortcut no longer exists.") end
   local locked = row.locked == true
@@ -332,7 +334,8 @@ local function detailPage(ctx, route)
   for _, item in ipairs({ { "cooldown_ms", "Cooldown (ms)", "0 = none" }, { "submap", "Submap", "Name (optional)" } }) do
     local name = item[1]
     table.insert(optionRows, kit.optionRow("opt-" .. name, item[2],
-      ui.input({ key = "opt-in-" .. name, value = row.opts[name] ~= nil and tostring(row.opts[name]) or "", width = 160,
+      -- keyed by row and generation: undo, redo and discard replace the text
+      ui.input({ key = "opt-in-" .. name .. ":" .. tostring(route.index or "new") .. ":" .. ctx.gen("kbopt"), value = row.opts[name] ~= nil and tostring(row.opts[name]) or "", width = 160,
                  controlSize = "sm", enabled = not locked, placeholder = item[3], onChange = function(text)
                    text = noctalia.string.trim(text)
                    if name == "cooldown_ms" then

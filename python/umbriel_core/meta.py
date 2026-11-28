@@ -22,12 +22,14 @@ NOCTALIA_VERSION = "5.4.0"  # oldest Noctalia the plugin runs on; follows plugin
 PAGE_KINDS = {
     "User folders": "userdirs",
     "Default apps": "apps",
+    "Icon theme": "icons",
     "Keybinds": "keybinds",
     "Environment": "map",
     "Animation curves": "map",
 }
 PAGE_GLYPHS = {
-    "User folders": "folder", "Default apps": "apps", "General": "settings", "Appearance": "palette",
+    "User folders": "folder", "Default apps": "apps", "Icon theme": "icons", "General": "settings",
+    "Appearance": "palette",
     "Colors": "color-swatch", "Animation": "movie", "Animation curves": "vector-bezier",
     "Effects": "sparkles", "Input": "keyboard", "Layout": "layout-grid", "Workspaces": "layout-board",
     "Keybinds": "command", "Window rules": "app-window", "Layer rules": "stack-2",
@@ -123,6 +125,8 @@ def describe_field(field, category, group, schema_options, schema_path, cursor_t
         info["picker"], info["file"] = "file", FILE_FIELDS[schema_path]
     elif schema_path in MODE_FIELDS:
         info["picker"] = "mode"
+    elif field.path == ("input", "cursor", "theme"):
+        info["picker"] = "cursor"  # a dropdown with previews (helper cursor-themes); `choices` until they load
     info.update(notes)
     # with nothing better to show in an empty box, the hint goes there (and not on the status line too)
     if ("hint" in notes and kind in ("str", "strorlist", "raw", "combo") and not info.get("placeholder")

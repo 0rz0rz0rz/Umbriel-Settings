@@ -14,7 +14,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
-from umbriel_core import mimeapps, xdg_dirs
+from umbriel_core import mimeapps, toolkit_settings, xdg_dirs
 from umbriel_core.paths import atomic_write
 
 from .host.api import NoctaliaApi
@@ -161,8 +161,12 @@ class AppWindow(QMainWindow):
         self.watch_timer.timeout.connect(self.on_external_change)
         self.watcher.fileChanged.connect(self.on_file_change)
         self.watcher.directoryChanged.connect(self.on_directory_change)
-        # user-dirs.dirs and mimeapps.list (both in $XDG_CONFIG_HOME); their folder brings back lost watches
-        self.desktop_files = [str(xdg_dirs.config_path()), str(mimeapps.config_path())]
+        # user-dirs.dirs, mimeapps.list and the icon theme's GTK/Qt/KDE files in $XDG_CONFIG_HOME (not
+        # ~/.gtkrc-2.0: watching the home folder would wake up on every file there); their folder brings back
+        # lost watches
+        self.desktop_files = [str(xdg_dirs.config_path()), str(mimeapps.config_path())] + [
+            target.path for target in toolkit_settings.targets()
+            if target.icon and target.path.startswith(os.path.join(os.path.dirname(str(xdg_dirs.config_path())), ""))]
         self.desktop_timer = QTimer(self, singleShot=True, interval=400)
         self.desktop_timer.timeout.connect(self.on_desktop_change)
         self.watch_desktop_files()
@@ -228,7 +232,10 @@ class AppWindow(QMainWindow):
             self.trying = bool(int(value or 0))
         elif key == "umbriel.config" and value != self.config_path:
             if self.config_path:
-                self.watcher.removePaths([self.config_path, os.path.dirname(self.config_path)])
+                # never a folder the desktop files (user-dirs.dirs, mimeapps.list) still need
+                desktop_dirs = {os.path.dirname(path) for path in self.desktop_files}
+                self.watcher.removePaths([path for path in (self.config_path, os.path.dirname(self.config_path))
+                                          if path not in desktop_dirs])
             self.config_path = value or ""
             if self.config_path:
                 # The folder too: a file watch ends when an editor replaces the file, and can't start before

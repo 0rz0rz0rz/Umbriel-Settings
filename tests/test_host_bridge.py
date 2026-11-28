@@ -116,7 +116,7 @@ class BridgeTests(unittest.TestCase):
                              lambda result: answers.append(result["exitCode"]))
         scheduler.drain()
         self.assertEqual(answers, [(None, "MemoryError: too big"), 127, 1, 1, 1])  # only the helper runs here
-        self.assertEqual(scheduler.lanes, ["fast", "fast", "slow", "long", "fast"])
+        self.assertEqual(scheduler.lanes, ["io", "fast", "slow", "long", "fast"])
 
 
 class SingleInstanceTests(unittest.TestCase):

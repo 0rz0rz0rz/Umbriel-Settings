@@ -79,25 +79,34 @@ local function presetSet(row)
   return set
 end
 
+-- The draft's string values, once per edit: exact values, plus those that may quote names (pool `choose` arrays).
+local stringsCache = {}
+local function draftStrings(store)
+  if stringsCache.serial == store.serial and stringsCache.state == store.state then return stringsCache end
+  local exact, quoted = {}, {}
+  local function add(value)
+    if type(value) ~= "string" then return end
+    exact[value] = true
+    if string.find(value, '"', 1, true) then table.insert(quoted, value) end
+  end
+  for fid in pairs(store.meta.fields) do add((store.value(fid))) end
+  for _, items in pairs(store.entries or {}) do
+    for _, item in ipairs(items) do
+      for _, value in pairs(item.values or {}) do add(value) end
+    end
+  end
+  stringsCache = { serial = store.serial, state = store.state, exact = exact, quoted = quoted }
+  return stringsCache
+end
+
 -- Whether any value in the draft names one of `presets`: page fields, list entries (rules, outputs, presets) and
 -- pool `choose` arrays.
 local function referenced(store, presets)
-  local function names(value)
-    if type(value) ~= "string" then return false end
-    if presets[value] then return true end
-    for name in pairs(presets) do
+  local strings = draftStrings(store)
+  for name in pairs(presets) do
+    if strings.exact[name] then return true end
+    for _, value in ipairs(strings.quoted) do
       if string.find(value, '"' .. name .. '"', 1, true) then return true end
-    end
-    return false
-  end
-  for fid in pairs(store.meta.fields) do
-    if names((store.value(fid))) then return true end
-  end
-  for _, items in pairs(store.entries or {}) do
-    for _, item in ipairs(items) do
-      for _, value in pairs(item.values or {}) do
-        if names(value) then return true end
-      end
     end
   end
   return false
@@ -255,7 +264,9 @@ local function requestPreviews(ctx, rows)
   s.previewBusy = true
   ctx.helper.call("shader-previews", { ids = ids, offline = offline(ctx) }, function(err, data)
     s.previewBusy = false
-    if not err then
+    if err then  -- not answered (refused, timed out): these rows ask again on a later render
+      for _, id in ipairs(ids) do s.requested[id] = nil end
+    else
       for id, path in pairs(list(data.paths)) do s.previews[id] = path end
       for _, id in ipairs(list(data.failed)) do s.failed[id] = true end
     end

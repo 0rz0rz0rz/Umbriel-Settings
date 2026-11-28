@@ -3,6 +3,7 @@
 local kit = require("./kit.luau")
 local format = require("./format.luau")
 local ctrl = require("./controls.luau")
+local cursor = require("./cursor.luau")
 
 local M = {}
 
@@ -258,6 +259,8 @@ function M.row(ctx, spec)
     controls = numberControl(ctx, spec, effective)
   elseif kind == "color" then
     controls = colorControl(ctx, spec, effective)
+  elseif (kind == "choice" or kind == "combo") and field.picker == "cursor" then
+    controls = cursor.control(ctx, spec, effective)
   elseif kind == "choice" or kind == "combo" then
     controls = choiceControl(ctx, spec, effective)
     if field.picker == "file" then  -- e.g. an ICC profile next to "none"/"edid": the path becomes the custom value
@@ -364,6 +367,9 @@ function M.row(ctx, spec)
   if kind == "color" and field.opacity then
     local row = ctrl.opacityRow(ctx, spec, effective)
     if row then table.insert(children, row) end
+  end
+  if view.openCursor == key and field.picker == "cursor" then
+    table.insert(children, cursor.dropdown(ctx, spec, effective))
   end
   if view.openColor == key and kind == "color" then
     table.insert(children, ui.row({ key = key .. ":picker", justify = "end" }, {

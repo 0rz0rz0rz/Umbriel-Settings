@@ -9,6 +9,7 @@ import tempfile
 import time
 import tomllib
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 from umbriel_core import community_shaders as shaders
@@ -63,7 +64,7 @@ class Server:
         url = request.full_url
         self.requests.append(url)
         if url not in self.served:
-            raise shaders.urllib.error.URLError("not found")
+            raise urllib.error.URLError("not found")
         return io.BytesIO(self.served[url])
 
 
@@ -142,6 +143,31 @@ class CatalogueTests(ShaderTestCase):
         self.server.served.update(serve(tampered).served)
         os.unlink(found["paths"]["window/crt"])
         self.assertEqual(shaders.previews(data, self.data, ["window/crt"])["failed"], ["window/crt"])
+
+    def test_a_malformed_catalogue_is_a_readable_error_not_a_crash(self):
+        for broken in ({"source": "x"}, {"source": None}):
+            bad = dict(catalogue(), **broken)
+            self.server.served[shaders.CATALOGUE_URL] = json.dumps(bad).encode()
+            with self.assertRaisesRegex(shaders.ShaderError, "format"):
+                shaders.refresh_catalogue(self.data)
+        odd = catalogue()
+        odd["effects"][0]["tags"] = 3
+        odd["effects"][1]["dependencies"] = True
+        self.server.served[shaders.CATALOGUE_URL] = json.dumps(odd).encode()
+        rows = {row["id"]: row for row in shaders.entries(shaders.refresh_catalogue(self.data), self.config_dir)}
+        self.assertEqual(rows["window/crt"]["tags"], [])
+        self.assertIn("border/rainbow", rows)
+
+    def test_a_download_stops_at_its_deadline_even_while_data_trickles_in(self):
+        class Trickle(io.BytesIO):
+            def read(self, size=-1):
+                clock[0] += 10  # every chunk takes 10 s
+                return super().read(1)
+        clock = [0.0]
+        with patch.object(shaders, "urlopen", lambda request, timeout: Trickle(b"x" * 100)), \
+                patch.object(shaders.time, "monotonic", lambda: clock[0]):
+            with self.assertRaisesRegex(shaders.ShaderError, "too long"):
+                shaders._fetch("https://example.invalid/x", 1000, timeout=15)
 
 
 class PrepareTests(ShaderTestCase):

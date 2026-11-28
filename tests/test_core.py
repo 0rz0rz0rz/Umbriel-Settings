@@ -24,8 +24,9 @@ CORE_MODULES = sorted(
     if name.endswith(".py") and name != "__init__.py"
 )
 # Modules the desktop-only plugin helpers import; they must work without tomlkit.
-TOMLKIT_FREE = {"actions", "backups", "cursor_themes", "fields", "help", "kde", "launch", "legacy", "mimeapps",
-                "paths", "schema", "xdg_dirs"}
+TOMLKIT_FREE = {"actions", "backups", "cursor_download", "cursor_preview", "cursor_store", "cursor_themes", "fetch",
+                "fields", "help", "icon_themes", "kde", "launch", "legacy", "mimeapps", "paths", "schema",
+                "theme_files", "toolkit_settings", "xdg_dirs"}
 
 
 def import_blocked(modules, blocked):

@@ -89,7 +89,9 @@ def schema_state(coverage=False):
 def session(request):
     need_tomlkit()
     from umbriel_core.session import ConfigSession
-    return ConfigSession(config_path(request), data_dir(), lambda: schema_state()[0])
+    current = ConfigSession(config_path(request), data_dir(), lambda: schema_state()[0])
+    current.sync_toolkit = True  # GTK/Qt apps follow the cursor theme (not during a display Try: cmd_save)
+    return current
 
 
 # ------------------------------------------------------------------ commands
@@ -104,8 +106,7 @@ def cmd_meta(request):
     out_dir = request.get("out_dir")
     if not isinstance(out_dir, str) or not out_dir:
         return {"meta": meta, "search": search}
-    os.makedirs(out_dir, exist_ok=True)
-    result = {}
+    result = {}  # atomic_write creates out_dir (0700)
     for name, data in (("meta", meta), ("search", search)):
         path = os.path.join(out_dir, f"{name}.json")
         atomic_write_text(path, json.dumps(data, ensure_ascii=False, separators=(",", ":")))
@@ -138,6 +139,7 @@ def cmd_save(request):
     from umbriel_core import titlebar_theme, trial
     current = session(request)
     seconds = trial_seconds(request)
+    current.sync_toolkit = seconds is None  # a Try's rollback restores only the config
     intents = follow_intents(request.get("changes"))
     titlebar_theme.refresh_script()  # under the write lock: an installed hook from an earlier version is replaced
     try:
@@ -210,7 +212,12 @@ def backup_listing(path):
 
 
 def cmd_backups(request):
-    return backup_listing(config_path(request))
+    """The snapshots, and the config's `revision` for `restore`: the page may have no parsed config to take it
+    from (a broken file is exactly when a backup is needed)."""
+    listing = backup_listing(config_path(request))
+    with contextlib.suppress(HelperError):  # no tomlkit: restore can't run anyway
+        listing["revision"] = session(request).revision()
+    return listing
 
 
 def cmd_backup_diff(request):
@@ -266,6 +273,10 @@ def cmd_restore(request):
         current.install_shaders(text)
     except (OSError, ValueError) as error:
         warnings.append(f"Shader files the backup uses could not be installed: {error}")
+    try:  # a downloaded cursor theme the backup picks
+        current.install_cursor_theme(text)
+    except (OSError, ValueError) as error:
+        warnings.append(f"The cursor theme the backup uses could not be installed: {error}")
     paths.write_text_file(current.path, text)
     if trial_id is not None:  # only now: until the write the watcher still goes back; killed after it, a no-op
         with contextlib.suppress(OSError):
@@ -321,11 +332,49 @@ def cmd_desktop(request):
     listed = {app["id"] for app in apps}
     assigned = {value for part in ("roles", "mimes") for value in result["apps"][part].values()}
     result["apps"]["names"] = mimeapps.app_names(sorted(assigned - listed - {"", "<multiple>"}))
+    result["icons"] = icon_settings()
     return result
 
 
+def icon_settings():
+    """The icon theme GTK/Qt/KDE apps use ({theme, revision, targets}: the files a save writes)."""
+    from umbriel_core import toolkit_settings
+    try:
+        current = toolkit_settings.read()
+    except (OSError, ValueError) as error:
+        return {"theme": "", "revision": "unreadable", "targets": [], "error": str(error)}
+    return {"theme": current["theme"], "revision": current["revision"], "targets": current["targets"]["icon"]}
+
+
+def save_icons(part, backup_dir):
+    """The `icons` part of desktop-save ({revision, theme?, remove?: [names]}): set the theme, then delete the
+    queued themes (never the new one, what it inherits, or hicolor). Returns {revision, warnings}."""
+    from umbriel_core import icon_themes, toolkit_settings
+    theme, remove = part.get("theme"), part.get("remove") or []
+    if theme is not None and not isinstance(theme, str):
+        raise ValueError("The icon theme must be a name.")
+    if not isinstance(remove, list) or not all(isinstance(name, str) and name for name in remove):
+        raise ValueError("Icon themes to remove must be a list of names.")
+    current = toolkit_settings.read()
+    if part.get("revision") != current["revision"]:
+        raise ValueError("The icon theme was changed by another program. Reload before saving.")
+    warnings = []
+    if theme:
+        written = toolkit_settings.set_icon_theme(theme, str(backup_dir / "toolkit"))
+        if not written["written"] and written["warnings"]:
+            raise ValueError(" ".join(written["warnings"]))
+        warnings += written["warnings"]
+    protected = icon_themes.protected_themes(theme or current["theme"])
+    for name in sorted(set(remove)):
+        try:
+            icon_themes.remove(name, protected)
+        except (OSError, ValueError) as error:
+            warnings.append(f"The icon theme {name} could not be removed: {error}")
+    return {"revision": toolkit_settings.read()["revision"], "warnings": warnings}
+
+
 def cmd_desktop_save(request):
-    """Save user folders and default apps; each part checks its own revision.
+    """Save user folders, default apps and the icon theme; each part checks its own revision.
 
     The parts are saved independently: when one fails after the other was written, the reply still succeeds
     and names the failed part in `errors`, so the caller can take the written part's new revision.
@@ -335,14 +384,15 @@ def cmd_desktop_save(request):
     from umbriel_core import mimeapps, xdg_dirs
     backup_dir = Path(data_dir()) / "backups"
     result = {}
-    folders, apps = request.get("userdirs"), request.get("apps")
-    if any(part is not None and not isinstance(part, dict) for part in (folders, apps)):
+    folders, apps, icons = request.get("userdirs"), request.get("apps"), request.get("icons")
+    if any(part is not None and not isinstance(part, dict) for part in (folders, apps, icons)):
         raise HelperError("Desktop changes must be objects.")
     errors = {}
     parts = (("userdirs", folders, lambda: xdg_dirs.save(
                  xdg_dirs.config_path(), backup_dir, folders.get("revision"), folders.get("changes"))),
              ("apps", apps, lambda: mimeapps.save(
-                 mimeapps.config_path(), backup_dir, apps.get("revision"), apps.get("changes"))))
+                 mimeapps.config_path(), backup_dir, apps.get("revision"), apps.get("changes"))),
+             ("icons", icons, lambda: save_icons(icons, backup_dir)))
     for name, part, save in parts:
         if not part:
             continue
@@ -407,7 +457,6 @@ def cmd_wait_live(request):
 
 def cmd_wait(request):
     """A timer for the UI (e.g. a countdown): answers after `seconds` (0 to 5)."""
-    import time
     seconds = request.get("seconds", 1)
     time.sleep(min(max(seconds, 0), 5) if isinstance(seconds, (int, float)) else 1)
     return {}
@@ -524,6 +573,37 @@ def cmd_open_config(request):
     return {}
 
 
+def cmd_open_cursor_folder(request):
+    """Open the folder downloaded cursor themes are installed into (and where to put others) with xdg-open."""
+    from umbriel_core import cursor_download
+    try:
+        folder = cursor_download.target_root()
+    except cursor_download.CursorError as error:
+        raise HelperError(str(error)) from None
+    if not os.path.isdir(folder):  # made by the first install, never by a button press
+        raise HelperError(f"{folder} doesn't exist yet; it is made when a save installs a cursor theme.", "missing")
+    xdg_open(folder)
+    return {"folder": folder}
+
+
+def xdg_open(target):
+    """Open a folder or link with the desktop's default app (detached; the helper doesn't wait for it)."""
+    if not shutil.which("xdg-open"):
+        raise HelperError("xdg-open was not found.", "missing_editor")
+    process = subprocess.Popen(["xdg-open", target], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, start_new_session=True, env=child_env())
+    import threading
+    threading.Thread(target=process.wait, daemon=True).start()
+
+
+def cmd_open_store_page(request):
+    """Open a Pling store item's page in the browser (the URL is built from its number)."""
+    from umbriel_core import cursor_store
+    url = store_call(cursor_store.page_url, request.get("id"))
+    xdg_open(url)
+    return {"url": url}
+
+
 def cmd_set_editor(request):
     """Remember the command "Edit file" uses; empty means the default app (xdg-open)."""
     command = request.get("editor")
@@ -547,7 +627,7 @@ def cmd_palette_template(request):
     """Set up the Noctalia user template that writes the palette the standalone app follows."""
     need_tomlkit()
     from umbriel_core import noctalia_theme
-    return {"palette": noctalia_theme.install_template(os.path.join(data_dir(), "noctalia-backups"))}
+    return {"palette": noctalia_theme.install_template(noctalia_backups())}
 
 
 def cmd_titlebar(request):
@@ -603,10 +683,8 @@ def cmd_titlebar_cleanup(request):
     try:
         return {"followed": titlebar_theme.cleanup(noctalia_backups())}
     except ValueError as error:
-        with contextlib.suppress(OSError, subprocess.SubprocessError):
-            subprocess.run(["notify-send", "--app-name=Umbriel Settings", "Umbriel Settings", str(error)],
-                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           timeout=10, check=False)
+        from umbriel_core import trial
+        trial.notify(str(error))
         raise
 
 
@@ -651,6 +729,67 @@ def cmd_shader_prepare(request):
     return shaders.prepare(cached_catalogue(), data_dir(), str(request.get("id") or ""), bool(request.get("offline")))
 
 
+def store_call(function, *args):
+    from umbriel_core import cursor_download, cursor_store
+    try:
+        return function(*args)
+    except (cursor_store.StoreError, cursor_download.CursorError) as error:
+        raise HelperError(str(error), getattr(error, "code", "error")) from None
+
+
+def cmd_cursor_store(request):
+    """One page of the Pling store's cursor themes; each file also says which of its themes are downloaded, each
+    row which are installed (what can be removed comes from `cursor-themes`)."""
+    from umbriel_core import cursor_download, cursor_store
+    from umbriel_core.cursor_themes import installed_cursor_themes
+    page = store_call(cursor_store.listing, str(request.get("sort") or "popular"), str(request.get("search") or ""),
+                      request.get("page") or 0, bool(request.get("offline")))
+    cursor_download.prune_stale(data_dir())  # downloads of an older extraction: downloaded again
+    cached, installed = cursor_download.cached_themes(data_dir()), set(installed_cursor_themes())
+    for row in page["rows"]:
+        downloaded = []
+        for file in row["files"]:
+            record = cursor_download.read_complete(os.path.join(cursor_download.cache_dir(data_dir()),
+                                                                cursor_store.cache_key(row["id"], file["file"])))
+            file["themes"] = record["themes"] if record else []
+            downloaded += [theme for theme in file["themes"] if theme in cached or theme in installed]
+        row["installed"] = [theme for theme in downloaded if theme in installed]
+    return page
+
+
+def cmd_icon_store(request):
+    """One page of the Pling store's icon themes: listed and linked only, nothing is downloaded for them."""
+    from umbriel_core import cursor_store
+    return store_call(cursor_store.listing, str(request.get("sort") or "popular"), str(request.get("search") or ""),
+                      request.get("page") or 0, bool(request.get("offline")), "icon")
+
+
+def cmd_cursor_store_previews(request):
+    from umbriel_core import cursor_store
+    items = request.get("items")
+    return cursor_store.previews(data_dir(), items if isinstance(items, dict) else {}, bool(request.get("offline")))
+
+
+def cmd_cursor_store_download(request):
+    """Download one archive of a store item into the private cache (installed only by a save that picks it)."""
+    from umbriel_core import cursor_store
+    return store_call(cursor_store.download, data_dir(), request.get("id"), request.get("file"),
+                      bool(request.get("offline")))
+
+
+def cmd_icon_themes(request):
+    """The installed icon themes with a few of their icons, and the one apps use now."""
+    from umbriel_core import icon_themes
+    return {**icon_themes.previews(), **{key: value for key, value in icon_settings().items()
+                                          if key in ("theme", "targets")}}
+
+
+def cmd_cursor_themes(request):
+    """The installed cursor themes with preview strips (drawn once into the private cache)."""
+    from umbriel_core import cursor_preview
+    return cursor_preview.previews(data_dir())
+
+
 COMMANDS = {
     "meta": cmd_meta, "read": cmd_read, "preview": cmd_preview, "save": cmd_save, "set-config": cmd_set_config,
     "backups": cmd_backups, "backup-diff": cmd_backup_diff, "restore": cmd_restore, "trial-end": cmd_trial_end,
@@ -662,7 +801,10 @@ COMMANDS = {
     "titlebar": cmd_titlebar, "titlebar-cleanup": cmd_titlebar_cleanup, "windows": cmd_windows,
     "layers": cmd_layers, "xkb": cmd_xkb, "run-action": cmd_run_action, "focused-window": cmd_focused_window,
     "wait-live": cmd_wait_live, "wait": cmd_wait, "shaders": cmd_shaders, "shader-previews": cmd_shader_previews,
-    "shader-prepare": cmd_shader_prepare,
+    "shader-prepare": cmd_shader_prepare, "cursor-themes": cmd_cursor_themes, "icon-themes": cmd_icon_themes,
+    "cursor-store": cmd_cursor_store, "cursor-store-previews": cmd_cursor_store_previews,
+    "cursor-store-download": cmd_cursor_store_download, "open-cursor-folder": cmd_open_cursor_folder,
+    "icon-store": cmd_icon_store, "open-store-page": cmd_open_store_page,
 }
 
 # Commands that write the config, its sidecars, backups or desktop files; they run one at a time across the
@@ -708,12 +850,14 @@ def run(argv):
         else:
             result = COMMANDS[command](request)
         if response:
-            atomic_write_text(response, json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+            # read once and removed by the caller: atomic, but no fsync
+            paths.atomic_write(response, json.dumps(result, ensure_ascii=False, separators=(",", ":")), 0o600,
+                               sync=False)
             return json.dumps({"ok": True})
         return json.dumps({"ok": True, "result": result}, ensure_ascii=False)
     except (HelperError, BrowseError) as error:
         return json.dumps({"ok": False, "error": str(error), "code": error.code})
-    except TimeoutError as error:  # the write lock (subprocess timeouts are handled by each command)
+    except paths.LockTimeout as error:  # other timeouts (a slow network file system) are plain errors below
         return json.dumps({"ok": False, "error": str(error), "code": "busy"})
     except (OSError, UnicodeError, ValueError, KeyError, TypeError) as error:
         return json.dumps({"ok": False, "error": str(error) or type(error).__name__, "code": "error"})

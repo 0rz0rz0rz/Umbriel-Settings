@@ -43,7 +43,7 @@ local function matches(title, item, filter)
 end
 
 local function editorList(ctx, eid, filter, multiple)
-  local store, view = ctx.store, ctx.view
+  local store = ctx.store
   local editor = store.meta.editors[eid]
   local items = store.entryItems(eid)
   local rows = {}
@@ -92,15 +92,15 @@ local function editorList(ctx, eid, filter, multiple)
 end
 
 local function listPage(ctx, route)
-  local store, view = ctx.store, ctx.view
+  local store = ctx.store
   local page = store.meta.pages[route.page]
   local header = { kit.header(ctx, route.page, page.help) }
-  local content = {}
   if not store.state then return { header = header, content = { kit.loading("Loading config…") } } end
   if route.page == "Outputs" then
     local content, fill = outputs.content(ctx)
     return { header = header, content = content, fill = fill }
   end
+  local content = {}
   local filterKey = "filter-" .. route.page
   table.insert(content, kit.filterBox(ctx, filterKey, { placeholder = "Filter by name or value" }))
   local filter = kit.filterText(ctx, filterKey)

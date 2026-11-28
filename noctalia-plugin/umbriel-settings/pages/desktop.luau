@@ -82,7 +82,7 @@ local function validFolder(value)
 end
 
 local function foldersPage(ctx)
-  local store, view = ctx.store, ctx.view
+  local store = ctx.store
   if not store.desktop then return loading(ctx, "User folders") end
   local dirs = store.desktop.userdirs
   local header = { kit.header(ctx, "User folders", "Where apps put downloads, documents, pictures… Folders are not created.") }
@@ -237,9 +237,10 @@ local function pickerPage(ctx, route)
     if command then
       if view.appCommandBusy then return end
       view.appCommandBusy = true
+      local page = ctx.route()
       ctx.helper.call("app-command", { id = id }, function(err, data)
         view.appCommandBusy = false
-        if view.pick ~= pick then return end
+        if view.pick ~= pick or ctx.route() ~= page then return end  -- left meanwhile
         if err then ctx.flash(err.error, "warning"); ctx.render(); return end
         view.pick, view.appQuery = nil, ""
         pick.onChosen(data.command)

@@ -182,6 +182,12 @@ class TrialTests(TempDirTestCase):
             trial.arm(self.config, self.config_dir, self.lock_dir, 15)
         self.assertFalse(os.path.exists(trial.token_file(self.config_dir)))
 
+    def test_a_result_file_that_cannot_be_written_still_restores_and_answers(self):
+        path = self.arm(self.token)
+        with patch.object(trial, "_write_json", side_effect=OSError("disk full")):
+            self.assertEqual(trial.expire(path, self.lock_dir, "abc"), (True, trial.RESTORED))
+        self.assertEqual(self.read(self.config), "before\n")
+
 
 if __name__ == "__main__":
     unittest.main()

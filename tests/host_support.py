@@ -84,6 +84,8 @@ def isolated_home(test):
     env = patch.dict(os.environ, {"XDG_DATA_HOME": str(root / "data"), "XDG_CONFIG_HOME": str(root / "xdg"),
                                   "XDG_STATE_HOME": str(root / "state"), "NOCTALIA_STATE_HOME": "",
                                   "XDG_DATA_DIRS": str(root / "share"),
+                                  # saves write GTK/Qt theme settings: never the user's files or dconf
+                                  "HOME": str(root / "home"), "GSETTINGS_BACKEND": "memory",
                                   "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]})
     env.start()
     test.addCleanup(env.stop)

@@ -28,7 +28,10 @@ function M.state(ctx)
     view.titlebarLoading = true
     ctx.helper.call("titlebar", { config = path }, function(err, data)
       view.titlebarLoading = false
-      view.titlebar = err and { fields = {}, sources = {}, error = err.error } or data
+      -- the config changed meanwhile: this answer is about the old one (the next render asks again)
+      if view.titlebarPath == path then
+        view.titlebar = err and { fields = {}, sources = {}, error = err.error } or data
+      end
       ctx.render()
     end)
   end

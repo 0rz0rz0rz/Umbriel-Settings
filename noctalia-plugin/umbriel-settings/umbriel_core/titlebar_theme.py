@@ -201,14 +201,20 @@ def cleanup(backup_dir):
     tomlkit), a hook entry left behind can't write anything; the ValueError then says what to remove by hand."""
     followed = bool(read_all()) or os.path.exists(template_file()) or os.path.exists(script_file())
     folder = os.path.dirname(script_file())
-    _remove_files(script_file(), output_file(),
-                  *[os.path.join(folder, name) for name in _list(folder) if name.endswith(".titlebar.bak")])
+    failure = None
+    try:
+        _remove_files(script_file(), output_file(),
+                      *[os.path.join(folder, name) for name in _list(folder) if name.endswith(".titlebar.bak")])
+    except OSError as error:
+        failure = error  # the hook entry still goes: without it Noctalia never runs what is left
     try:
         _remove_hook(backup_dir)
     except (ImportError, OSError, ValueError) as error:
+        failure = error
+    if failure is not None:
         raise ValueError(f"Title bars no longer follow Noctalia, but remove [theme.templates.user.{TEMPLATE_KEY}] "
-                         f"from {noctalia_theme.noctalia_config_file()} and {template_file()} by hand "
-                         f"({error}).") from error
+                         f"from {noctalia_theme.noctalia_config_file()}, {template_file()}, {script_file()} and "
+                         f"{output_file()} by hand where still there ({failure}).") from failure
     return followed
 
 

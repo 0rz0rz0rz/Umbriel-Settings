@@ -193,6 +193,14 @@ assert(drafts.restoreParked() == "Restored 1 unsaved change from last time.", "p
 assert(store.fieldChanges["appearance.border_width"].value == 3 and files["/data/draft-other-config.json"] == nil)
 store.state.path = ownPath
 store.discardAll()
+-- a draft naming an editor this version doesn't have (renamed by an update) restores the rest
+files["/data/draft.json"] = json.encode({ path = store.state.path, revision = store.state.revision,
+  entryOps = { { editor = "renamed-editor", op = "add", name = "x" } },
+  fields = { ["appearance.border_width"] = { value = 4 } } })
+note = drafts.restore()
+assert(note == "Restored 1 unsaved change from last time.", tostring(note))
+assert(files["/data/draft.json"] == nil and store.fieldChanges["appearance.border_width"].value == 4)
+store.discardAll()
 
 -- a desktop part that saved keeps its new revision when the other part fails; undo can't revert saved values
 goHome()
@@ -279,6 +287,34 @@ for _, kind in ipairs({ "save", "desktop-save" }) do
          kind .. ": says it saved: " .. screen())
   store.discardAll()
 end
+
+-- closing with nothing to keep says nothing (it used to report "unknown error")
+entry.onOpen()
+flushReads()
+store.discardAll()
+local quiet = #H.notifications
+entry.onClose()
+assert(#H.notifications == quiet, "no notification: " .. tostring(H.notifications[#H.notifications]))
+
+-- a draft that can't be written (disk full) is said once, as a notification once the panel is closed
+entry.onOpen()
+flushReads()
+store.setField("appearance.border_width", 7)
+local writeFile = noctalia.writeFile
+noctalia.writeFile = function(path, content)
+  if path:find("draft", 1, true) then return false, "No space left on device" end
+  return writeFile(path, content)
+end
+local notifiedBefore = #H.notifications
+entry.onClose()
+entry.onOpen()
+entry.onClose()
+noctalia.writeFile = writeFile
+assert(#H.notifications == notifiedBefore + 1, "said once: " .. (#H.notifications - notifiedBefore))
+assert(H.notifications[#H.notifications]:find("No space left on device", 1, true), H.notifications[#H.notifications])
+entry.onOpen()
+flushReads()
+store.discardAll()
 
 -- Noctalia tears the panel down: the edits stay as a draft; disabling or uninstalling also stops title bars
 -- following Noctalia (helper titlebar-cleanup), a reload doesn't

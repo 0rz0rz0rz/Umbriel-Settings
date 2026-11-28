@@ -8,8 +8,8 @@ const root = () => document.getElementById("root");
 
 // ------------------------------------------------------------------ helpers
 const ALIGN = { start: "flex-start", center: "center", end: "flex-end", stretch: "stretch" };
-const JUSTIFY = { start: "flex-start", center: "center", end: "flex-end", space_between: "space-between" };
-const WEIGHT = { thin: 100, light: 300, normal: 400, medium: 500, semibold: 600, bold: 700, heavy: 900 };
+const JUSTIFY = { start: "flex-start", center: "center", end: "flex-end" };
+const WEIGHT = { bold: 700 };  // the only weight the pages use
 
 function color(value) {
   if (!value || typeof value !== "string") return "";
@@ -44,7 +44,8 @@ function invokeSoon(el, callback, value) {
 let tip = null;
 function showTip(el) {
   const text = el.__props && el.__props.tooltip;
-  if (!text) return;
+  // a render may have replaced the element, or the pointer left without a mouseleave (scrolling)
+  if (!text || !el.isConnected || !el.matches(":hover")) return;
   if (!tip) { tip = document.createElement("div"); tip.className = "tooltip"; document.body.appendChild(tip); }
   tip.textContent = text;
   const r = el.getBoundingClientRect();
@@ -60,7 +61,7 @@ function withTooltip(el) {
 }
 
 // ------------------------------------------------------------------ creation
-const TOOLTIP_KINDS = ["column", "row", "scroll", "box", "image", "button", "dragSource"];
+const TOOLTIP_KINDS = ["column", "row", "box", "image", "button", "dragSource"];
 const CLICKABLE_KINDS = ["column", "row", "box", "image"];  // onClick makes them buttons (role, Enter/Space)
 
 function create(node) {
@@ -110,7 +111,7 @@ function create(node) {
     el.className = "flex col picker";
     el.innerHTML = '<input type="color" aria-label="Color"><div class="flex rowdir alpha-row">'
       + '<span class="label">Alpha</span><input type="range" min="0" max="255" aria-label="Alpha">'
-      + '<input class="text sm hex" aria-label="Hex color"></div>'
+      + '<input type="text" class="text sm hex" aria-label="Hex color"></div>'
       + '<div class="flex rowdir swatches"></div>';
     const [rgb, alpha, hex] = el.querySelectorAll("input");
     const emit = (end) => {
@@ -120,7 +121,7 @@ function create(node) {
     };
     rgb.addEventListener("input", () => emit(false));
     rgb.addEventListener("change", () => emit(true));
-    alpha.addEventListener("input", () => emit(false));
+    alpha.addEventListener("input", () => { fillSlider(alpha); emit(false); });
     alpha.addEventListener("change", () => emit(true));
     hex.addEventListener("change", () => {
       const v = hex.value.trim();
@@ -196,6 +197,7 @@ function setPicker(el, value) {
   const [rgb, alpha, hex] = el.querySelectorAll("input");
   rgb.value = value.slice(0, 7);
   alpha.value = value.length === 9 ? parseInt(value.slice(7, 9), 16) : 255;
+  fillSlider(alpha);
   hex.value = value.toUpperCase();
 }
 
@@ -222,14 +224,17 @@ function layout(el, p, kind) {
     s.background = color(p.fill);
     s.borderRadius = radius(p.radius);
     s.border = p.border ? `${p.borderWidth || 1}px solid ${color(p.border)}` : "";
+  }
+  if (CONTAINERS.includes(kind) || CLICKABLE_KINDS.includes(kind)) {
     el.classList.toggle("clickable", !!p.onClick);
     el.tabIndex = p.onClick ? 0 : -1;
   }
   s.width = px(p.width);
   s.height = px(p.height);
-  if (p.width != null) s.flexShrink = "0";
+  // a reused element may lose these props: "" drops what an earlier render set
+  s.flexShrink = p.width != null ? "0" : "";
   s.flexGrow = p.flexGrow != null ? String(p.flexGrow) : "";
-  if (p.flexGrow != null) s.flexBasis = "0";
+  s.flexBasis = p.flexGrow != null ? "0" : "";
   s.opacity = p.opacity != null ? String(p.opacity) : "";
 }
 
@@ -301,14 +306,14 @@ function apply(el, node) {
     text.style.display = p.text ? "" : "none";
     attr(el, "aria-label", p.text ? null : p.tooltip);
     attr(el, "aria-pressed", p.selected === undefined ? null : String(Boolean(p.selected)));
-    if (p.fontSize) text.style.fontSize = px(p.fontSize);
+    text.style.fontSize = px(p.fontSize);
     el.disabled = p.enabled === false;
   } else if (kind === "input") {
     el.classList.toggle("sm", p.controlSize === "sm");
     el.placeholder = p.placeholder || "";
     attr(el, "aria-label", p.tooltip || p.placeholder);
     el.disabled = p.enabled === false;
-    if (p.fontSize) el.style.fontSize = px(p.fontSize);
+    el.style.fontSize = px(p.fontSize);
   } else if (kind === "select") {
     el.classList.toggle("sm", p.controlSize === "sm");
     const options = p.options || [];
@@ -365,7 +370,7 @@ function apply(el, node) {
     el.style.height = px(p.thickness || 1);
     el.style.margin = `${px(p.spacing || 0)} 0`;
     el.style.alignSelf = "stretch";
-    if (p.color) el.style.background = color(p.color);
+    el.style.background = color(p.color);
   } else if (kind === "spacer") {
     if (p.flexGrow == null) el.style.flexGrow = p.width || p.height ? "" : "1";
   }
@@ -379,7 +384,11 @@ function identity(node, index) {
 
 function patchChildren(host, children) {
   const existing = new Map();
-  Array.from(host.children).forEach((el, index) => existing.set(el.__id || `x${index}`, el));
+  const stale = [];  // a second element with the same key (a page bug) is never reused: it must still go
+  Array.from(host.children).forEach((el, index) => {
+    const id = el.__id || `x${index}`;
+    if (existing.has(id)) stale.push(el); else existing.set(id, el);
+  });
   const used = [];
   children.forEach((child, index) => {
     const id = identity(child, index);
@@ -393,7 +402,7 @@ function patchChildren(host, children) {
     patch(el, child);
     used.push(el);
   });
-  for (const el of existing.values()) {
+  for (const el of [...existing.values(), ...stale]) {
     unwatchSize(el);
     el.querySelectorAll(".resize-watch").forEach(unwatchSize);
     el.remove();
@@ -503,6 +512,9 @@ document.addEventListener("keydown", (e) => {
     if (test(e)) { e.preventDefault(); bridge && bridge.key(chord); return; }
   }
 });
+
+// the tooltip is fixed on screen: scrolling would leave it next to another control
+document.addEventListener("scroll", hideTip, { capture: true, passive: true });
 
 window.addEventListener("load", () => {
   new QWebChannel(qt.webChannelTransport, (channel) => {

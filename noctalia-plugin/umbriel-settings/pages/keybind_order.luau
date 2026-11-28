@@ -3,7 +3,6 @@
 -- order, Ungrouped last), which is also the order the file gets.
 local M = {}
 
--- Rows are kept in display order (groups in order, Ungrouped last), which is also the order the file gets.
 local function sortRows(kb)
   local rank, buckets = {}, {}
   for i, name in ipairs(kb.groups) do rank[name] = i end

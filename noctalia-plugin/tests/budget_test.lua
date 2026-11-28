@@ -54,6 +54,10 @@ for _, section in ipairs(meta.nav) do
 end
 assert(visited >= 20, "visited " .. visited .. " pages")
 search("")
+-- every animation effect included in the draft: the kind chips and rows check which ones settings name
+local includes = {}
+for index = 112, 183 do table.insert(includes, shaderRows[index].include) end
+H.loaded[H.pluginDir .. "/lib/store.luau"].setField("include.files", includes)
 assert(click("Effects"), "community shaders\nScreen: " .. H.screen())
 H.byKey("shaders-kind-animation").props.onClick()
 flushReads()
@@ -64,6 +68,113 @@ for _ = 1, 12 do  -- scrolled to the bottom again and again: every animation eff
   flushReads()
 end
 assert(H.byKey("shader-animation/effect-183") and not H.byKey("shaders-more"), "all 72 animation effects shown")
+
+-- the cursor theme dropdown with 200 installed themes (40 rows shown, each with its trash button), filtered, a pick
+local cursorRows = {}
+for index = 1, 200 do
+  table.insert(cursorRows, { name = "Cursor theme " .. index, preview = "/p/" .. index .. "-strip.png",
+                             arrow = "/p/" .. index .. "-arrow.png", removable = index % 5 ~= 0,
+                             system = index % 5 == 0 })
+end
+H.replies["cursor-themes"] = function() return true, H.json.encode({ themes = cursorRows, complete = true }) end
+entry.onClose()
+entry.onOpen()
+flushReads()
+search("")
+assert(click("Input"), "Input page\nScreen: " .. H.screen())
+if not H.byKey("f:input.cursor.theme:cursor") then click("Cursor") end
+flushReads()
+H.byKey("f:input.cursor.theme:cursor").props.onClick()
+assert(H.byKey("f:input.cursor.theme:cursor-40"), "the theme list is open\nScreen: " .. H.screen())
+H.input("^cursorFilter:").props.onChange("1")
+H.byKey("f:input.cursor.theme:cursor-100").props.onClick()
+
+-- the Icon theme page with 200 themes (40 rows shown), six icons and a trash button each, filtered, a pick
+local iconRows = {}
+for index = 1, 200 do
+  local icons = {}
+  for slot = 1, 6 do table.insert(icons, "/i/" .. index .. "/" .. slot .. ".svg") end
+  table.insert(iconRows, { name = "Icons " .. index, label = "Icon theme " .. index, inherits = { "Icons 1" },
+                           icons = icons, removable = index % 4 ~= 0, system = index % 4 == 0, cursors = false })
+end
+H.replies["icon-themes"] = function() return true, H.json.encode({ themes = iconRows, complete = true }) end
+search("")
+assert(click("Icon theme"), "Icon theme page\nScreen: " .. H.screen())
+flushReads()
+assert(H.byKey("icons-row-40") and not H.byKey("icons-row-41"), "40 rows\nScreen: " .. H.screen())
+H.input("^iconFilter:").props.onChange("1")
+H.byKey("icons-pick-100").props.onClick()
+
+-- the cursor store page with 60 rows (6 store pages), each with a preview and many files for one item
+local storePage = 0
+H.replies["cursor-store"] = function(request)
+  local rows = {}
+  for index = 1, 10 do
+    local id = request.page * 10 + index
+    local files = { { file = 1, name = "theme-" .. id .. ".tar.xz", size = 400, themes = {} } }
+    if index == 1 then
+      for extra = 2, 19 do table.insert(files, { file = extra, name = "variant-" .. extra .. ".tar.gz", size = 300, themes = {} }) end
+    end
+    table.insert(rows, { id = id, name = "Cursor " .. id, author = "someone", score = 80, downloads = 123456,
+                         updated = "2026-01-01", summary = string.rep("A cursor theme. ", 20),
+                         page = "https://www.pling.com/p/" .. id, preview = "https://images.pling.com/s/" .. id .. ".png",
+                         large = "https://images.pling.com/l/" .. id .. ".png", files = files, installed = {} })
+  end
+  storePage = request.page
+  return true, H.json.encode({ rows = rows, total = 1247, page = request.page })
+end
+H.replies["cursor-store-previews"] = function(request)
+  local paths = {}
+  for key in pairs(request.items) do paths[key] = "/p/" .. key .. ".png" end
+  return true, H.json.encode({ paths = paths, failed = {} })
+end
+entry.onKey("alt+Left", true)
+H.goHome()
+search("")
+assert(click("Input"), "Input page\nScreen: " .. H.screen())
+if not H.byKey("f:input.cursor.theme:cursor") then click("Cursor") end
+flushReads()
+H.byKey("f:input.cursor.theme:cursor").props.onClick()
+H.byKey("f:input.cursor.theme:cursor-store").props.onClick()
+H.byKey("cstore-browse").props.onClick()
+flushReads()
+for _ = 1, 8 do
+  local scroll = find("scroll", function(n) return tostring(n.props.key):match("^content%-") ~= nil end)
+  if not scroll.props.onScroll then break end
+  scroll.props.onScroll("9000", tostring(9000 + storePage))
+  flushReads()
+end
+assert(H.byKey("cstore-60") and not H.byKey("cstore-more"), "60 store rows\nScreen: " .. H.screen())
+H.byKey("cstore-img-1").props.onClick()
+flushReads()
+
+-- the icon store page with 60 rows, each with a preview and Open page
+local iconPage = 0
+H.replies["icon-store"] = function(request)
+  local rows = {}
+  for index = 1, 10 do
+    local id = 5000 + request.page * 10 + index
+    table.insert(rows, { id = id, name = "Icons " .. id, author = "someone", score = 80, downloads = 123456,
+                         updated = "2026-01-01", summary = string.rep("An icon theme. ", 20), files = {},
+                         page = "https://www.pling.com/p/" .. id, preview = "https://images.pling.com/s/" .. id .. ".png",
+                         large = "https://images.pling.com/l/" .. id .. ".png" })
+  end
+  iconPage = request.page
+  return true, H.json.encode({ rows = rows, total = 1265, page = request.page })
+end
+search("")
+assert(click("Icon theme"), "Icon theme page\nScreen: " .. H.screen())
+flushReads()
+H.byKey("icons-store").props.onClick()
+H.byKey("istore-browse").props.onClick()
+flushReads()
+for _ = 1, 8 do
+  local scroll = find("scroll", function(n) return tostring(n.props.key):match("^content%-") ~= nil end)
+  if not scroll.props.onScroll then break end
+  scroll.props.onScroll("9000", tostring(9000 + iconPage))
+  flushReads()
+end
+assert(H.byKey("istore-5060") and not H.byKey("istore-more"), "60 icon store rows\nScreen: " .. H.screen())
 
 -- the customized view walks every field; undo of a typed shortcut restores the large keybind list
 search("")
